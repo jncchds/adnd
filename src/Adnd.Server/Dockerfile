@@ -19,11 +19,7 @@ COPY src/Adnd.Server/ .
 RUN dotnet publish "Adnd.Server.csproj" \
     -c Release \
     -o /app/publish \
-    --no-restore \
     /p:UseAppHost=false \
-    /p:PublishTrimmed=true \
-    /p:TrimMode=partial \
-    /p:DebuggerSupport=false \
     /p:SymbolPackageFormat=none
 
 # Stage 3: Minimal runtime image (Alpine)
