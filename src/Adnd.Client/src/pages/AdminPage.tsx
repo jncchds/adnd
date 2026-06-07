@@ -824,7 +824,7 @@ function AgentCallsTab({ calls, isLoading, onRefresh, onOpenDialog, onDelete, fi
 
   const getAgentLabel = (agent: number) => {
     switch (agent) {
-      case AgentType.GM: return '🎭 GM';
+      case AgentType.GM: return '🤖 AI-GM';
       case AgentType.LLM: return '🤖 LLM';
       case AgentType.Dice: return '🎲 Dice';
       case AgentType.RAG: return '📚 RAG';
@@ -923,10 +923,10 @@ function WhispersTabAdmin({ whispers, isLoading, onRefresh }: any) {
   const getWhisperTypeLabel = (type: number) => {
     switch (type) {
       case WhisperType.PlayerToPlayer: return '🤫 P→P';
-      case WhisperType.PlayerToGM: return '🤫 P→GM';
-      case WhisperType.GMToPlayer: return '🤫 GM→P';
-      case WhisperType.GMToGroup: return '🤫 GM→G';
-      case WhisperType.GMToAll: return '🤫 GM→All';
+      case WhisperType.PlayerToGM: return '🤫 P→Creator';
+      case WhisperType.GMToPlayer: return '🤫 Creator→P';
+      case WhisperType.GMToGroup: return '🤫 Creator→G';
+      case WhisperType.GMToAll: return '🤫 Creator→All';
       default: return '🤫 Whisper';
     }
   };

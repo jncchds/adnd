@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
+using Adnd.Server.Events;
+using MediatR;
 using System.Text.Json;
 using System.Collections.Concurrent;
 
@@ -18,16 +20,19 @@ public class GameHub : Hub
     private readonly IAgentBus _agentBus;
     private readonly IWhisperService _whisperService;
     private readonly ICombatService _combatService;
+    private readonly IMediator _mediator;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(AppDbContext context, IGameEngine gameEngine, IAgentBus agentBus,
-        IWhisperService whisperService, ICombatService combatService, ILogger<GameHub> logger)
+        IWhisperService whisperService, ICombatService combatService, IMediator mediator,
+        ILogger<GameHub> logger)
     {
         _context = context;
         _gameEngine = gameEngine;
         _agentBus = agentBus;
         _whisperService = whisperService;
         _combatService = combatService;
+        _mediator = mediator;
         _logger = logger;
     }
 
@@ -112,7 +117,7 @@ public class GameHub : Hub
 
     // ==================== Chat Messages ====================
 
-    public async Task SendMessage(Guid sessionId, string content, MessageType type, JsonElement? metadata = null)
+    public async Task SendMessage(Guid sessionId, string content, Adnd.Server.Models.MessageType type, JsonElement? metadata = null)
     {
         var session = await _context.GameSessions.FindAsync(sessionId);
         if (session == null)
@@ -149,6 +154,10 @@ public class GameHub : Hub
 
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
+
+        // Publish event for game agent processing
+        await _mediator.Publish(new MessageSent(
+            session.GameId, sessionId, player.Id, content, (Adnd.Server.Events.MessageType)type, metadata?.ToString()));
 
         await Clients.Group(session.GameId.ToString()).SendAsync("NewMessage", new
         {
@@ -196,19 +205,19 @@ public class GameHub : Hub
             return;
         }
 
-        WhisperType whisperType;
+        Adnd.Server.Models.WhisperType whisperType;
         if (targets == "all")
         {
-            whisperType = player.Role == PlayerRole.GM ? WhisperType.GMToAll : WhisperType.PlayerToPlayer;
+            whisperType = player.Role == PlayerRole.Creator ? Adnd.Server.Models.WhisperType.GMToAll : Adnd.Server.Models.WhisperType.PlayerToPlayer;
         }
         else if (targets.Contains("player:", StringComparison.OrdinalIgnoreCase))
         {
-            var isGMToPlayer = player.Role == PlayerRole.GM;
-            whisperType = isGMToPlayer ? WhisperType.GMToPlayer : WhisperType.PlayerToPlayer;
+            var isCreatorToPlayer = player.Role == PlayerRole.Creator;
+            whisperType = isCreatorToPlayer ? Adnd.Server.Models.WhisperType.GMToPlayer : Adnd.Server.Models.WhisperType.PlayerToPlayer;
         }
         else
         {
-            whisperType = player.Role == PlayerRole.GM ? WhisperType.GMToGroup : WhisperType.PlayerToPlayer;
+            whisperType = player.Role == PlayerRole.Creator ? Adnd.Server.Models.WhisperType.GMToGroup : Adnd.Server.Models.WhisperType.PlayerToPlayer;
         }
 
         var whisper = await _whisperService.SendWhisperAsync(
@@ -269,9 +278,9 @@ public class GameHub : Hub
         var gmPlayer = await _context.Players
             .FirstOrDefaultAsync(p => p.UserId == uid && p.Status == PlayerStatus.Active);
 
-        if (gmPlayer == null || gmPlayer.Role != PlayerRole.GM)
+        if (gmPlayer == null || gmPlayer.Role != PlayerRole.Creator)
         {
-            await Clients.Caller.SendAsync("Error", new { message = "Only the GM can send GM whispers." });
+            await Clients.Caller.SendAsync("Error", new { message = "Only the game creator can send creator whispers." });
             return;
         }
 
@@ -286,7 +295,7 @@ public class GameHub : Hub
 
         var whisper = await _whisperService.SendGMWhisperAsync(
             gmPlayer.GameId, Guid.Empty, gmPlayer.Id,
-            new List<Guid> { targetPlayerId }, WhisperType.GMToPlayer, content);
+            new List<Guid> { targetPlayerId }, Adnd.Server.Models.WhisperType.GMToPlayer, content);
 
         // Send to the target player
         var targetConnectionId = GetConnectionIdForPlayer(targetPlayer.Id);
@@ -329,8 +338,8 @@ public class GameHub : Hub
         if (player == null)
             throw new InvalidOperationException("Player not found in game.");
 
-        var isGM = player.Role == PlayerRole.GM;
-        var whispers = await _whisperService.GetWhispersForPlayerAsync(gameId, player.Id, isGM, limit);
+        var isCreator = player.Role == PlayerRole.Creator;
+        var whispers = await _whisperService.GetWhispersForPlayerAsync(gameId, player.Id, isCreator, limit);
 
         return whispers.Select(w => new WhisperResponse
         {
@@ -495,7 +504,10 @@ public class GameHub : Hub
 
         var result = await _gameEngine.RollDiceAsync(sessionId, formula, playerId);
 
-        await Clients.Group(sessionId.ToString()).SendAsync("DiceRollResult", new
+        // Publish event for game agent processing
+        await _mediator.Publish(new DiceRolled(session.GameId, sessionId, formula, playerId));
+
+        await Clients.Group(session.GameId.ToString()).SendAsync("DiceRollResult", new
         {
             Formula = result.Formula,
             DiceCount = result.DiceCount,
@@ -514,9 +526,19 @@ public class GameHub : Hub
 
     public async Task SkillCheck(Guid sessionId, string skill, Guid? playerId = null, int? dc = null)
     {
+        var session = await _context.GameSessions.FindAsync(sessionId);
+        if (session == null)
+        {
+            await Clients.Caller.SendAsync("Error", new { message = "Session not found." });
+            return;
+        }
+
         var result = await _gameEngine.SkillCheckAsync(sessionId, skill, playerId, dc);
 
-        await Clients.Group(sessionId.ToString()).SendAsync("SkillCheckResult", new
+        // Publish event for game agent processing
+        await _mediator.Publish(new SkillCheckRequested(session.GameId, sessionId, skill, playerId, dc));
+
+        await Clients.Group(session.GameId.ToString()).SendAsync("SkillCheckResult", new
         {
             Skill = result.Skill,
             DiceRoll = result.DiceRoll,
@@ -532,9 +554,19 @@ public class GameHub : Hub
 
     public async Task Attack(Guid sessionId, string weapon, string targetName, Guid? playerId = null)
     {
+        var session = await _context.GameSessions.FindAsync(sessionId);
+        if (session == null)
+        {
+            await Clients.Caller.SendAsync("Error", new { message = "Session not found." });
+            return;
+        }
+
         var result = await _gameEngine.AttackAsync(sessionId, weapon, targetName, playerId);
 
-        await Clients.Group(sessionId.ToString()).SendAsync("AttackResult", new
+        // Publish event for game agent processing
+        await _mediator.Publish(new AttackRequested(session.GameId, sessionId, weapon, targetName, playerId));
+
+        await Clients.Group(session.GameId.ToString()).SendAsync("AttackResult", new
         {
             Weapon = result.Weapon,
             Target = result.Target,
@@ -556,11 +588,14 @@ public class GameHub : Hub
         {
             var player = await _context.Players
                 .FirstOrDefaultAsync(p => p.UserId == uid && p.GameId == gameId);
-            if (player == null || player.Role != PlayerRole.GM)
+            if (player == null || player.Role != PlayerRole.Creator)
                 throw new ForbiddenException("Only the GM can start combat.");
         }
 
         var combat = await _combatService.StartCombatAsync(gameId, sessionId, name);
+
+        // Publish event for game agent processing
+        await _mediator.Publish(new CombatStarted(gameId, sessionId, name));
 
         await Clients.Group(gameId.ToString()).SendAsync("CombatStarted", new
         {
@@ -580,6 +615,9 @@ public class GameHub : Hub
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var endedCombat = await _combatService.EndCombatAsync(combatId, result);
+
+        // Publish event for game agent processing
+        await _mediator.Publish(new CombatEnded(combat.GameId, combatId, result));
 
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatEnded", new
         {
@@ -613,6 +651,10 @@ public class GameHub : Hub
 
         var participant = await _combatService.AddParticipantAsync(
             combatId, participantType, playerId, npcId, displayName, ac, currentHP, maxHP);
+
+        // Publish event for game agent processing
+        await _mediator.Publish(new ParticipantAdded(
+            combat.GameId, combatId, participantType, displayName, ac, currentHP, maxHP, playerId, npcId));
 
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatParticipantAdded", new
         {
@@ -1632,7 +1674,7 @@ public class WhisperResponse
     public string FromCharacter { get; set; } = string.Empty;
     public PlayerRole FromRole { get; set; }
     public string Content { get; set; } = string.Empty;
-    public WhisperType Type { get; set; }
+    public Adnd.Server.Models.WhisperType Type { get; set; }
     public string Targets { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
 }

@@ -7,6 +7,9 @@ using System.Text;
 using Adnd.Server.Data;
 using Adnd.Server.Hubs;
 using Adnd.Server.Services;
+using Adnd.Server.Agent;
+using Adnd.Server.Handlers;
+using MediatR;
 using Npgsql.EntityFrameworkCore.PostgreSQL;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -101,6 +104,15 @@ builder.Services.AddScoped<ICombatService, CombatService>();
 // Agent Framework
 builder.Services.AddScoped<IAgentBus, AgentBus>();
 
+// Game Agent (per-game, singleton manager)
+builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
+
+// MediatR — event-driven architecture
+builder.Services.AddMediatR(cfg =>
+{
+    cfg.RegisterServicesFromAssembly(typeof(GameLifecycleHandler).Assembly);
+});
+
 // Whisper Service
 builder.Services.AddScoped<IWhisperService, WhisperService>();
 
@@ -159,6 +171,13 @@ var app = builder.Build();
 
 // Apply migrations on startup
 app.UseDatabaseMigrations();
+
+// Recover active game agents from database (survives restarts)
+using (var scope = app.Services.CreateScope())
+{
+    var agentManager = scope.ServiceProvider.GetRequiredService<IGameAgentManager>();
+    await agentManager.StartAllActiveGamesAsync();
+}
 
 // Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())

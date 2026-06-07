@@ -47,7 +47,8 @@ public class AgentCall
 
 public enum AgentType
 {
-    GM,       // Game Master orchestrator
+    Creator,  // Game creator (sends narrative nudges)
+    GM,       // Game Master orchestrator (LLM-driven)
     LLM,      // Language model (narrative, suggestions)
     Dice,     // Dice engine
     RAG,      // Retrieval-augmented generation (consistency, context)
@@ -67,7 +68,8 @@ public enum AgentAction
     Execute,     // Execute an action (attack, skill check)
     Notify,      // Notify other agents of an event
     Recall,      // Recall relevant context
-    ManageState  // Update game state
+    ManageState,  // Update game state
+    Nudge         // Creator's narrative direction
 }
 
 public enum AgentCallStatus

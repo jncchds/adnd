@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
-import { useGame, useSessions, usePlayers, useCharacters } from '../api/gameHooks';
+import { useGame, useSessions, usePlayers, useCharacters, useGMStatus, useSway } from '../api/gameHooks';
 import { useGameHub } from '../api/hubHook';
 import { api } from '../api/client';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus, MessageType } from '../types';
@@ -28,6 +28,8 @@ export default function GameRoomPage() {
   const { sessions, refetch: refetchSessions } = useSessions(id);
   const { players, refetch: refetchPlayers } = usePlayers(id);
   const { characters } = useCharacters(id);
+  const { status: gmStatus, refetch: refetchGMStatus, pause: pauseGM, resume: resumeGM } = useGMStatus(id);
+  const { sway, lastSway, isLoading: swayLoading } = useSway(id);
   const { isConnected, connect, on, invoke, disconnect } = useGameHub();
 
   const [activeTab, setActiveTab] = useState(0);
@@ -47,6 +49,7 @@ export default function GameRoomPage() {
   const [activeCombats, setActiveCombats] = useState<any[]>([]);
   const [whisperTargets, setWhisperTargets] = useState('all');
   const [whisperContent, setWhisperContent] = useState('');
+  const [swayInput, setSwayInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Connect to SignalR hub
@@ -172,7 +175,7 @@ export default function GameRoomPage() {
     }
   };
 
-  const handleSendGMWhisper = async (targetPlayerId: string) => {
+  const handleSendCreatorWhisper = async (targetPlayerId: string) => {
     if (!whisperContent.trim()) return;
 
     try {
@@ -249,6 +252,39 @@ export default function GameRoomPage() {
     }
   };
 
+  const handleSway = async () => {
+    if (!swayInput.trim() || !id) return;
+    try {
+      const result = await sway(swayInput);
+      if (result) {
+        setSwayInput('');
+        refetchGMStatus();
+      }
+    } catch (e: any) {
+      setErrorState(e.message);
+    }
+  };
+
+  const handlePauseGM = async () => {
+    if (!id) return;
+    try {
+      await pauseGM();
+      refetchGMStatus();
+    } catch (e: any) {
+      setErrorState(e.message);
+    }
+  };
+
+  const handleResumeGM = async () => {
+    if (!id) return;
+    try {
+      await resumeGM();
+      refetchGMStatus();
+    } catch (e: any) {
+      setErrorState(e.message);
+    }
+  };
+
   if (isLoading) {
     return <Box sx={{ textAlign: 'center', mt: 8 }}><Typography>Loading game...</Typography></Box>;
   }
@@ -277,16 +313,64 @@ export default function GameRoomPage() {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Box>
           <Typography variant="h5">{game.name}</Typography>
-          <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
+          <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
             <Chip label={game.systemId} size="small" />
             <Chip label={game.status} size="small" color={game.status === 'Active' ? 'success' : 'default'} />
+            {game.llmPresetName && <Chip label={game.llmPresetName} size="small" variant="outlined" />}
+            {gmStatus && (
+              <Chip
+                label={`AI-GM: ${gmStatus.status}`}
+                size="small"
+                color={gmStatus.status === 'running' ? 'success' : gmStatus.status === 'paused' ? 'warning' : 'default'}
+              />
+            )}
             {isConnected && <Chip label="Connected" size="small" color="success" icon={<ReplayIcon fontSize="small" />}></Chip>}
             {!isConnected && <Chip label="Disconnected" size="small" color="error" />}</Box>
         </Box>
-        <Button variant="outlined" color="error" startIcon={<LeaveIcon />} onClick={handleLeave}>
-          Leave
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {game.status === 'Active' && gmStatus?.status === 'running' && (
+            <Button size="small" variant="outlined" onClick={handlePauseGM}>Pause GM</Button>
+          )}
+          {game.status === 'Active' && gmStatus?.status === 'paused' && (
+            <Button size="small" variant="outlined" onClick={handleResumeGM}>Resume GM</Button>
+          )}
+          <Button variant="outlined" color="error" startIcon={<LeaveIcon />} onClick={handleLeave}>
+            Leave
+          </Button>
+        </Box>
       </Box>
+
+      {/* Sway Input (Creator only) */}
+      {game.status === 'Active' && gmStatus?.status === 'running' && (
+        <Paper sx={{ p: 2, mb: 2, bgcolor: 'warning.lighter' }}>
+          <Typography variant="subtitle2" gutterBottom sx={{ color: 'warning.dark' }}>
+            🎬 Sway the Story (Creator Only)
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Describe a narrative direction to nudge the AI-GM..."
+              value={swayInput}
+              onChange={e => setSwayInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSway()}
+            />
+            <Button
+              variant="contained"
+              onClick={handleSway}
+              disabled={!swayInput.trim() || swayLoading}
+              sx={{ minWidth: 100 }}
+            >
+              Sway
+            </Button>
+          </Box>
+          {lastSway && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+              Last sway: {new Date(lastSway.createdAt).toLocaleString()} (call: {lastSway.callId})
+            </Typography>
+          )}
+        </Paper>
+      )}
 
       {/* Error / Success */}
       {errorState && (
@@ -344,7 +428,7 @@ export default function GameRoomPage() {
               whisperTargets={whisperTargets}
               setWhisperTargets={setWhisperTargets}
               onSendWhisper={handleSendWhisper}
-              onSendGMWhisper={handleSendGMWhisper}
+              onSendCreatorWhisper={handleSendCreatorWhisper}
               players={players}
               messagesEndRef={messagesEndRef}
             />
@@ -487,7 +571,7 @@ function ChatTab({ messages, message, setMessage, onSend, onDiceRoll, onSkillChe
                 </Avatar>
                 <Box sx={{ flex: 1 }}>
                   <Typography variant="caption" color="text.secondary">
-                    {msg.playerId ? 'Player' : 'GM'} · {new Date(msg.createdAt).toLocaleTimeString()}
+                    {msg.playerId ? 'Player' : 'AI-GM'} · {new Date(msg.createdAt).toLocaleTimeString()}
                   </Typography>
                   <Typography variant="body2">{msg.content}</Typography>
                 </Box>
@@ -531,15 +615,15 @@ function PlayersTab({ players }: { players: any[] }) {
         {players.map((p: any) => (
           <ListItem key={p.id} sx={{ px: 0 }}>
             <ListItemAvatar>
-              <Avatar sx={{ bgcolor: p.role === 'GM' ? 'error.main' : 'primary.main' }}>
-                {p.role === 'GM' ? '👑' : '👤'}
+              <Avatar sx={{ bgcolor: p.role === 'Creator' ? 'warning.main' : p.role === 'Spectator' ? 'info.main' : 'primary.main' }}>
+                {p.role === 'Creator' ? '🎬' : p.role === 'Spectator' ? '👁️' : '👤'}
               </Avatar>
             </ListItemAvatar>
             <ListItemText
               primary={p.userName || p.characterName}
               secondary={p.characterName}
             />
-            <Chip label={p.role} size="small" color={p.role === 'GM' ? 'error' : 'default'} variant="outlined" />
+            <Chip label={p.role} size="small" color={p.role === 'Creator' ? 'warning' : p.role === 'Spectator' ? 'info' : 'default'} variant="outlined" />
             <Chip label={p.status} size="small" color={p.status === 'Active' ? 'success' : 'default'} />
           </ListItem>
         ))}
@@ -666,19 +750,19 @@ function SettingsTab({ game, sessions, onNewSession }: any) {
 
 // ==================== Whispers Tab ====================
 
-function WhispersTab({ whispers, whisperContent, setWhisperContent, whisperTargets, setWhisperTargets, onSendWhisper, onSendGMWhisper, players, messagesEndRef }: any) {
-  const [showGMWhisper, setShowGMWhisper] = useState(false);
-  const [gmTarget, setGmTarget] = useState('');
+function WhispersTab({ whispers, whisperContent, setWhisperContent, whisperTargets, setWhisperTargets, onSendWhisper, onSendCreatorWhisper, players, messagesEndRef }: any) {
+  const [showCreatorWhisper, setShowCreatorWhisper] = useState(false);
+  const [creatorTarget, setCreatorTarget] = useState('');
 
-  const isGM = players.some((p: any) => p.role === 'GM');
+  const isCreator = players.some((p: any) => p.role === 'Creator');
 
   const getWhisperTypeLabel = (type: number) => {
     switch (type) {
       case WhisperType.PlayerToPlayer: return '🤫 Player→Player';
-      case WhisperType.PlayerToGM: return '🤫 Player→GM';
-      case WhisperType.GMToPlayer: return '🤫 GM→Player';
-      case WhisperType.GMToGroup: return '🤫 GM→Group';
-      case WhisperType.GMToAll: return '🤫 GM→All';
+      case WhisperType.PlayerToGM: return '🤫 Player→Creator';
+      case WhisperType.GMToPlayer: return '🤫 Creator→Player';
+      case WhisperType.GMToGroup: return '🤫 Creator→Group';
+      case WhisperType.GMToAll: return '🤫 Creator→All';
       default: return '🤫 Whisper';
     }
   };
@@ -695,15 +779,15 @@ function WhispersTab({ whispers, whisperContent, setWhisperContent, whisperTarge
           placeholder="player:{id}, all, group:{name}"
           sx={{ minWidth: 200 }}
         />
-        {isGM && (
-          <Button size="small" variant="outlined" onClick={() => setShowGMWhisper(!showGMWhisper)}>
-            GM Whisper Mode
+        {isCreator && (
+          <Button size="small" variant="outlined" onClick={() => setShowCreatorWhisper(!showCreatorWhisper)}>
+            Creator Whisper Mode
           </Button>
         )}
       </Box>
 
-      {/* GM Whisper Target Selector */}
-      {showGMWhisper && (
+      {/* Creator Whisper Target Selector */}
+      {showCreatorWhisper && (
         <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider', display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           <Typography variant="caption">Target:</Typography>
           {players.filter((p: any) => p.status === 'Active').map((p: any) => (
@@ -712,7 +796,7 @@ function WhispersTab({ whispers, whisperContent, setWhisperContent, whisperTarge
               label={p.characterName}
               size="small"
               clickable
-              onClick={() => { setGmTarget(p.id); setShowGMWhisper(false); }}
+              onClick={() => { setCreatorTarget(p.id); setShowCreatorWhisper(false); }}
               sx={{ m: 0.25 }}
             />
           ))}
@@ -760,18 +844,18 @@ function WhispersTab({ whispers, whisperContent, setWhisperContent, whisperTarge
           <TextField
             fullWidth
             size="small"
-            placeholder={showGMWhisper ? "Type a GM whisper..." : "Type a whisper..."}
+            placeholder={showCreatorWhisper ? "Type a creator whisper..." : "Type a whisper..."}
             value={whisperContent}
             onChange={e => setWhisperContent(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && onSendWhisper()}
           />
           <Button
             variant="contained"
-            onClick={showGMWhisper && gmTarget ? () => onSendGMWhisper(gmTarget) : onSendWhisper}
+            onClick={showCreatorWhisper && creatorTarget ? () => onSendCreatorWhisper(creatorTarget) : onSendWhisper}
             disabled={!whisperContent.trim()}
             startIcon={<MicIcon fontSize="small" />}
           >
-            {showGMWhisper && gmTarget ? 'Send to Player' : 'Whisper'}
+            {showCreatorWhisper && creatorTarget ? 'Send to Player' : 'Whisper'}
           </Button>
         </Box>
       </Box>
@@ -794,7 +878,7 @@ function AgentCallsTab({ calls, onRefresh }: any) {
 
   const getAgentLabel = (agent: number) => {
     switch (agent) {
-      case AgentType.GM: return '🎭 GM';
+      case AgentType.GM: return '🤖 AI-GM';
       case AgentType.LLM: return '🤖 LLM';
       case AgentType.Dice: return '🎲 Dice';
       case AgentType.RAG: return '📚 RAG';

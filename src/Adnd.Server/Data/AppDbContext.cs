@@ -68,6 +68,13 @@ public class AppDbContext : DbContext
             .IsUnique()
             .HasFilter("invitecode IS NOT NULL");
 
+        // Game → LLM preset relationship
+        modelBuilder.Entity<Game>()
+            .HasOne(g => g.LLMPreset)
+            .WithMany()
+            .HasForeignKey(g => g.LLMPresetId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         // Refresh token unique
         modelBuilder.Entity<RefreshToken>()
             .HasIndex(r => r.Token)

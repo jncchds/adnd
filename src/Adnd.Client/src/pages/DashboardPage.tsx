@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../api/authHook';
-import { useGames } from '../api/gameHooks';
+import { useGames, useLLMPresets } from '../api/gameHooks';
 import {
   Container, Box, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -13,9 +13,13 @@ import { Link } from 'react-router-dom';
 export default function DashboardPage() {
   const { user, logout } = useAuth();
   const { games, isLoading, error, refetch, createGame, deleteGame, joinGame, leaveGame, generateInvite, startGame, archiveGame } = useGames();
+  const { presets } = useLLMPresets();
   const [openDialog, setOpenDialog] = useState(false);
   const [gameName, setGameName] = useState('');
   const [systemId, setSystemId] = useState('dnd5e');
+  const [llmPresetId, setLLMPresetId] = useState<string | null>(null);
+  const [plotSeed, setPlotSeed] = useState('');
+  const [gameParameters, setGameParameters] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [joinResult, setJoinResult] = useState<string | null>(null);
   const [errorState, setErrorState] = useState<string | null>(null);
@@ -25,8 +29,11 @@ export default function DashboardPage() {
     if (!gameName.trim()) return;
     setErrorState(null);
     try {
-      await createGame(gameName, systemId);
+      await createGame(gameName, systemId, undefined, undefined, llmPresetId || undefined, plotSeed || undefined, gameParameters || undefined);
       setGameName('');
+      setLLMPresetId(null);
+      setPlotSeed('');
+      setGameParameters('');
       setOpenDialog(false);
       refetch();
     } catch (e: any) {
@@ -119,15 +126,14 @@ export default function DashboardPage() {
       )}
 
       {/* Create Game Dialog */}
-      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="md" fullWidth>
         <DialogTitle>Create New Game</DialogTitle>
-        <DialogContent sx={{ mt: 1 }}>
+        <DialogContent sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <TextField
             fullWidth
             label="Game Name"
             value={gameName}
             onChange={e => setGameName(e.target.value)}
-            sx={{ mb: 2 }}
             autoFocus
           />
           <TextField
@@ -142,6 +148,37 @@ export default function DashboardPage() {
             <option value="pf2e">Pathfinder 2nd Edition</option>
             <option value="coc7e">Call of Cthulhu 7th Edition</option>
           </TextField>
+          <TextField
+            fullWidth
+            select
+            label="LLM Preset (for AI-GM)"
+            value={llmPresetId || ''}
+            onChange={e => setLLMPresetId(e.target.value || null)}
+            SelectProps={{ native: true }}
+          >
+            <option value="">None</option>
+            {presets.map(p => (
+              <option key={p.id} value={p.id}>{p.name} ({p.providerType})</option>
+            ))}
+          </TextField>
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            label="Plot Seed (initial story premise)"
+            value={plotSeed}
+            onChange={e => setPlotSeed(e.target.value)}
+            placeholder="Describe the initial story, setting, and tone..."
+          />
+          <TextField
+            fullWidth
+            multiline
+            rows={2}
+            label="Game Parameters (tone, difficulty, pacing)"
+            value={gameParameters}
+            onChange={e => setGameParameters(e.target.value)}
+            placeholder="e.g., Dark tone, medium difficulty, fast-paced..."
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenDialog(false)}>Cancel</Button>

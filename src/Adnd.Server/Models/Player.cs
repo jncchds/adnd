@@ -22,10 +22,10 @@ public class Player
 
 public enum PlayerRole
 {
-    GM,
+    Creator, // The game creator (has admin-level control)
     Player,
     Spectator,
-    Observer // Creator who can watch but not play
+    Observer // Can watch but not play
 }
 
 public enum PlayerStatus

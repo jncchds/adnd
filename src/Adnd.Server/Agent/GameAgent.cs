@@ -1,0 +1,354 @@
+using Microsoft.EntityFrameworkCore;
+using Adnd.Server.Data;
+using Adnd.Server.Models;
+using Adnd.Server.Services;
+using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
+
+namespace Adnd.Server.Agent;
+
+/// <summary>
+/// Per-game game agent that processes events sequentially.
+/// Events are persisted to the database (AgentCalls table) so they survive restarts.
+/// </summary>
+public class GameAgent : IGameAgent
+{
+    private readonly Guid _gameId;
+    private readonly AppDbContext _context;
+    private readonly ILLMProviderRegistry _llmRegistry;
+    private readonly IAgentBus _agentBus;
+    private readonly IGameEngine _gameEngine;
+    private readonly IRAGService _ragService;
+    private readonly ISystemRegistry _systemRegistry;
+    private readonly ILogger<GameAgent> _logger;
+    private readonly CancellationTokenSource _cts = new();
+    private Task? _processingLoop;
+    private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private volatile bool _isPaused = false;
+
+    public GameAgent(
+        Guid gameId,
+        AppDbContext context,
+        ILLMProviderRegistry llmRegistry,
+        IAgentBus agentBus,
+        IGameEngine gameEngine,
+        IRAGService ragService,
+        ISystemRegistry systemRegistry,
+        ILogger<GameAgent> logger)
+    {
+        _gameId = gameId;
+        _context = context;
+        _llmRegistry = llmRegistry;
+        _agentBus = agentBus;
+        _gameEngine = gameEngine;
+        _ragService = ragService;
+        _systemRegistry = systemRegistry;
+        _logger = logger;
+    }
+
+    public async Task StartAsync(Guid gameId, Guid creatorId)
+    {
+        if (_processingLoop != null && !_processingLoop.IsCompleted)
+        {
+            _logger.LogWarning("Game agent already running for game {GameId}", gameId);
+            return;
+        }
+
+        // Activate the game in the DB
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null)
+            throw new KeyNotFoundException($"Game {gameId} not found.");
+
+        if (game.LLMPresetId == null)
+            throw new InvalidOperationException("Cannot start: no LLM preset configured.");
+
+        game.Status = Models.GameStatus.Active;
+        game.StartedAt = DateTime.UtcNow;
+        game.GMStatus = Models.GMStatus.Running;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Starting game agent for game {GameId}", gameId);
+        _processingLoop = ProcessLoopAsync();
+    }
+
+    public async Task PauseAsync(Guid gameId)
+    {
+        _isPaused = true;
+        _logger.LogInformation("Pausing game agent for game {GameId}", gameId);
+
+        var game = await _context.Games.FindAsync(gameId);
+        if (game != null)
+        {
+            game.GMStatus = Models.GMStatus.Paused;
+            game.LastGMAction = "Paused";
+            game.LastGMActionAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+        }
+    }
+
+    public async Task ResumeAsync(Guid gameId)
+    {
+        _isPaused = false;
+        _logger.LogInformation("Resuming game agent for game {GameId}", gameId);
+
+        var game = await _context.Games.FindAsync(gameId);
+        if (game != null)
+        {
+            game.GMStatus = Models.GMStatus.Running;
+            game.LastGMAction = "Resumed";
+            game.LastGMActionAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+        }
+    }
+
+    public async Task QueueEventAsync(Guid gameId, AgentCall call)
+    {
+        call.GameId = gameId;
+        call.Status = AgentCallStatus.Pending;
+        call.CreatedAt = DateTime.UtcNow;
+
+        _context.AgentCalls.Add(call);
+        await _context.SaveChangesAsync();
+
+        _logger.LogDebug("Event queued for game {GameId}: {FromAgent} → {ToAgent} [{Action}]",
+            gameId, call.FromAgent, call.ToAgent, call.Action);
+    }
+
+    public async Task<GMStatus> GetStatusAsync(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null)
+            throw new KeyNotFoundException($"Game {gameId} not found.");
+
+        return game.GMStatus;
+    }
+
+    public bool IsActive(Guid gameId)
+    {
+        return _processingLoop != null && !_processingLoop.IsCompleted && !_isPaused;
+    }
+
+    public IEnumerable<Guid> GetActiveGameIds()
+    {
+        yield return _gameId;
+    }
+
+    /// <summary>
+    /// Main processing loop — picks up pending events from the DB and processes them.
+    /// Survives restarts because it polls the database for pending events.
+    /// </summary>
+    private async Task ProcessLoopAsync()
+    {
+        _logger.LogInformation("Game agent processing loop started for game {GameId}", _gameId);
+
+        try
+        {
+            while (!_cts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    // Check if game is still active
+                    var game = await _context.Games.FindAsync(_gameId);
+                    if (game == null || game.Status != Models.GameStatus.Active || game.GMStatus == Models.GMStatus.Idle)
+                    {
+                        await Task.Delay(5000, _cts.Token);
+                        continue;
+                    }
+
+                    if (_isPaused)
+                    {
+                        await Task.Delay(5000, _cts.Token);
+                        continue;
+                    }
+
+                    // Get pending events for this game
+                    var pendingCalls = await _context.AgentCalls
+                        .Where(c => c.GameId == _gameId && c.Status == AgentCallStatus.Pending)
+                        .OrderBy(c => c.CreatedAt)
+                        .Take(10)
+                        .ToListAsync(_cts.Token);
+
+                    if (pendingCalls.Count == 0)
+                    {
+                        await Task.Delay(1000, _cts.Token);
+                        continue;
+                    }
+
+                    // Process each pending event sequentially
+                    foreach (var call in pendingCalls)
+                    {
+                        if (_cts.Token.IsCancellationRequested || _isPaused) break;
+
+                        await ProcessCallAsync(call);
+                    }
+                }
+                catch (OperationCanceledException) when (_cts.Token.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error in game agent processing loop for game {GameId}", _gameId);
+                    await Task.Delay(5000, _cts.Token);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on shutdown
+        }
+
+        _logger.LogInformation("Game agent processing loop stopped for game {GameId}", _gameId);
+    }
+
+    private async Task ProcessCallAsync(AgentCall call)
+    {
+        call.Status = AgentCallStatus.Running;
+        call.StartedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        try
+        {
+            var result = await _agentBus.ExecuteCallAsync(call);
+
+            call.Status = AgentCallStatus.Completed;
+            call.CompletedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogDebug("Event processed for game {GameId}: {Action} (call: {CallId})",
+                _gameId, call.Action, call.Id);
+        }
+        catch (Exception ex)
+        {
+            call.Status = AgentCallStatus.Failed;
+            call.Error = ex.Message;
+            call.CompletedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogError(ex, "Error processing event for game {GameId}: {Action} (call: {CallId})",
+                _gameId, call.Action, call.Id);
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+        _semaphore.Dispose();
+    }
+}
+
+/// <summary>
+/// Manages all game agents — creates, tracks, and cleans up per-game agents.
+/// Survives restarts by checking active games in the database on startup.
+/// </summary>
+public class GameAgentManager : IGameAgentManager, IDisposable
+{
+    private readonly AppDbContext _context;
+    private readonly ILLMProviderRegistry _llmRegistry;
+    private readonly IAgentBus _agentBus;
+    private readonly IGameEngine _gameEngine;
+    private readonly IRAGService _ragService;
+    private readonly ISystemRegistry _systemRegistry;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly ConcurrentDictionary<Guid, GameAgent> _agents = new();
+
+    public GameAgentManager(
+        AppDbContext context,
+        ILLMProviderRegistry llmRegistry,
+        IAgentBus agentBus,
+        IGameEngine gameEngine,
+        IRAGService ragService,
+        ISystemRegistry systemRegistry,
+        ILoggerFactory loggerFactory)
+    {
+        _context = context;
+        _llmRegistry = llmRegistry;
+        _agentBus = agentBus;
+        _gameEngine = gameEngine;
+        _ragService = ragService;
+        _systemRegistry = systemRegistry;
+        _loggerFactory = loggerFactory;
+    }
+
+    public IGameAgent GetOrCreate(Guid gameId)
+    {
+        // Fast path: agent already exists
+        if (_agents.TryGetValue(gameId, out var existing))
+        {
+            if (existing.IsActive(gameId))
+                return existing;
+
+            // Agent was paused/stopped, recreate it
+            _agents.TryRemove(gameId, out _);
+        }
+
+        var agentLogger = _loggerFactory.CreateLogger<GameAgent>();
+        var agent = new GameAgent(
+            gameId,
+            _context,
+            _llmRegistry,
+            _agentBus,
+            _gameEngine,
+            _ragService,
+            _systemRegistry,
+            agentLogger);
+
+        if (_agents.TryAdd(gameId, agent))
+        {
+            var logger = _loggerFactory.CreateLogger<GameAgentManager>();
+            logger.LogInformation("Created new game agent for game {GameId}", gameId);
+        }
+
+        return agent;
+    }
+
+    public void Remove(Guid gameId)
+    {
+        if (_agents.TryRemove(gameId, out var agent))
+        {
+            agent.Dispose();
+            var logger = _loggerFactory.CreateLogger<GameAgentManager>();
+            logger.LogInformation("Removed game agent for game {GameId}", gameId);
+        }
+    }
+
+    /// <summary>
+    /// Called on startup to recover game agents from active games in the database.
+    /// This ensures game agents survive container restarts.
+    /// </summary>
+    public async Task StartAllActiveGamesAsync()
+    {
+        var logger = _loggerFactory.CreateLogger<GameAgentManager>();
+        logger.LogInformation("Recovering active game agents from database...");
+
+        var activeGames = await _context.Games
+            .Where(g => g.Status == Models.GameStatus.Active && g.GMStatus == Models.GMStatus.Running)
+            .Select(g => g.Id)
+            .ToListAsync();
+
+        logger.LogInformation("Found {Count} active games to recover", activeGames.Count);
+
+        foreach (var gameId in activeGames)
+        {
+            try
+            {
+                GetOrCreate(gameId);
+                logger.LogInformation("Recovered game agent for game {GameId}", gameId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to recover game agent for game {GameId}", gameId);
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (var kvp in _agents)
+        {
+            kvp.Value.Dispose();
+        }
+        _agents.Clear();
+    }
+}

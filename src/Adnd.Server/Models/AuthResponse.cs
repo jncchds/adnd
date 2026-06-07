@@ -32,6 +32,7 @@ public class CreateGameRequest
     public string SystemId { get; set; } = "dnd5e";
     public string? SystemVersion { get; set; }
     public string? CustomSystemJson { get; set; }
+    public Guid? LLMPresetId { get; set; }      // LLM preset for all agents in this game
     public string? PlotSeed { get; set; }       // Initial plot setup by creator
     public string? GameParameters { get; set; }  // Game tone, difficulty, pacing
 }
@@ -41,17 +42,18 @@ public class GameResponse
     public Guid Id { get; set; }
     public Guid CreatorId { get; set; }
     public string CreatorName { get; set; } = string.Empty;
-    public Guid? GameMasterId { get; set; }
-    public string? GameMasterName { get; set; }
     public string Name { get; set; } = string.Empty;
     public string SystemId { get; set; } = string.Empty;
     public string? SystemVersion { get; set; }
     public GameStatus Status { get; set; }
+    public GMStatus GMStatus { get; set; }
     public DateTime CreatedAt { get; set; }
     public string? InviteCode { get; set; }
     public string? PlotSeed { get; set; }
     public string? GameParameters { get; set; }
     public string? GameState { get; set; }
+    public Guid? LLMPresetId { get; set; }
+    public string? LLMPresetName { get; set; }
 }
 
 public class InviteResponse
@@ -60,7 +62,4 @@ public class InviteResponse
     public string InviteUrl { get; set; } = string.Empty;
 }
 
-public class AssignGMRequest
-{
-    public Guid PlayerId { get; set; }
-}
+

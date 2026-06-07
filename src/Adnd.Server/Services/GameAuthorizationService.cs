@@ -11,7 +11,11 @@ public interface IGameAuthorizationService
 {
     Task<bool> HasAccessAsync(AppDbContext context, Guid gameId, Guid userId);
     Task<bool> IsCreatorAsync(AppDbContext context, Guid gameId, Guid userId);
-    Task<bool> IsGameMasterAsync(AppDbContext context, Guid gameId, Guid userId);
+    /// <summary>
+    /// True if the user is the creator OR the GM agent is running.
+    /// Used for admin-level actions (sway, pause, etc.).
+    /// </summary>
+    Task<bool> CanAdminAsync(AppDbContext context, Guid gameId, Guid userId);
 }
 
 public class GameAuthorizationService : IGameAuthorizationService
@@ -30,6 +34,12 @@ public class GameAuthorizationService : IGameAuthorizationService
     public Task<bool> IsCreatorAsync(AppDbContext context, Guid gameId, Guid userId)
         => context.Games.AnyAsync(g => g.Id == gameId && g.CreatorId == userId);
 
-    public Task<bool> IsGameMasterAsync(AppDbContext context, Guid gameId, Guid userId)
-        => context.Games.AnyAsync(g => g.Id == gameId && g.GameMasterId == userId);
+    public async Task<bool> CanAdminAsync(AppDbContext context, Guid gameId, Guid userId)
+    {
+        var game = await context.Games
+            .FirstOrDefaultAsync(g => g.Id == gameId);
+        if (game == null) return false;
+        // Creator can always admin. GM agent running doesn't change this.
+        return game.CreatorId == userId;
+    }
 }

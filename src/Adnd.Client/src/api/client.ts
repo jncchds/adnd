@@ -130,10 +130,18 @@ class APIClient {
     return this.request<GameDetail>('/games/' + id);
   }
 
-  async createGame(name: string, systemId = 'dnd5e', systemVersion?: string, customSystemJson?: string) {
+  async createGame(
+    name: string,
+    systemId = 'dnd5e',
+    systemVersion?: string,
+    customSystemJson?: string,
+    llmPresetId?: string,
+    plotSeed?: string,
+    gameParameters?: string
+  ) {
     return this.request<GameDetail>('/games', {
       method: 'POST',
-      body: JSON.stringify({ name, systemId, systemVersion, customSystemJson }),
+      body: JSON.stringify({ name, systemId, systemVersion, customSystemJson, llmPresetId, plotSeed, gameParameters }),
     });
   }
 
@@ -248,6 +256,25 @@ class APIClient {
 
   async archiveGame(gameId: string) {
     return this.request(`/admin/games/${gameId}/archive`, { method: 'POST' });
+  }
+
+  async getGMStatus(gameId: string) {
+    return this.request<GMStatusResponse>(`/admin/games/${gameId}/gm-status`);
+  }
+
+  async pauseGM(gameId: string) {
+    return this.request(`/admin/games/${gameId}/gm/pause`, { method: 'POST' });
+  }
+
+  async resumeGM(gameId: string) {
+    return this.request(`/admin/games/${gameId}/gm/resume`, { method: 'POST' });
+  }
+
+  async swayStory(gameId: string, direction: string) {
+    return this.request<SwayResponse>(`/admin/games/${gameId}/sway`, {
+      method: 'POST',
+      body: JSON.stringify({ direction }),
+    });
   }
 
   // ==================== LLM / RAG ====================
@@ -435,8 +462,11 @@ export interface GameListItem {
   systemId: string;
   systemVersion?: string;
   status: string;
+  gmStatus: string; // 'idle' | 'running' | 'paused'
   createdAt: string;
   inviteCode?: string;
+  llmPresetId?: string;
+  llmPresetName?: string;
 }
 
 export interface GameDetail {
@@ -447,13 +477,30 @@ export interface GameDetail {
   systemId: string;
   systemVersion?: string;
   status: string;
+  gmStatus: string; // 'idle' | 'running' | 'paused'
   createdAt: string;
   inviteCode?: string;
+  llmPresetId?: string;
+  llmPresetName?: string;
 }
 
 export interface InviteResponse {
   inviteCode: string;
   inviteUrl: string;
+}
+
+export interface GMStatusResponse {
+  gameId: string;
+  status: string; // 'idle' | 'running' | 'paused'
+  lastAction?: string;
+  lastActionAt?: string;
+}
+
+export interface SwayResponse {
+  gameId: string;
+  callId: string;
+  status: number;
+  createdAt: string;
 }
 
 export interface GameSessionListItem {

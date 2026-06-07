@@ -51,6 +51,31 @@ public interface IAgentBus
     /// Execute a call synchronously (for simple agent-to-agent calls).
     /// </summary>
     Task<AgentCall> ExecuteCallAsync(AgentCall call);
+
+    /// <summary>
+    /// Activate the GM agent for a game (generates opening narrative).
+    /// </summary>
+    Task<AgentCall> ActivateGameAgentAsync(Guid gameId, Guid? creatorId);
+
+    /// <summary>
+    /// Send a narrative nudge from the Creator to the GM agent.
+    /// </summary>
+    Task<AgentCall> SendSwayAsync(Guid gameId, Guid creatorId, string direction);
+
+    /// <summary>
+    /// Get the current GM agent status for a game.
+    /// </summary>
+    Task<(GMStatus Status, string? LastAction, DateTime? LastActionAt)> GetGMStatusAsync(Guid gameId);
+
+    /// <summary>
+    /// Pause the GM agent for a game.
+    /// </summary>
+    Task PauseGMAsync(Guid gameId);
+
+    /// <summary>
+    /// Resume the GM agent for a game.
+    /// </summary>
+    Task ResumeGMAsync(Guid gameId);
 }
 
 public class AgentBus : IAgentBus
@@ -61,6 +86,7 @@ public class AgentBus : IAgentBus
     private readonly IRAGService _ragService;
     private readonly IDiceEngine _diceEngine;
     private readonly ISystemRegistry _systemRegistry;
+    private readonly ILLMPresetService _presetService;
     private readonly ILogger<AgentBus> _logger;
 
     public AgentBus(
@@ -70,6 +96,7 @@ public class AgentBus : IAgentBus
         IRAGService ragService,
         IDiceEngine diceEngine,
         ISystemRegistry systemRegistry,
+        ILLMPresetService presetService,
         ILogger<AgentBus> logger)
     {
         _context = context;
@@ -78,6 +105,7 @@ public class AgentBus : IAgentBus
         _ragService = ragService;
         _diceEngine = diceEngine;
         _systemRegistry = systemRegistry;
+        _presetService = presetService;
         _logger = logger;
     }
 
@@ -470,25 +498,197 @@ public class AgentBus : IAgentBus
         var options = JsonSerializer.Deserialize<GMDispatchOptions>(call.Input)
             ?? new GMDispatchOptions();
 
+        var game = await _context.Games
+            .Include(g => g.LLMPreset)
+            .FirstOrDefaultAsync(g => g.Id == call.GameId);
+        if (game == null)
+            return "Game not found.";
+
         if (call.Action == AgentAction.ManageState)
         {
-            var game = await _context.Games.FindAsync(call.GameId);
-            if (game == null)
-                return "Game not found.";
-
             game.GameState = options.StateJson ?? game.GameState;
+            game.LastGMAction = "ManageState";
+            game.LastGMActionAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            return "Game state updated.";
+        }
+
+        if (call.Action == AgentAction.Narrate || call.Action == AgentAction.Generate)
+        {
+            // Use the game's LLM preset to generate narrative
+            if (game.LLMPreset == null)
+                return "No LLM preset configured for this game.";
+
+            var provider = _llmRegistry.GetProvider(game.LLMPreset.ProviderType);
+            if (provider == null)
+                return $"LLM provider '{game.LLMPreset.ProviderType}' not available.";
+
+            var systemPrompt = options.SystemPrompt ?? 
+                $"You are the Game Master for a TTRPG session. " +
+                $"Game system: {game.SystemId}. " +
+                $"Plot seed: {game.PlotSeed ?? "None"}. " +
+                $"Game parameters: {game.GameParameters ?? "None"}. " +
+                $"Current game state: {game.GameState ?? "None"}. " +
+                $"Narrate the game state, describe scenes, and provide immersive storytelling.";
+
+            var userPrompt = options.UserPrompt ?? call.Input ?? "Continue the narrative.";
+
+            var result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+
+            game.LastGMAction = "Narrate";
+            game.LastGMActionAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
-            return "Game state updated.";
+            return result;
+        }
+
+        if (call.Action == AgentAction.Nudge)
+        {
+            // Incorporate Creator's narrative direction into the story
+            if (game.LLMPreset == null)
+                return "No LLM preset configured for this game.";
+
+            var provider = _llmRegistry.GetProvider(game.LLMPreset.ProviderType);
+            if (provider == null)
+                return $"LLM provider '{game.LLMPreset.ProviderType}' not available.";
+
+            var systemPrompt = $"You are the Game Master for a TTRPG session. " +
+                $"The game creator has sent a narrative nudge: {call.Input}. " +
+                $"Incorporate this direction naturally into the ongoing story. " +
+                $"Game system: {game.SystemId}. " +
+                $"Current game state: {game.GameState ?? "None"}. " +
+                $"Respond with an immersive narrative that follows the creator's direction.";
+
+            var userPrompt = $"Incorporate this narrative direction: {call.Input}";
+
+            var result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+
+            game.LastGMAction = "Nudge";
+            game.LastGMActionAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            return result;
         }
 
         if (call.Action == AgentAction.Notify)
         {
-            // In a full implementation, this would notify other agents
             return "Notification sent to relevant agents.";
         }
 
         return "GM agent: action not handled.";
+    }
+
+    public async Task<AgentCall> ActivateGameAgentAsync(Guid gameId, Guid? creatorId)
+    {
+        var game = await _context.Games
+            .Include(g => g.LLMPreset)
+            .FirstOrDefaultAsync(g => g.Id == gameId);
+        if (game == null)
+            throw new KeyNotFoundException($"Game {gameId} not found.");
+
+        if (game.LLMPreset == null)
+            throw new InvalidOperationException("Cannot activate GM agent: no LLM preset configured.");
+
+        // Activate the GM agent
+        game.GMStatus = GMStatus.Running;
+        await _context.SaveChangesAsync();
+
+        // Generate opening narrative
+        var call = new AgentCall
+        {
+            GameId = gameId,
+            FromAgent = AgentType.System,
+            ToAgent = AgentType.GM,
+            Action = AgentAction.Narrate,
+            Input = JsonSerializer.Serialize(new GMDispatchOptions
+            {
+                SystemPrompt = $"You are the Game Master for a TTRPG session. " +
+                    $"Game system: {game.SystemId}. " +
+                    $"Plot seed: {game.PlotSeed ?? "None"}. " +
+                    $"Game parameters: {game.GameParameters ?? "None"}. " +
+                    $"Create an immersive opening narrative that introduces the world, sets the tone, " +
+                    $"and invites the players into the story. Be vivid and engaging.",
+                UserPrompt = "Generate the opening narrative for this game session."
+            }),
+            Status = AgentCallStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.AgentCalls.Add(call);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("GM agent activated for game {GameId} by creator {CreatorId}", gameId, creatorId);
+
+        return call;
+    }
+
+    public async Task<AgentCall> SendSwayAsync(Guid gameId, Guid creatorId, string direction)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null)
+            throw new KeyNotFoundException($"Game {gameId} not found.");
+
+        if (game.CreatorId != creatorId)
+            throw new UnauthorizedAccessException("Only the game creator can sway the story.");
+
+        if (game.GMStatus != GMStatus.Running)
+            throw new InvalidOperationException("Cannot sway: GM agent is not running.");
+
+        var call = new AgentCall
+        {
+            GameId = gameId,
+            FromAgent = AgentType.Creator,
+            ToAgent = AgentType.GM,
+            Action = AgentAction.Nudge,
+            Input = direction,
+            Status = AgentCallStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.AgentCalls.Add(call);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Creator {CreatorId} sent narrative sway to game {GameId}: {Direction}",
+            creatorId, gameId, direction);
+
+        return call;
+    }
+
+    public async Task<(GMStatus Status, string? LastAction, DateTime? LastActionAt)> GetGMStatusAsync(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null)
+            throw new KeyNotFoundException($"Game {gameId} not found.");
+
+        return (game.GMStatus, game.LastGMAction, game.LastGMActionAt);
+    }
+
+    public async Task PauseGMAsync(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null)
+            throw new KeyNotFoundException($"Game {gameId} not found.");
+
+        game.GMStatus = GMStatus.Paused;
+        game.LastGMAction = "Paused";
+        game.LastGMActionAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("GM agent paused for game {GameId}", gameId);
+    }
+
+    public async Task ResumeGMAsync(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null)
+            throw new KeyNotFoundException($"Game {gameId} not found.");
+
+        game.GMStatus = GMStatus.Running;
+        game.LastGMAction = "Resumed";
+        game.LastGMActionAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("GM agent resumed for game {GameId}", gameId);
     }
 }
 
@@ -532,4 +732,7 @@ public class SystemDispatchOptions
 public class GMDispatchOptions
 {
     public string? StateJson { get; set; }
+    public string? SystemPrompt { get; set; }
+    public string? UserPrompt { get; set; }
+    public LLMOptions? Options { get; set; }
 }

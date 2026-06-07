@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Adnd.Server.Data;
+using Adnd.Server.Events;
+using MediatR;
 
 namespace Adnd.Server.Controllers;
 
@@ -16,17 +18,23 @@ public class GamesController : ControllerBase
     private readonly AppDbContext _context;
     private readonly IUserIdProvider _userIdProvider;
     private readonly IGameAuthorizationService _authService;
+    private readonly IAgentBus _agentBus;
+    private readonly IMediator _mediator;
     private readonly ILogger<GamesController> _logger;
 
     public GamesController(
         AppDbContext context,
         IUserIdProvider userIdProvider,
         IGameAuthorizationService authService,
+        IAgentBus agentBus,
+        IMediator mediator,
         ILogger<GamesController> logger)
     {
         _context = context;
         _userIdProvider = userIdProvider;
         _authService = authService;
+        _agentBus = agentBus;
+        _mediator = mediator;
         _logger = logger;
     }
 
@@ -45,13 +53,16 @@ public class GamesController : ControllerBase
             {
                 Id = g.Id,
                 CreatorId = g.CreatorId,
-                CreatorName = g.Creator!.DisplayName ?? g.Creator.Email,
+                CreatorName = g.Creator != null ? (g.Creator.DisplayName ?? g.Creator.Email) : "Unknown",
                 Name = g.Name,
                 SystemId = g.SystemId,
                 SystemVersion = g.SystemVersion,
                 Status = g.Status,
+                GMStatus = g.GMStatus,
                 CreatedAt = g.CreatedAt,
-                InviteCode = g.InviteCode
+                InviteCode = g.InviteCode,
+                LLMPresetId = g.LLMPresetId,
+                LLMPresetName = g.LLMPreset != null ? g.LLMPreset.Name : null
             })
             .ToListAsync();
 
@@ -63,6 +74,7 @@ public class GamesController : ControllerBase
     {
         var game = await _context.Games
             .Include(g => g.Creator)
+            .Include(g => g.LLMPreset)
             .FirstOrDefaultAsync(g => g.Id == id);
 
         if (game == null)
@@ -86,17 +98,18 @@ public class GamesController : ControllerBase
             Id = game.Id,
             CreatorId = game.CreatorId,
             CreatorName = game.Creator!.DisplayName ?? game.Creator.Email,
-            GameMasterId = game.GameMasterId,
-            GameMasterName = game.GameMaster?.DisplayName ?? game.GameMaster?.Email,
             Name = game.Name,
             SystemId = game.SystemId,
             SystemVersion = game.SystemVersion,
             Status = game.Status,
+            GMStatus = game.GMStatus,
             CreatedAt = game.CreatedAt,
             InviteCode = game.InviteCode,
             PlotSeed = game.PlotSeed,
             GameParameters = game.GameParameters,
-            GameState = game.GameState
+            GameState = game.GameState,
+            LLMPresetId = game.LLMPresetId,
+            LLMPresetName = game.LLMPreset?.Name
         });
     }
 
@@ -119,6 +132,8 @@ public class GamesController : ControllerBase
             CustomSystemJson = request.CustomSystemJson,
             PlotSeed = request.PlotSeed,
             GameParameters = request.GameParameters,
+            LLMPresetId = request.LLMPresetId,
+            GMStatus = GMStatus.Idle,
             Status = GameStatus.Draft,
             CreatedAt = DateTime.UtcNow
         };
@@ -129,22 +144,26 @@ public class GamesController : ControllerBase
         _context.Games.Add(game);
         await _context.SaveChangesAsync();
 
+        // Publish game created event
+        await _mediator.Publish(new GameCreated(game.Id, id, request.SystemId, request.LLMPresetId));
+
         return Ok(new GameResponse
         {
             Id = game.Id,
             CreatorId = game.CreatorId,
             CreatorName = (await _context.Users.FindAsync(id))!.DisplayName ?? (await _context.Users.FindAsync(id))!.Email,
-            GameMasterId = game.GameMasterId,
-            GameMasterName = game.GameMaster?.DisplayName ?? game.GameMaster?.Email,
             Name = game.Name,
             SystemId = game.SystemId,
             SystemVersion = game.SystemVersion,
             Status = game.Status,
+            GMStatus = game.GMStatus,
             CreatedAt = game.CreatedAt,
             InviteCode = game.InviteCode,
             PlotSeed = game.PlotSeed,
             GameParameters = game.GameParameters,
-            GameState = game.GameState
+            GameState = game.GameState,
+            LLMPresetId = game.LLMPresetId,
+            LLMPresetName = game.LLMPreset?.Name
         });
     }
 
@@ -269,36 +288,6 @@ public class GamesController : ControllerBase
         return Ok(new { message = "Game deleted successfully." });
     }
 
-    // ==================== Game Master Assignment ====================
-
-    [HttpPost("{id}/assign-gm")]
-    [Authorize]
-    public async Task<IActionResult> AssignGameMaster(Guid id, [FromBody] AssignGMRequest request)
-    {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var uid))
-        {
-            return Unauthorized();
-        }
-
-        var game = await _context.Games
-            .Include(g => g.Players)
-            .FirstOrDefaultAsync(g => g.Id == id);
-
-        if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != uid) return Forbid();
-
-        var player = game.Players.FirstOrDefault(p => p.UserId == request.PlayerId);
-        if (player == null)
-            return NotFound(new { error = "Player not found in this game." });
-
-        game.GameMasterId = request.PlayerId;
-        player.Role = PlayerRole.GM;
-        await _context.SaveChangesAsync();
-
-        return Ok(new { GameId = game.Id, game.GameMasterId, PlayerId = player.Id, player.Role });
-    }
-
     // ==================== Session Management ====================
 
     [HttpGet("{id}/sessions")]
@@ -400,7 +389,7 @@ public class GamesController : ControllerBase
         if (player == null) return NotFound(new { error = "Player not found." });
 
         if (!Enum.TryParse(role, true, out PlayerRole parsedRole))
-            return BadRequest(new { error = $"Invalid role. Use: GM, Player, Spectator" });
+            return BadRequest(new { error = $"Invalid role. Use: Creator, Player, Spectator" });
 
         player.Role = parsedRole;
         await _context.SaveChangesAsync();

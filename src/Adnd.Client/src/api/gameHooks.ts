@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary } from './client';
+import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary, GMStatusResponse, SwayResponse } from './client';
 import { useEntity } from './useEntity';
 
 export function useGames() {
@@ -24,8 +24,8 @@ export function useGames() {
     fetchGames();
   }, [fetchGames]);
 
-  const createGame = async (name: string, systemId = 'dnd5e') => {
-    const game = await api.createGame(name, systemId);
+  const createGame = async (name: string, systemId = 'dnd5e', systemVersion?: string, customSystemJson?: string, llmPresetId?: string, plotSeed?: string, gameParameters?: string) => {
+    const game = await api.createGame(name, systemId, systemVersion, customSystemJson, llmPresetId, plotSeed, gameParameters);
     setGames(prev => [...prev, game]);
     return game;
   };
@@ -71,6 +71,78 @@ export function useGames() {
     generateInvite,
     startGame,
     archiveGame,
+  };
+}
+
+export function useGMStatus(gameId: string | undefined) {
+  const [status, setStatus] = useState<GMStatusResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    if (!gameId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getGMStatus(gameId);
+      setStatus(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [gameId]);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
+  const pause = async () => {
+    await api.pauseGM(gameId!);
+    await fetchStatus();
+  };
+
+  const resume = async () => {
+    await api.resumeGM(gameId!);
+    await fetchStatus();
+  };
+
+  return {
+    status,
+    isLoading,
+    error,
+    refetch: fetchStatus,
+    pause,
+    resume,
+  };
+}
+
+export function useSway(gameId: string | undefined) {
+  const [lastSway, setLastSway] = useState<SwayResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const sway = useCallback(async (direction: string) => {
+    if (!gameId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.swayStory(gameId, direction);
+      setLastSway(data);
+      return data;
+    } catch (e: any) {
+      setError(e.message);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [gameId]);
+
+  return {
+    sway,
+    lastSway,
+    isLoading,
+    error,
   };
 }
 

@@ -17,8 +17,14 @@ export enum GameStatus {
   Finished = 3,
 }
 
+export enum GMStatus {
+  Idle = 0,
+  Running = 1,
+  Paused = 2,
+}
+
 export enum PlayerRole {
-  GM = 0,
+  Creator = 0,
   Player = 1,
   Spectator = 2,
   Observer = 3,
@@ -47,13 +53,14 @@ export enum WhisperType {
 
 // Agent framework types
 export enum AgentType {
-  GM = 0,
-  LLM = 1,
-  Dice = 2,
-  RAG = 3,
-  NPC = 4,
-  Player = 5,
-  System = 6,
+  Creator = 0,
+  GM = 1,
+  LLM = 2,
+  Dice = 3,
+  RAG = 4,
+  NPC = 5,
+  Player = 6,
+  System = 7,
 }
 
 export enum AgentAction {
@@ -67,6 +74,7 @@ export enum AgentAction {
   Notify = 7,
   Recall = 8,
   ManageState = 9,
+  Nudge = 10,
 }
 
 export enum AgentCallStatus {

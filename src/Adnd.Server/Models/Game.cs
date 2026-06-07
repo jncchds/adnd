@@ -5,8 +5,14 @@ public class Game
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid CreatorId { get; set; }
     public User? Creator { get; set; }
-    public Guid? GameMasterId { get; set; }
-    public User? GameMaster { get; set; }
+    // LLM preset used by all agents in this game (GM, RAG, NPC, etc.)
+    public Guid? LLMPresetId { get; set; }
+    public LLMPreset? LLMPreset { get; set; }
+
+    // GM agent status
+    public GMStatus GMStatus { get; set; } = GMStatus.Idle;
+    public string? LastGMAction { get; set; }
+    public DateTime? LastGMActionAt { get; set; }
     public string Name { get; set; } = string.Empty;
     public string SystemId { get; set; } = "dnd5e"; // Default system
     public string? SystemVersion { get; set; }
@@ -37,10 +43,9 @@ public enum GameStatus
     Finished
 }
 
-public enum GameMasterMode
+public enum GMStatus
 {
-    Manual,    // GM plays manually, LLM assists
-    Assist,    // LLM assists GM with suggestions
-    SemiAuto,  // LLM auto-generates narrative, GM reviews
-    FullAuto   // LLM runs the game (GM oversees)
+    Idle,      // Game created, GM agent not yet activated
+    Running,   // GM agent is actively running
+    Paused     // GM agent paused (creator paused or game archived)
 }

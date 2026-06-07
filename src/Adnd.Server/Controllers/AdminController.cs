@@ -6,6 +6,8 @@ using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
+using Adnd.Server.Events;
+using MediatR;
 
 namespace Adnd.Server.Controllers;
 
@@ -24,6 +26,7 @@ public class AdminController : ControllerBase
     private readonly ILLMInteractionLogger _interactionLogger;
     private readonly IUserIdProvider _userIdProvider;
     private readonly IGameAuthorizationService _authService;
+    private readonly IMediator _mediator;
     private readonly ILogger<AdminController> _logger;
 
     public AdminController(
@@ -37,6 +40,7 @@ public class AdminController : ControllerBase
         ILLMInteractionLogger interactionLogger,
         IUserIdProvider userIdProvider,
         IGameAuthorizationService authService,
+        IMediator mediator,
         ILogger<AdminController> logger)
     {
         _context = context;
@@ -49,6 +53,7 @@ public class AdminController : ControllerBase
         _interactionLogger = interactionLogger;
         _userIdProvider = userIdProvider;
         _authService = authService;
+        _mediator = mediator;
         _logger = logger;
     }
 
@@ -331,13 +336,20 @@ public class AdminController : ControllerBase
     [HttpPost("games/{gameId}/start")]
     public async Task<IActionResult> StartGame(Guid gameId)
     {
+        var userId = _userIdProvider.GetCurrentUserId();
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
+        if (game.CreatorId != userId) return Forbid();
+
+        if (game.LLMPresetId == null)
+            return BadRequest(new { error = "Cannot start: no LLM preset configured. Set one in game creation." });
 
         game.Status = GameStatus.Active;
         game.StartedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
+
+        // Publish game started event → triggers GameAgent activation
+        await _mediator.Publish(new GameStarted(gameId, userId));
 
         return Ok(new { game.Id, game.Status, game.StartedAt });
     }
@@ -345,15 +357,104 @@ public class AdminController : ControllerBase
     [HttpPost("games/{gameId}/archive")]
     public async Task<IActionResult> ArchiveGame(Guid gameId)
     {
+        var userId = _userIdProvider.GetCurrentUserId();
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
+        if (game.CreatorId != userId) return Forbid();
 
         game.Status = GameStatus.Archived;
         game.EndedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
+        // Publish game archived event → triggers GameAgent pause
+        await _mediator.Publish(new GameArchived(gameId));
+
         return Ok(new { game.Id, game.Status, game.EndedAt });
+    }
+
+    // ==================== GM Agent Status ====================
+
+    [HttpGet("games/{gameId}/gm-status")]
+    public async Task<IActionResult> GetGMStatus(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+
+        return Ok(new {
+            gameId,
+            Status = game.GMStatus,
+            game.LastGMAction,
+            game.LastGMActionAt
+        });
+    }
+
+    [HttpPost("games/{gameId}/gm/pause")]
+    public async Task<IActionResult> PauseGM(Guid gameId)
+    {
+        var userId = _userIdProvider.GetCurrentUserId();
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (game.CreatorId != userId) return Forbid();
+
+        game.GMStatus = GMStatus.Paused;
+        game.LastGMAction = "Paused";
+        game.LastGMActionAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        await _mediator.Publish(new GamePaused(gameId));
+        return Ok(new { gameId, status = GMStatus.Paused });
+    }
+
+    [HttpPost("games/{gameId}/gm/resume")]
+    public async Task<IActionResult> ResumeGM(Guid gameId)
+    {
+        var userId = _userIdProvider.GetCurrentUserId();
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (game.CreatorId != userId) return Forbid();
+
+        game.GMStatus = GMStatus.Running;
+        game.LastGMAction = "Resumed";
+        game.LastGMActionAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        await _mediator.Publish(new GameResumed(gameId));
+        return Ok(new { gameId, status = GMStatus.Running });
+    }
+
+    // ==================== Narrative Sway ====================
+
+    [HttpPost("games/{gameId}/sway")]
+    public async Task<IActionResult> SwayStory(Guid gameId, [FromBody] SwayRequest request)
+    {
+        var userId = _userIdProvider.GetCurrentUserId();
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (game.CreatorId != userId) return Forbid();
+
+        if (game.GMStatus != GMStatus.Running)
+            return BadRequest(new { error = "Cannot sway: GM agent is not running." });
+
+        if (string.IsNullOrWhiteSpace(request.Direction))
+            return BadRequest(new { error = "Direction is required." });
+
+        // Queue the sway event for the game agent to process
+        var call = new AgentCall
+        {
+            GameId = gameId,
+            FromAgent = AgentType.Creator,
+            ToAgent = AgentType.GM,
+            Action = AgentAction.Nudge,
+            Input = request.Direction,
+            Status = AgentCallStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.AgentCalls.Add(call);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { gameId, call.Id, call.Status, call.CreatedAt });
     }
 
     // ==================== LLM / RAG Endpoints ====================
@@ -469,8 +570,8 @@ public class AdminController : ControllerBase
         var player = await _context.Players
             .FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId);
 
-        var isGM = player?.Role == PlayerRole.GM;
-        var whispers = await _whisperService.GetWhispersForPlayerAsync(gameId, player!.Id, isGM, limit);
+        var isCreator = player?.Role == PlayerRole.Creator;
+        var whispers = await _whisperService.GetWhispersForPlayerAsync(gameId, player!.Id, isCreator, limit);
 
         return Ok(whispers.Select(w => new
         {
@@ -530,8 +631,8 @@ public class AdminController : ControllerBase
         var player = await _context.Players
             .FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId && p.Status == PlayerStatus.Active);
 
-        if (player == null || player.Role != PlayerRole.GM)
-            return StatusCode(403, new { error = "Only the GM can send GM whispers." });
+        if (player == null || player.Role != PlayerRole.Creator)
+            return StatusCode(403, new { error = "Only the game creator can send creator whispers." });
 
         var whisper = await _whisperService.SendGMWhisperAsync(
             gameId, sessionId, player.Id, request.TargetPlayerIds, request.Type, request.Content);
@@ -656,7 +757,7 @@ public class AdminController : ControllerBase
         if (game == null) return NotFound(new { error = "Game not found." });
 
         var userId = _userIdProvider.GetCurrentUserId();
-        if (game.CreatorId != userId && game.GameMasterId != userId)
+        if (game.CreatorId != userId)
             return Forbid();
 
         if (request.GameState != null) game.GameState = request.GameState;
@@ -973,14 +1074,14 @@ public class SendWhisperRequest
 {
     public Guid SessionId { get; set; }
     public string Targets { get; set; } = string.Empty; // "player:{id}", "all", "group:{name}"
-    public WhisperType Type { get; set; }
+    public Adnd.Server.Models.WhisperType Type { get; set; }
     public string Content { get; set; } = string.Empty;
 }
 
 public class SendGMWhisperRequest
 {
     public List<Guid> TargetPlayerIds { get; set; } = new();
-    public WhisperType Type { get; set; }
+    public Adnd.Server.Models.WhisperType Type { get; set; }
     public string Content { get; set; } = string.Empty;
 }
 
@@ -1002,4 +1103,11 @@ public class UpdateGameStateRequest
     public string? GameState { get; set; }
     public string? PlotSeed { get; set; }
     public string? GameParameters { get; set; }
+}
+
+// ============= Sway DTO =============
+
+public class SwayRequest
+{
+    public string Direction { get; set; } = string.Empty;
 }
