@@ -6,8 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: adnd
-  REGISTRY: docker.io
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/adnd
 
 jobs:
   build:
@@ -29,10 +28,10 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Create Docker Hub repository
+      - name: Create Docker Hub repository (if needed)
         run: |
           curl -f -X POST \
-            "https://hub.docker.com/v2/repositories/${{ env.IMAGE_NAME }}/" \
+            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/adnd/" \
             -H "Authorization: Bearer ${{ secrets.DOCKERHUB_TOKEN }}" \
             -H "Content-Type: application/json" \
             || echo "Repository already exists or creation skipped"
@@ -45,4 +44,4 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:latest
