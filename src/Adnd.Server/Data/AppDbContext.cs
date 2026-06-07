@@ -32,6 +32,11 @@ public class AppDbContext : DbContext
     public DbSet<LLMPreset> LLMPresets => Set<LLMPreset>();
     public DbSet<LLMInteractionLog> LLMInteractionLogs => Set<LLMInteractionLog>();
 
+    // Combat
+    public DbSet<Combat> Combats => Set<Combat>();
+    public DbSet<CombatParticipant> CombatParticipants => Set<CombatParticipant>();
+    public DbSet<CombatEvent> CombatEvents => Set<CombatEvent>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -135,6 +140,51 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(p => p.UserId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Combat entities
+        modelBuilder.Entity<Combat>()
+            .HasMany(c => c.Participants)
+            .WithOne(p => p.Combat)
+            .HasForeignKey(p => p.CombatId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Combat>()
+            .HasMany(c => c.Events)
+            .WithOne(e => e.Combat)
+            .HasForeignKey(e => e.CombatId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // CombatParticipant JSON properties
+        modelBuilder.Entity<CombatParticipant>()
+            .Property(p => p.Conditions)
+            .HasConversion(
+                v => v.ValueKind == JsonValueKind.Undefined ? "null" : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v) || v == "null" ? JsonDocument.Parse("[]").RootElement : JsonSerializer.Deserialize<JsonElement>(v)!)
+            .HasColumnType("jsonb");
+        modelBuilder.Entity<CombatParticipant>()
+            .Property(p => p.SavingThrows)
+            .HasConversion(
+                v => v == null ? "null" : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v) || v == "null" ? null! : JsonSerializer.Deserialize<JsonElement>(v)!)
+            .HasColumnType("jsonb");
+        modelBuilder.Entity<CombatParticipant>()
+            .Property(p => p.DeathSaveState)
+            .HasConversion(
+                v => v == null ? "null" : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v) || v == "null" ? null! : JsonSerializer.Deserialize<JsonElement>(v)!)
+            .HasColumnType("jsonb");
+        modelBuilder.Entity<CombatParticipant>()
+            .Property(p => p.TemporaryHP)
+            .HasConversion(
+                v => v == null ? "null" : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v) || v == "null" ? null! : JsonSerializer.Deserialize<JsonElement>(v)!)
+            .HasColumnType("jsonb");
+        modelBuilder.Entity<CombatEvent>()
+            .Property(e => e.Metadata)
+            .HasConversion(
+                v => v == null ? "null" : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v) || v == "null" ? null! : JsonSerializer.Deserialize<JsonElement>(v)!)
+            .HasColumnType("jsonb");
 
         // LLM Interaction Log
         modelBuilder.Entity<LLMInteractionLog>()

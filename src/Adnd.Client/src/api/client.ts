@@ -153,6 +153,11 @@ class APIClient {
     return this.request('/games/' + id + '/leave', { method: 'POST' });
   }
 
+  // ==================== Combat ====================
+  async getActiveCombats(gameId: string) {
+    return this.request(`/admin/games/${gameId}/combats`);
+  }
+
   // ==================== Sessions ====================
   async getSessions(gameId: string) {
     return this.request<GameSessionListItem[]>(`/games/${gameId}/sessions`);

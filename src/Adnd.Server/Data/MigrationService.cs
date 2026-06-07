@@ -30,6 +30,26 @@ public class MigrationService
             catch (Exception ex) when (ex is InvalidOperationException || ex is DbException)
             {
                 var msg = ex.Message;
+
+                // Handle pgvector extension not loaded (fresh database)
+                if (msg.Contains("vector") && msg.Contains("does not exist"))
+                {
+                    _logger.LogWarning("pgvector extension not loaded. Loading extension and retrying...");
+                    try
+                    {
+                        _context.Database.ExecuteSqlRaw("CREATE EXTENSION IF NOT EXISTS vector;");
+                        _logger.LogInformation("pgvector extension loaded.");
+                        _context.Database.Migrate();
+                        _logger.LogInformation("Migrations applied successfully after loading pgvector.");
+                        return;
+                    }
+                    catch (Exception retryEx)
+                    {
+                        _logger.LogError(retryEx, "Failed to load pgvector extension or apply migrations after.");
+                        throw;
+                    }
+                }
+
                 if (msg.Contains("does not exist") || msg.Contains("connection") || msg.Contains("Unable to connect"))
                 {
                     _logger.LogWarning(ex, "Database not ready. Retrying with EnsureCreated...");

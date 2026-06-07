@@ -95,6 +95,9 @@ builder.Services.AddScoped<IDiceEngine, DiceEngine>();
 builder.Services.AddScoped<ISystemRegistry, SystemRegistry>();
 builder.Services.AddScoped<IGameEngine, GameEngine>();
 
+// Combat
+builder.Services.AddScoped<ICombatService, CombatService>();
+
 // Agent Framework
 builder.Services.AddScoped<IAgentBus, AgentBus>();
 

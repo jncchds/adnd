@@ -5,6 +5,7 @@ import { useGame, useSessions, usePlayers, useCharacters } from '../api/gameHook
 import { useGameHub } from '../api/hubHook';
 import { api } from '../api/client';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus, MessageType } from '../types';
+import CombatTab from './CombatTab';
 import {
   Container, Box, Typography, Paper, TextField, Button, Tabs, Tab,
   List, ListItem, ListItemText, ListItemAvatar, Avatar, Chip,
@@ -16,7 +17,8 @@ import {
 import { Send as SendIcon, DirectionsRun as ActionIcon, SportsEsports as DiceIcon,
   People as PeopleIcon, MenuBook as BookIcon, Settings as SettingsIcon,
   Replay as ReplayIcon, ExitToApp as LeaveIcon,
-  Chat as ChatBubbleIcon, Mic as MicIcon, Article as SheetIcon } from '@mui/icons-material';
+  Chat as ChatBubbleIcon, Mic as MicIcon, Article as SheetIcon,
+  DirectionsRun as CombatIcon } from '@mui/icons-material';
 
 export default function GameRoomPage() {
   const { id } = useParams<{ id: string }>();
@@ -42,6 +44,7 @@ export default function GameRoomPage() {
   const [sessionTitle, setSessionTitle] = useState('');
   const [errorState, setErrorState] = useState<string | null>(null);
   const [successState, setSuccessState] = useState<string | null>(null);
+  const [activeCombats, setActiveCombats] = useState<any[]>([]);
   const [whisperTargets, setWhisperTargets] = useState('all');
   const [whisperContent, setWhisperContent] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -135,6 +138,16 @@ export default function GameRoomPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Load active combats
+  useEffect(() => {
+    if (id && isConnected) {
+      api.getActiveCombats(id).then((combats: unknown) => {
+        const c = combats as any[];
+        if (c && c.length > 0) setActiveCombats(c);
+      }).catch(() => {});
+    }
+  }, [id, isConnected]);
 
   const handleSendMessage = async () => {
     if (!message.trim() || !selectedSession) return;
@@ -249,6 +262,7 @@ export default function GameRoomPage() {
 
   const tabs = [
     { label: 'Chat', icon: <SendIcon /> },
+    { label: 'Combat', icon: <CombatIcon />, count: activeCombats.length > 0 ? activeCombats.length : undefined },
     { label: 'Whispers', icon: <ChatBubbleIcon />, count: whispers.length },
     { label: 'Players', icon: <PeopleIcon />, count: players.length },
     { label: 'Characters', icon: <BookIcon />, count: characters.length },
@@ -319,6 +333,10 @@ export default function GameRoomPage() {
           )}
 
           {activeTab === 1 && (
+            <CombatTab gameId={id || ''} />
+          )}
+
+          {activeTab === 2 && (
             <WhispersTab
               whispers={whispers}
               whisperContent={whisperContent}
@@ -332,26 +350,26 @@ export default function GameRoomPage() {
             />
           )}
 
-          {activeTab === 2 && (
+          {activeTab === 3 && (
             <PlayersTab players={players} />
           )}
 
-          {activeTab === 3 && (
+          {activeTab === 4 && (
             <CharactersTab characters={characters} />
           )}
 
-          {activeTab === 4 && (
+          {activeTab === 5 && (
             <ActionsTab onSkillCheck={handleSkillCheck} onAttack={handleAttack} onDiceRoll={() => setOpenDiceDialog(true)} />
           )}
 
-          {activeTab === 5 && (
+          {activeTab === 6 && (
             <AgentCallsTab
               calls={agentCalls}
               onRefresh={handleRefreshAgentCalls}
             />
           )}
 
-          {activeTab === 6 && (
+          {activeTab === 7 && (
             <SettingsTab game={game} sessions={sessions} onNewSession={() => setCreateSessionOpen(true)} />
           )}
         </Box>

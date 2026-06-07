@@ -17,15 +17,17 @@ public class GameHub : Hub
     private readonly IGameEngine _gameEngine;
     private readonly IAgentBus _agentBus;
     private readonly IWhisperService _whisperService;
+    private readonly ICombatService _combatService;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(AppDbContext context, IGameEngine gameEngine, IAgentBus agentBus,
-        IWhisperService whisperService, ILogger<GameHub> logger)
+        IWhisperService whisperService, ICombatService combatService, ILogger<GameHub> logger)
     {
         _context = context;
         _gameEngine = gameEngine;
         _agentBus = agentBus;
         _whisperService = whisperService;
+        _combatService = combatService;
         _logger = logger;
     }
 
@@ -545,6 +547,944 @@ public class GameHub : Hub
         });
     }
 
+    // ==================== Combat ====================
+
+    public async Task<CombatLogResponse> StartCombat(Guid gameId, Guid? sessionId, string? name = null)
+    {
+        var userId = Context.UserIdentifier;
+        if (!string.IsNullOrEmpty(userId) && Guid.TryParse(userId, out var uid))
+        {
+            var player = await _context.Players
+                .FirstOrDefaultAsync(p => p.UserId == uid && p.GameId == gameId);
+            if (player == null || player.Role != PlayerRole.GM)
+                throw new ForbiddenException("Only the GM can start combat.");
+        }
+
+        var combat = await _combatService.StartCombatAsync(gameId, sessionId, name);
+
+        await Clients.Group(gameId.ToString()).SendAsync("CombatStarted", new
+        {
+            combat.Id,
+            combat.Name,
+            combat.CurrentRound,
+            Participants = combat.Participants.Select(p => new { p.Id, p.DisplayName, p.ParticipantType, p.CurrentHP, p.MaxHP, p.AC, p.Initiative }).ToList(),
+            combat.StartedAt
+        });
+
+        return BuildCombatLog(combat);
+    }
+
+    public async Task<CombatLogResponse> EndCombat(Guid combatId, string? result = null)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var endedCombat = await _combatService.EndCombatAsync(combatId, result);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatEnded", new
+        {
+            combatId,
+            result,
+            EndedAt = DateTime.UtcNow
+        });
+
+        return BuildCombatLog(endedCombat);
+    }
+
+    public async Task<CombatLogResponse> PauseCombat(Guid combatId)
+    {
+        var combat = await _combatService.PauseCombatAsync(combatId);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatPaused", new { combatId });
+        return BuildCombatLog(combat);
+    }
+
+    public async Task<CombatLogResponse> ResumeCombat(Guid combatId)
+    {
+        var combat = await _combatService.ResumeCombatAsync(combatId);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatResumed", new { combatId });
+        return BuildCombatLog(combat);
+    }
+
+    public async Task<CombatParticipantResponse> AddParticipant(Guid combatId, string participantType,
+        string displayName, int ac, int currentHP, int maxHP, Guid? playerId = null, Guid? npcId = null)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var participant = await _combatService.AddParticipantAsync(
+            combatId, participantType, playerId, npcId, displayName, ac, currentHP, maxHP);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatParticipantAdded", new
+        {
+            participant.Id,
+            participant.DisplayName,
+            participant.ParticipantType,
+            participant.CurrentHP,
+            participant.MaxHP,
+            participant.AC,
+            participant.Initiative
+        });
+
+        return BuildParticipantResponse(participant);
+    }
+
+    public async Task<CombatLogResponse> RemoveParticipant(Guid combatId, Guid participantId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.RemoveParticipantAsync(combatId, participantId);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatParticipantRemoved", new { participantId });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<(CombatParticipantResponse participant, int[] rolls)> RollInitiative(Guid combatId, Guid participantId, string formula = "1d20")
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var (participant, rolls) = await _combatService.RollInitiativeAsync(combatId, participantId, formula);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("InitiativeRolled", new
+        {
+            participant.Id,
+            participant.DisplayName,
+            participant.Initiative,
+            rolls
+        });
+
+        return (BuildParticipantResponse(participant), rolls);
+    }
+
+    public async Task<CombatLogResponse> RollInitiativeForAll(Guid combatId, string formula = "1d20")
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.RollInitiativeForAllAsync(combatId, formula);
+
+        var turnOrder = string.Join(", ", result.Participants.Select(p => $"{p.DisplayName} ({p.Initiative})"));
+        await Clients.Group(combat.GameId.ToString()).SendAsync("InitiativeComplete", new
+        {
+            turnOrder,
+            Participants = result.Participants.Select(p => new
+            {
+                p.Id,
+                p.DisplayName,
+                p.Initiative,
+                p.CurrentHP,
+                p.MaxHP,
+                p.AC
+            })
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> AdvanceTurn(Guid combatId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.AdvanceTurnAsync(combatId);
+        var currentTurn = await _combatService.GetCurrentTurnParticipantAsync(combatId);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("TurnAdvanced", new
+        {
+            result.CurrentRound,
+            currentTurn.Id,
+            currentTurn.DisplayName,
+            currentTurn.CurrentHP,
+            currentTurn.MaxHP,
+            currentTurn.AC,
+            currentTurn.Initiative
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> RetreatTurn(Guid combatId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.RetreatTurnAsync(combatId);
+        var currentTurn = await _combatService.GetCurrentTurnParticipantAsync(combatId);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("TurnRetreated", new
+        {
+            result.CurrentRound,
+            currentTurn.Id,
+            currentTurn.DisplayName
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatParticipantResponse> GetCurrentTurn(Guid combatId)
+    {
+        var participant = await _combatService.GetCurrentTurnParticipantAsync(combatId);
+        return BuildParticipantResponse(participant);
+    }
+
+    public async Task<CombatLogResponse> SetCurrentTurn(Guid combatId, Guid participantId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.SetCurrentTurnAsync(combatId, participantId);
+        var currentTurn = await _combatService.GetCurrentTurnParticipantAsync(combatId);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("TurnSet", new
+        {
+            result.CurrentRound,
+            currentTurn.Id,
+            currentTurn.DisplayName
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatAttackResponse> CombatAttack(Guid combatId, string attackerName, string weapon,
+        Guid targetId, string attackFormula, int? attackBonus = null, string? damageFormula = null,
+        int? damageBonus = null, string? description = null)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.ExecuteAttackAsync(
+            combatId, attackerName, weapon, targetId, attackFormula,
+            attackBonus, damageFormula, damageBonus, description);
+
+        // Update target HP on the character sheet if it's a player
+        if (result.TargetHP != result.TargetMaxHP)
+        {
+            var participant = combat.Participants.FirstOrDefault(p => p.Id == targetId);
+            if (participant?.PlayerId.HasValue == true)
+            {
+                var player = await _context.Players.FindAsync(participant.PlayerId.Value);
+                if (player?.Character != null)
+                {
+                    player.Character.CurrentHP = result.TargetHP;
+                    _context.Characters.Update(player.Character);
+                    await _context.SaveChangesAsync();
+                }
+            }
+        }
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatAttack", new
+        {
+            result.Attacker,
+            result.Weapon,
+            result.Target,
+            result.Hit,
+            result.IsCritical,
+            result.IsFumble,
+            result.AttackRoll,
+            result.AttackDice,
+            result.AC,
+            result.DamageDice,
+            result.DamageTotal,
+            result.DamageInfo,
+            result.TargetHP,
+            result.TargetMaxHP
+        });
+
+        return new CombatAttackResponse
+        {
+            Attacker = result.Attacker,
+            Weapon = result.Weapon,
+            Target = result.Target,
+            Hit = result.Hit,
+            IsCritical = result.IsCritical,
+            IsFumble = result.IsFumble,
+            AttackRoll = result.AttackRoll,
+            AttackDice = result.AttackDice,
+            AC = result.AC,
+            DamageDice = result.DamageDice,
+            DamageTotal = result.DamageTotal,
+            DamageInfo = result.DamageInfo,
+            TargetHP = result.TargetHP,
+            TargetMaxHP = result.TargetMaxHP
+        };
+    }
+
+    public async Task<CombatSaveThrowResponse> CombatSaveThrow(Guid combatId, string participantName,
+        Guid participantId, string saveType, string saveFormula, int dc)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.ExecuteSaveThrowAsync(
+            combatId, participantName, participantId, saveType, saveFormula, dc);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatSaveThrow", new
+        {
+            result.Participant,
+            result.SaveType,
+            result.DiceRoll,
+            result.DC,
+            result.Success,
+            result.RolledAt
+        });
+
+        return new CombatSaveThrowResponse
+        {
+            Participant = result.Participant,
+            SaveType = result.SaveType,
+            DiceRoll = result.DiceRoll,
+            DC = result.DC,
+            Success = result.Success
+        };
+    }
+
+    public async Task<CombatLogResponse> CombatApplyCondition(Guid combatId, Guid participantId,
+        string conditionName, int? duration = null, string? description = null)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.ApplyConditionAsync(
+            combatId, participantId, conditionName, duration, description);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("ConditionApplied", new
+        {
+            participantId,
+            conditionName,
+            duration
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatRemoveCondition(Guid combatId, Guid participantId, string conditionName)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.RemoveConditionAsync(combatId, participantId, conditionName);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("ConditionRemoved", new
+        {
+            participantId,
+            conditionName
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatDealDamage(Guid combatId, Guid participantId, int damage, string? source = null)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.DealDamageAsync(combatId, participantId, damage, source);
+
+        // Update character HP if it's a player
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId);
+        if (participant?.PlayerId.HasValue == true)
+        {
+            var player = await _context.Players.FindAsync(participant.PlayerId.Value);
+            if (player?.Character != null)
+            {
+                player.Character.CurrentHP = participant.CurrentHP;
+                _context.Characters.Update(player.Character);
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatDamage", new
+        {
+            ParticipantId = participantId,
+            DisplayName = participant?.DisplayName,
+            Damage = damage,
+            HP = participant?.CurrentHP,
+            MaxHP = participant?.MaxHP,
+            Source = source
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatHeal(Guid combatId, Guid participantId, int amount, string? source = null)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.HealAsync(combatId, participantId, amount, source);
+
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId);
+        if (participant?.PlayerId.HasValue == true)
+        {
+            var player = await _context.Players.FindAsync(participant.PlayerId.Value);
+            if (player?.Character != null)
+            {
+                player.Character.CurrentHP = participant.CurrentHP;
+                _context.Characters.Update(player.Character);
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatHeal", new
+        {
+            ParticipantId = participantId,
+            DisplayName = participant?.DisplayName,
+            Amount = amount,
+            HP = participant?.CurrentHP,
+            MaxHP = participant?.MaxHP,
+            Source = source
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatDeathSaveResponse> CombatDeathSave(Guid combatId, Guid participantId, bool success)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId)
+            ?? throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        var result = await _combatService.MakeDeathSaveAsync(combatId, participantId, success);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatDeathSave", new
+        {
+            Participant = result.Participant,
+            Success = result.Success,
+            Successes = result.Successes,
+            Failures = result.Failures,
+            IsStabilized = result.IsStabilized,
+            IsDead = result.IsDead
+        });
+
+        return new CombatDeathSaveResponse
+        {
+            Participant = result.Participant,
+            Success = result.Success,
+            Successes = result.Successes,
+            Failures = result.Failures,
+            IsStabilized = result.IsStabilized,
+            IsDead = result.IsDead
+        };
+    }
+
+    public async Task<CombatLogResponse> GetCombatLog(Guid combatId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var log = await _combatService.GetCombatLogAsync(combatId);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatLogUpdated", BuildCombatLogResponse(log));
+
+        return BuildCombatLogResponse(log);
+    }
+
+    public async Task<List<CombatSummary>> GetActiveCombats(Guid gameId)
+    {
+        var combats = await _combatService.GetActiveCombatAsync(gameId);
+        return combats.Select(c => new CombatSummary
+        {
+            Id = c.Id,
+            Name = c.Name,
+            Status = c.Status.ToString(),
+            CurrentRound = c.CurrentRound,
+            ParticipantCount = c.Participants.Count,
+            StartedAt = c.StartedAt
+        }).ToList();
+    }
+
+    // ==================== Spell Combat ====================
+
+    public async Task<CombatSpellCastResponse> CombatCastSpell(Guid combatId, string casterName, string spellName,
+        Guid targetId, string saveFormula, int saveDC, string? damageFormula = null,
+        int? damageBonus = null, string? description = null)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.CastSpellAsync(
+            combatId, casterName, spellName, targetId, saveFormula, saveDC,
+            damageFormula, damageBonus, description);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatSpellCast", new
+        {
+            result.Caster,
+            result.SpellName,
+            result.SpellLevel,
+            result.Target,
+            result.SaveType,
+            result.SaveDC,
+            result.SaveSuccess,
+            result.IsCritical,
+            result.DamageType,
+            result.DamageTotal,
+            result.DamageInfo,
+            result.Effect,
+            result.TargetHP,
+            result.TargetMaxHP
+        });
+
+        return new CombatSpellCastResponse
+        {
+            Caster = result.Caster,
+            SpellName = result.SpellName,
+            SpellLevel = result.SpellLevel,
+            Target = result.Target,
+            SaveType = result.SaveType,
+            SaveDC = result.SaveDC,
+            SaveSuccess = result.SaveSuccess,
+            IsCritical = result.IsCritical,
+            DamageType = result.DamageType,
+            DamageTotal = result.DamageTotal,
+            DamageInfo = result.DamageInfo,
+            Effect = result.Effect,
+            TargetHP = result.TargetHP,
+            TargetMaxHP = result.TargetMaxHP
+        };
+    }
+
+    public async Task<CombatSpellCastResponse> CombatCastAreaSpell(Guid combatId, string casterName, string spellName,
+        string saveFormula, int saveDC, string? damageFormula = null,
+        int? damageBonus = null, string? description = null, string[]? targetIds = null)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var targetGuids = targetIds?.Select(Guid.Parse).ToArray();
+        var result = await _combatService.CastAreaSpellAsync(
+            combatId, casterName, spellName, saveFormula, saveDC,
+            damageFormula, damageBonus, description, targetGuids);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatSpellCast", new
+        {
+            result.Caster,
+            result.SpellName,
+            result.Target,
+            result.SaveType,
+            result.SaveDC,
+            result.SaveSuccess,
+            result.DamageType,
+            result.DamageTotal,
+            result.DamageInfo,
+            result.Effect
+        });
+
+        return new CombatSpellCastResponse
+        {
+            Caster = result.Caster,
+            SpellName = result.SpellName,
+            Target = result.Target,
+            SaveType = result.SaveType,
+            SaveDC = result.SaveDC,
+            SaveSuccess = result.SaveSuccess,
+            DamageType = result.DamageType,
+            DamageTotal = result.DamageTotal,
+            DamageInfo = result.DamageInfo,
+            Effect = result.Effect
+        };
+    }
+
+    // ==================== System-Specific ====================
+
+    public async Task<CombatLogResponse> CombatApplySystemEffects(Guid combatId, string systemId, Guid participantId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.ApplySystemSpecificEffectsAsync(combatId, systemId, participantId);
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatCalculateProficiency(Guid combatId, string systemId, int level)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.CalculateProficiencyBonusAsync(combatId, systemId, level);
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatCalculateSave(Guid combatId, string systemId, string saveType,
+        Guid participantId, int? proficiencyBonus = null)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.CalculateSavingThrowAsync(combatId, systemId, saveType, participantId, proficiencyBonus);
+        return BuildCombatLog(result);
+    }
+
+    // ==================== Character Progression ====================
+
+    public async Task<CombatLogResponse> CombatAddXP(Guid combatId, Guid participantId, int xpAmount, string reason)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.AddXPAsync(combatId, participantId, xpAmount, reason);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatXP", new
+        {
+            participantId,
+            xpAmount,
+            reason
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLevelUpResponse> CombatLevelUp(Guid combatId, Guid participantId, int newLevel, string systemId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.LevelUpAsync(combatId, participantId, newLevel, systemId);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatLevelUp", new
+        {
+            participantId,
+            newLevel,
+            systemId
+        });
+
+        return new CombatLevelUpResponse
+        {
+            ParticipantId = participantId,
+            NewLevel = newLevel,
+            SystemId = systemId
+        };
+    }
+
+    public async Task<CombatLogResponse> CombatCalculateXP(Guid combatId, string systemId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.CalculateXPForCombatAsync(combatId, systemId);
+        return BuildCombatLog(result);
+    }
+
+    // ==================== Rest System ====================
+
+    public async Task<CombatLogResponse> CombatStartShortRest(Guid combatId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.StartShortRestAsync(combatId);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatRestStarted", new
+        {
+            combatId,
+            restType = "Short"
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatStartLongRest(Guid combatId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.StartLongRestAsync(combatId);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatRestStarted", new
+        {
+            combatId,
+            restType = "Long"
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatEndRest(Guid combatId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.EndRestAsync(combatId);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatRestEnded", new { combatId });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatRestStatusResponse> CombatGetRestStatus(Guid combatId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.GetCurrentRestStatusAsync(combatId);
+        return new CombatRestStatusResponse
+        {
+            RestType = result.RestType,
+            IsInProgress = result.IsInProgress,
+            RoundsRemaining = result.RoundsRemaining,
+            HPRecovered = result.HPRecovered,
+            Effects = result.Effects
+        };
+    }
+
+    // ==================== Inventory/Equipment ====================
+
+    public async Task<CombatLogResponse> CombatAddItem(Guid combatId, Guid participantId, string itemName,
+        string itemType, int quantity = 1, JsonElement? itemStats = null)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.AddItemToParticipantAsync(combatId, participantId, itemName, itemType, quantity, itemStats);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatItemAdded", new
+        {
+            participantId,
+            itemName,
+            itemType,
+            quantity
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatRemoveItem(Guid combatId, Guid participantId, string itemName)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.RemoveItemFromParticipantAsync(combatId, participantId, itemName);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatItemRemoved", new
+        {
+            participantId,
+            itemName
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatEquipItem(Guid combatId, Guid participantId, string itemName)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.EquipItemAsync(combatId, participantId, itemName);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatItemEquipped", new
+        {
+            participantId,
+            itemName
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatUnequipItem(Guid combatId, Guid participantId, string itemName)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.UnequipItemAsync(combatId, participantId, itemName);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatItemUnequipped", new
+        {
+            participantId,
+            itemName
+        });
+        return BuildCombatLog(result);
+    }
+
+    // ==================== Grid/Map ====================
+
+    public async Task<CombatLogResponse> CombatSetGridSize(Guid combatId, int width, int height)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.SetGridSizeAsync(combatId, width, height);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatGridSet", new
+        {
+            combatId,
+            width,
+            height
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatSetPosition(Guid combatId, Guid participantId, int gridX, int gridY)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.SetParticipantPositionAsync(combatId, participantId, gridX, gridY);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatPositionSet", new
+        {
+            participantId,
+            gridX,
+            gridY
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatMoveParticipant(Guid combatId, Guid participantId, int newGridX, int newGridY)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.MoveParticipantAsync(combatId, participantId, newGridX, newGridY);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatMove", new
+        {
+            participantId,
+            newGridX,
+            newGridY
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatGridPositionResponse?> CombatGetPosition(Guid combatId, Guid participantId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.GetParticipantPositionAsync(combatId, participantId);
+        return result == null ? null : new CombatGridPositionResponse
+        {
+            ParticipantId = result.ParticipantId,
+            GridX = result.GridX,
+            GridY = result.GridY,
+            DisplayName = result.DisplayName,
+            MoveSpeed = result.MoveSpeed
+        };
+    }
+
+    public async Task<List<CombatGridPositionResponse>> CombatGetAdjacentPositions(Guid combatId, int gridX, int gridY, int range = 1)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var positions = await _combatService.GetAdjacentPositionsAsync(combatId, gridX, gridY, range);
+        return positions.Select(p => new CombatGridPositionResponse
+        {
+            GridX = p.GridX,
+            GridY = p.GridY
+        }).ToList();
+    }
+
+    // ==================== AI Combat ====================
+
+    public async Task<CombatAISuggestionsResponse> CombatGetAISuggestions(Guid combatId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var suggestions = await _combatService.GetAITacticalSuggestionsAsync(combatId);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatAISuggestions", new
+        {
+            combatId,
+            suggestions.ThreatLevel,
+            suggestions.RecommendedStrategy,
+            suggestions.Suggestions,
+            suggestions.NPCActions,
+            suggestions.Warnings
+        });
+
+        return new CombatAISuggestionsResponse
+        {
+            CombatId = combatId,
+            ThreatLevel = suggestions.ThreatLevel,
+            RecommendedStrategy = suggestions.RecommendedStrategy,
+            Suggestions = suggestions.Suggestions,
+            NPCActions = suggestions.NPCActions,
+            Warnings = suggestions.Warnings
+        };
+    }
+
+    public async Task<CombatAISuggestionsResponse> CombatGetAINPCBehavior(Guid combatId, Guid npcId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var suggestions = await _combatService.GetAINPCBehaviorAsync(combatId, npcId);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatAINPCBehavior", new
+        {
+            combatId,
+            npcId,
+            suggestions.NPCActions
+        });
+
+        return new CombatAISuggestionsResponse
+        {
+            CombatId = combatId,
+            NPCActions = suggestions.NPCActions
+        };
+    }
+
+    public async Task<CombatLogResponse> CombatAutoResolve(Guid combatId, string resolutionMode = "quick")
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.AutoResolveCombatAsync(combatId, resolutionMode);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatAutoResolved", new
+        {
+            combatId,
+            resolutionMode
+        });
+        return BuildCombatLog(result);
+    }
+
+    // ==================== SAN (CoC) ====================
+
+    public async Task<CombatLogResponse> CombatApplySANLoss(Guid combatId, Guid participantId, int sanLoss, string reason)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.ApplySANLossAsync(combatId, participantId, sanLoss, reason);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatSANLoss", new
+        {
+            participantId,
+            sanLoss,
+            reason
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> CombatApplySANRecovery(Guid combatId, Guid participantId, int sanRecovery)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.ApplySANRecoveryAsync(combatId, participantId, sanRecovery);
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatSANRecovery", new
+        {
+            participantId,
+            sanRecovery
+        });
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatSANCheckResponse> CombatMakeSANCheck(Guid combatId, Guid participantId, int dc)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.MakeSANCheckAsync(combatId, participantId, dc);
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("CombatSANCheck", new
+        {
+            result.Participant,
+            result.CurrentSAN,
+            result.Roll,
+            result.DC,
+            result.Success,
+            result.IsCritical,
+            result.SANLoss,
+            result.Effect
+        });
+
+        return new CombatSANCheckResponse
+        {
+            Participant = result.Participant,
+            CurrentSAN = result.CurrentSAN,
+            Roll = result.Roll,
+            DC = result.DC,
+            Success = result.Success,
+            IsCritical = result.IsCritical,
+            SANLoss = result.SANLoss,
+            Effect = result.Effect
+        };
+    }
+
     // ==================== Helpers ====================
 
     /// <summary>
@@ -576,6 +1516,111 @@ public class GameHub : Hub
             Targets = w.Targets,
             CreatedAt = w.CreatedAt
         };
+
+    // ==================== Combat Helpers ====================
+
+    private static CombatLogResponse BuildCombatLog(Models.Combat combat)
+    {
+        var currentTurnId = combat.Participants.Count > 0
+            ? combat.Participants[Math.Min(combat.CurrentTurnIndex, combat.Participants.Count - 1)].Id
+            : Guid.Empty;
+
+        return new CombatLogResponse
+        {
+            CombatId = combat.Id,
+            Name = combat.Name,
+            Status = combat.Status.ToString(),
+            CurrentRound = combat.CurrentRound,
+            CurrentTurnIndex = combat.CurrentTurnIndex,
+            Participants = combat.Participants
+                .OrderBy(p => p.Initiative)
+                .ThenByDescending(p => p.InitiativeCount)
+                .Select(p => new CombatParticipantResponse
+                {
+                    Id = p.Id,
+                    DisplayName = p.DisplayName,
+                    ParticipantType = p.ParticipantType,
+                    CurrentHP = p.CurrentHP,
+                    MaxHP = p.MaxHP,
+                    AC = p.AC,
+                    Initiative = p.Initiative,
+                    Conditions = JsonSerializer.Deserialize<List<ConditionEntryResponse>>(p.Conditions.ToString()) ?? new(),
+                    IsCurrentTurn = p.Id == currentTurnId,
+                    IsDead = p.CurrentHP <= 0
+                }).ToList(),
+            Events = combat.Events
+                .OrderBy(e => e.CreatedAt)
+                .Select(e => new CombatLogEventResponse
+                {
+                    Id = e.Id,
+                    Round = e.Round,
+                    TurnIndex = e.TurnIndex,
+                    Type = e.Type.ToString(),
+                    ActorName = e.ActorName,
+                    TargetName = e.TargetName,
+                    Content = e.Content,
+                    CreatedAt = e.CreatedAt
+                }).ToList()
+        };
+    }
+
+    private static CombatLogResponse BuildCombatLogResponse(CombatLog log)
+    {
+        return new CombatLogResponse
+        {
+            CombatId = log.CombatId,
+            Name = log.Name,
+            Status = log.Status.ToString(),
+            CurrentRound = log.CurrentRound,
+            CurrentTurnIndex = log.CurrentTurnIndex,
+            Participants = log.Participants.Select(p => new CombatParticipantResponse
+            {
+                Id = p.Id,
+                DisplayName = p.DisplayName,
+                ParticipantType = p.ParticipantType,
+                CurrentHP = p.CurrentHP,
+                MaxHP = p.MaxHP,
+                AC = p.AC,
+                Initiative = p.Initiative,
+                Conditions = p.Conditions.Select(c => new ConditionEntryResponse
+                {
+                    Name = c.Name,
+                    Duration = c.Duration,
+                    Description = c.Description
+                }).ToList(),
+                IsCurrentTurn = p.IsCurrentTurn,
+                IsDead = p.IsDead
+            }).ToList(),
+            Events = log.Events.Select(e => new CombatLogEventResponse
+            {
+                Id = e.Id,
+                Round = e.Round,
+                TurnIndex = e.TurnIndex,
+                Type = e.Type.ToString(),
+                ActorName = e.ActorName,
+                TargetName = e.TargetName,
+                Content = e.Content,
+                CreatedAt = e.CreatedAt
+            }).ToList()
+        };
+    }
+
+    private static CombatParticipantResponse BuildParticipantResponse(Models.CombatParticipant p)
+    {
+        return new CombatParticipantResponse
+        {
+            Id = p.Id,
+            DisplayName = p.DisplayName,
+            ParticipantType = p.ParticipantType,
+            CurrentHP = p.CurrentHP,
+            MaxHP = p.MaxHP,
+            AC = p.AC,
+            Initiative = p.Initiative,
+            Conditions = JsonSerializer.Deserialize<List<ConditionEntryResponse>>(p.Conditions.ToString()) ?? new(),
+            IsCurrentTurn = false,
+            IsDead = p.CurrentHP <= 0
+        };
+    }
 }
 
 // ============= Response DTOs =============
@@ -605,6 +1650,176 @@ public class AgentCallResponse
     public string? Error { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+}
+
+// ============= Combat Response DTOs =============
+
+public class CombatLogResponse
+{
+    public Guid CombatId { get; set; }
+    public string? Name { get; set; }
+    public string Status { get; set; } = "Active";
+    public int CurrentRound { get; set; }
+    public int CurrentTurnIndex { get; set; }
+    public List<CombatParticipantResponse> Participants { get; set; } = new();
+    public List<CombatLogEventResponse> Events { get; set; } = new();
+}
+
+public class CombatParticipantResponse
+{
+    public Guid Id { get; set; }
+    public string DisplayName { get; set; } = string.Empty;
+    public string ParticipantType { get; set; } = string.Empty;
+    public int CurrentHP { get; set; }
+    public int MaxHP { get; set; }
+    public int AC { get; set; }
+    public int Initiative { get; set; }
+    public List<ConditionEntryResponse> Conditions { get; set; } = new();
+    public bool IsCurrentTurn { get; set; }
+    public bool IsDead { get; set; }
+}
+
+public class ConditionEntryResponse
+{
+    public string Name { get; set; } = string.Empty;
+    public int Duration { get; set; }
+    public string? Description { get; set; }
+}
+
+public class CombatLogEventResponse
+{
+    public Guid Id { get; set; }
+    public int Round { get; set; }
+    public int TurnIndex { get; set; }
+    public string Type { get; set; } = string.Empty;
+    public string ActorName { get; set; } = string.Empty;
+    public string TargetName { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
+public class CombatAttackResponse
+{
+    public string Attacker { get; set; } = string.Empty;
+    public string Weapon { get; set; } = string.Empty;
+    public string Target { get; set; } = string.Empty;
+    public bool Hit { get; set; }
+    public bool IsCritical { get; set; }
+    public bool IsFumble { get; set; }
+    public int AttackRoll { get; set; }
+    public int AttackDice { get; set; }
+    public int AC { get; set; }
+    public string DamageDice { get; set; } = string.Empty;
+    public int DamageTotal { get; set; }
+    public string DamageInfo { get; set; } = string.Empty;
+    public int TargetHP { get; set; }
+    public int TargetMaxHP { get; set; }
+}
+
+public class CombatSaveThrowResponse
+{
+    public string Participant { get; set; } = string.Empty;
+    public string SaveType { get; set; } = string.Empty;
+    public int DiceRoll { get; set; }
+    public int DC { get; set; }
+    public bool Success { get; set; }
+}
+
+public class CombatDeathSaveResponse
+{
+    public string Participant { get; set; } = string.Empty;
+    public bool Success { get; set; }
+    public int Successes { get; set; }
+    public int Failures { get; set; }
+    public bool IsStabilized { get; set; }
+    public bool IsDead { get; set; }
+}
+
+public class CombatSummary
+{
+    public Guid Id { get; set; }
+    public string? Name { get; set; }
+    public string Status { get; set; } = "Active";
+    public int CurrentRound { get; set; }
+    public int ParticipantCount { get; set; }
+    public DateTime StartedAt { get; set; }
+}
+
+// ============= Spell Response DTOs =============
+
+public class CombatSpellCastResponse
+{
+    public string Caster { get; set; } = string.Empty;
+    public string SpellName { get; set; } = string.Empty;
+    public string SpellLevel { get; set; } = "0";
+    public string Target { get; set; } = string.Empty;
+    public string SaveType { get; set; } = string.Empty;
+    public int SaveDC { get; set; }
+    public bool SaveSuccess { get; set; }
+    public bool IsCritical { get; set; }
+    public string DamageType { get; set; } = string.Empty;
+    public int DamageTotal { get; set; }
+    public string DamageInfo { get; set; } = string.Empty;
+    public string Effect { get; set; } = string.Empty;
+    public int? TargetHP { get; set; }
+    public int? TargetMaxHP { get; set; }
+}
+
+// ============= Progression Response DTOs =============
+
+public class CombatLevelUpResponse
+{
+    public Guid ParticipantId { get; set; }
+    public int NewLevel { get; set; }
+    public string SystemId { get; set; } = string.Empty;
+}
+
+// ============= Rest Response DTOs =============
+
+public class CombatRestStatusResponse
+{
+    public string RestType { get; set; } = string.Empty;
+    public bool IsInProgress { get; set; }
+    public int RoundsRemaining { get; set; }
+    public int HPRecovered { get; set; }
+    public List<string> Effects { get; set; } = new();
+}
+
+// ============= Grid Response DTOs =============
+
+public class CombatGridPositionResponse
+{
+    public Guid ParticipantId { get; set; }
+    public int GridX { get; set; }
+    public int GridY { get; set; }
+    public string DisplayName { get; set; } = string.Empty;
+    public int MoveSpeed { get; set; }
+}
+
+// ============= AI Combat Response DTOs =============
+
+public class CombatAISuggestionsResponse
+{
+    public Guid CombatId { get; set; }
+    public string ThreatLevel { get; set; } = "Low";
+    public string RecommendedStrategy { get; set; } = string.Empty;
+    public List<Models.AITacticalAction> Suggestions { get; set; } = new();
+    public List<Models.AINPCAction> NPCActions { get; set; } = new();
+    public List<Models.AICombatWarning> Warnings { get; set; } = new();
+}
+
+// ============= SAN Response DTOs =============
+
+public class CombatSANCheckResponse
+{
+    public string Participant { get; set; } = string.Empty;
+    public int CurrentSAN { get; set; }
+    public int Roll { get; set; }
+    public int DC { get; set; }
+    public bool Success { get; set; }
+    public bool IsCritical { get; set; }
+    public int SANLoss { get; set; }
+    public string Effect { get; set; } = string.Empty;
 }
 
 public class ForbiddenException : Exception
