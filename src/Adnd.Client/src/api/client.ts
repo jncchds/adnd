@@ -217,10 +217,6 @@ class APIClient {
     return this.request('/admin/npcs/' + npcId, { method: 'DELETE' });
   }
 
-  async getPlotThreads(gameId: string) {
-    return this.request<PlotThreadListItem[]>(`/admin/games/${gameId}/plot-threads`);
-  }
-
   async createPlotThread(gameId: string, title: string, description: string) {
     return this.request('/admin/games/' + gameId + '/plot-threads', {
       method: 'POST',
@@ -232,6 +228,39 @@ class APIClient {
     return this.request('/admin/plot-threads/' + threadId, {
       method: 'PUT',
       body: JSON.stringify(updates),
+    });
+  }
+
+  async getPlotThreads(gameId: string) {
+    return this.request<PlotThreadListItem[]>(`/admin/games/${gameId}/plot-threads`);
+  }
+
+  // ==================== PlotWeaver ====================
+  async getPlotWeaverThreads(gameId: string) {
+    return this.request<PlotThreadResponse[]>(`/admin/games/${gameId}/plot-threads`);
+  }
+
+  async triggerPlotReview(gameId: string, context?: string) {
+    return this.request<PlotReviewResponse>(`/admin/games/${gameId}/plot-weaver/review`, {
+      method: 'POST',
+      body: JSON.stringify(context),
+    });
+  }
+
+  async getPlotReviewHistory(gameId: string, limit = 20) {
+    return this.request<PlotReviewResponse[]>(`/admin/games/${gameId}/plot-weaver/reviews?limit=${limit}`);
+  }
+
+  async adjustThreadMomentum(gameId: string, threadId: string, delta: number, reason: string) {
+    return this.request(`/admin/games/${gameId}/plot-weaver/threads/${threadId}/momentum`, {
+      method: 'POST',
+      body: JSON.stringify({ delta, reason }),
+    });
+  }
+
+  async detectOpportunities(gameId: string) {
+    return this.request<StoryOpportunityResponse[]>(`/admin/games/${gameId}/plot-weaver/opportunities`, {
+      method: 'POST',
     });
   }
 
@@ -568,6 +597,84 @@ export interface PlotThreadUpdateRequest {
   description?: string;
   status?: string;
   keyEventMessageIds?: string[];
+}
+
+// ==================== PlotWeaver types ====================
+
+export enum PlotThreadCategory {
+  General = 0,
+  Faction = 1,
+  Mystery = 2,
+  Personal = 3,
+  Threat = 4,
+  WorldEvent = 5,
+  Relationship = 6,
+}
+
+export interface PlotThreadResponse {
+  id: string;
+  title: string;
+  category: PlotThreadCategory;
+  description: string;
+  status: string;
+  momentum: number;
+  relevanceScore: number;
+  nextMilestone: string | null;
+  foreshadowing: string | null;
+  adaptationHistory: string[];
+  milestoneEvents: MilestoneEventResponse[];
+  isDynamic: boolean;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface MilestoneEventResponse {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  triggeredAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export interface StoryOpportunityResponse {
+  type: string;
+  title: string;
+  description: string;
+  threadId: string | null;
+  momentumDelta: number | null;
+  newThreadCategory: string | null;
+  newThreadTitle: string | null;
+  newThreadDescription: string | null;
+  newMilestone: string | null;
+}
+
+export interface ThreadUpdate {
+  threadId: string;
+  threadTitle: string;
+  oldMomentum: number | null;
+  newMomentum: number | null;
+  oldStatus: string | null;
+  newStatus: string | null;
+  oldDescription: string | null;
+  newDescription: string | null;
+  oldMilestone: string | null;
+  newMilestone: string | null;
+  reason: string;
+}
+
+export interface PlotReviewResponse {
+  id: string;
+  trigger: string;
+  summary: string;
+  updates: ThreadUpdate[];
+  reviewedAt: string;
+}
+
+export interface AdjustMomentumRequest {
+  delta: number;
+  reason: string;
 }
 
 export interface CharacterListItem {

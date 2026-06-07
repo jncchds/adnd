@@ -16,7 +16,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow
 } from '@mui/material';
 import { Send as SendIcon, DirectionsRun as ActionIcon, SportsEsports as DiceIcon,
-  People as PeopleIcon, MenuBook as BookIcon, Settings as SettingsIcon,
+  People as PeopleIcon, Settings as SettingsIcon,
   Replay as ReplayIcon, ExitToApp as LeaveIcon,
   Chat as ChatBubbleIcon, Mic as MicIcon, Article as SheetIcon,
   DirectionsRun as CombatIcon } from '@mui/icons-material';
@@ -351,7 +351,7 @@ export default function GameRoomPage() {
     { label: 'Combat', icon: <CombatIcon />, count: activeCombats.length > 0 ? activeCombats.length : undefined },
     { label: 'Whispers', icon: <MicIcon />, count: whispers.length + oocWhispers.length },
     { label: 'Players', icon: <PeopleIcon />, count: players.length },
-    { label: 'Characters', icon: <BookIcon />, count: characters.length },
+    { label: 'Characters', icon: <SheetIcon />, count: characters.length },
     { label: 'Actions', icon: <ActionIcon /> },
     { label: 'Agent Calls', icon: <MicIcon /> },
     { label: 'Settings', icon: <SettingsIcon /> },
@@ -490,11 +490,11 @@ export default function GameRoomPage() {
             />
           )}
 
-          {activeTab === 1 && (
+          {activeTab === 3 && (
             <CombatTab gameId={id || ''} />
           )}
 
-          {activeTab === 2 && (
+          {activeTab === 4 && (
             <WhispersTab
               whispers={[...whispers, ...oocWhispers]}
               whisperContent={whisperContent}
@@ -507,26 +507,26 @@ export default function GameRoomPage() {
             />
           )}
 
-          {activeTab === 3 && (
+          {activeTab === 5 && (
             <PlayersTab players={players} />
           )}
 
-          {activeTab === 4 && (
+          {activeTab === 6 && (
             <CharactersTab characters={characters} />
           )}
 
-          {activeTab === 5 && (
+          {activeTab === 7 && (
             <ActionsTab onSkillCheck={handleSkillCheck} onAttack={handleAttack} onDiceRoll={() => setOpenDiceDialog(true)} />
           )}
 
-          {activeTab === 6 && (
+          {activeTab === 8 && (
             <AgentCallsTab
               calls={agentCalls}
               onRefresh={handleRefreshAgentCalls}
             />
           )}
 
-          {activeTab === 7 && (
+          {activeTab === 9 && (
             <SettingsTab game={game} sessions={sessions} onNewSession={() => setCreateSessionOpen(true)} />
           )}
         </Box>

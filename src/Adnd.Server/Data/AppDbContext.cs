@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<NPC> NPCs => Set<NPC>();
     public DbSet<PlotThread> PlotThreads => Set<PlotThread>();
+    public DbSet<PlotReview> PlotReviews => Set<PlotReview>();
     public DbSet<CustomSystemDefinition> CustomSystems => Set<CustomSystemDefinition>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AgentCall> AgentCalls => Set<AgentCall>();
@@ -53,6 +54,43 @@ public class AppDbContext : DbContext
             .Property(p => p.Embedding)
             .HasConversion(new VectorValueConverter())
             .HasColumnType("vector");
+
+        // PlotThread new fields
+        modelBuilder.Entity<PlotThread>()
+            .Property(p => p.Momentum)
+            .HasColumnType("real");
+        modelBuilder.Entity<PlotThread>()
+            .Property(p => p.RelevanceScore)
+            .HasColumnType("real");
+        modelBuilder.Entity<PlotThread>()
+            .Property(p => p.AdaptationHistory)
+            .HasConversion(
+                v => v == null || !v.Any() ? "[]" : JsonSerializer.Serialize(v),
+                v => string.IsNullOrEmpty(v) || v == "[]" ? new List<string>() : JsonSerializer.Deserialize<List<string>>(v) ?? new List<string>())
+            .HasColumnType("jsonb");
+        modelBuilder.Entity<PlotThread>()
+            .Property(p => p.MilestoneEvents)
+            .HasConversion(
+                v => v == null || !v.Any() ? "[]" : JsonSerializer.Serialize(v),
+                v => string.IsNullOrEmpty(v) || v == "[]" ? new List<MilestoneEvent>() : JsonSerializer.Deserialize<List<MilestoneEvent>>(v) ?? new List<MilestoneEvent>())
+            .HasColumnType("jsonb");
+
+        // PlotReview
+        modelBuilder.Entity<PlotReview>()
+            .HasOne(pr => pr.Game)
+            .WithMany(g => g.PlotReviews)
+            .HasForeignKey(pr => pr.GameId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PlotReview>()
+            .Property(pr => pr.Updates)
+            .HasConversion(
+                v => v == null || !v.Any() ? "[]" : JsonSerializer.Serialize(v),
+                v => string.IsNullOrEmpty(v) || v == "[]" ? new List<ThreadUpdate>() : JsonSerializer.Deserialize<List<ThreadUpdate>>(v) ?? new List<ThreadUpdate>())
+            .HasColumnType("jsonb");
+
+        modelBuilder.Entity<PlotReview>()
+            .HasIndex(pr => new { pr.GameId, pr.ReviewedAt })
+            .IsDescending(new[] { false, true });
 
         // User email unique
         modelBuilder.Entity<User>()

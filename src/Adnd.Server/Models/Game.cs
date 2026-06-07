@@ -32,6 +32,7 @@ public class Game
     public ICollection<GameSession> Sessions { get; set; } = new List<GameSession>();
     public ICollection<NPC> NPCs { get; set; } = new List<NPC>();
     public ICollection<PlotThread> PlotThreads { get; set; } = new List<PlotThread>();
+    public ICollection<PlotReview> PlotReviews { get; set; } = new List<PlotReview>();
     public ICollection<AgentCall> AgentCalls { get; set; } = new List<AgentCall>();
 }
 

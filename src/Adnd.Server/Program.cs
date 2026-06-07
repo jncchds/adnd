@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
@@ -62,7 +64,8 @@ builder.Services.AddCors(options =>
 
 // DB Context
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Default"))
+        .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
 // Auth
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -122,6 +125,9 @@ builder.Services.AddScoped<ILLMProviderRegistry, LLMProviderRegistry>();
 builder.Services.AddScoped<IRAGService, RAGService>();
 builder.Services.AddScoped<ILLMPresetService, LLMPresetService>();
 builder.Services.AddScoped<ILLMInteractionLogger, LLMInteractionLogger>();
+
+// PlotWeaver — automatic plot thread generation and evolution
+builder.Services.AddScoped<IPlotWeaver, PlotWeaver>();
 
 // Register Ollama provider if configured
 var ollamaConfig = builder.Configuration.GetSection("Ollama");

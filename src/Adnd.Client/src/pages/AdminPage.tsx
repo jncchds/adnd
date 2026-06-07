@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useGame, useNPCs, usePlotThreads, useCharacters, useConsistency, useLLMPresets } from '../api/gameHooks';
+import { useGame, useNPCs, usePlotThreads, useCharacters, useConsistency, useLLMPresets, usePlotWeaver } from '../api/gameHooks';
 import { useGameHub } from '../api/hubHook';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
 import CharacterCreateWizard from './CharacterCreateWizard';
+import PlotBoardAdminTab from './PlotBoardAdminTab';
 import {
   Container, Box, Typography, Paper, Tabs, Tab,
   List, ListItem, ListItemText, ListItemAvatar, Avatar,
@@ -16,7 +17,8 @@ import { Delete as DeleteIcon, Add as AddIcon,
   CheckCircle as CheckCircleIcon,
   MenuBook as BookIcon, People as PeopleIcon, History as HistoryIcon,
   AutoFixHigh as ConsistencyIcon, Mic as MicIcon, Chat as ChatBubbleIcon,
-  Settings as SettingsIcon, Shield as ShieldIcon, Article as SheetIcon } from '@mui/icons-material';
+  Settings as SettingsIcon, Shield as ShieldIcon, Article as SheetIcon,
+  Lightbulb as BulbIcon } from '@mui/icons-material';
 
 export default function AdminPage() {
   const { id } = useParams<{ id: string }>();
@@ -26,6 +28,7 @@ export default function AdminPage() {
   const { threads, isLoading: threadsLoading, createThread, updateThread } = usePlotThreads(id);
   const { characters } = useCharacters(id);
   const { report, isLoading: consistencyLoading, check } = useConsistency(id);
+  const { threads: plotThreads, isLoading: plotThreadsLoading } = usePlotWeaver(id);
 
   const [activeTab, setActiveTab] = useState(0);
   const [npcDialogOpen, setNpcDialogOpen] = useState(false);
@@ -312,6 +315,7 @@ export default function AdminPage() {
 
   const tabs = [
     { label: 'NPCs', icon: <PeopleIcon />, count: npcs.length },
+    { label: 'Plot Board', icon: <BulbIcon />, count: plotThreads.length },
     { label: 'Plot Threads', icon: <BookIcon />, count: threads.length },
     { label: 'Characters', icon: <HistoryIcon />, count: characters.length },
     { label: 'Consistency', icon: <ConsistencyIcon /> },
@@ -365,6 +369,10 @@ export default function AdminPage() {
       )}
 
       {activeTab === 1 && (
+        <PlotBoardAdminTab threads={plotThreads} isLoading={plotThreadsLoading} gameId={id || ''} />
+      )}
+
+      {activeTab === 2 && (
         <PlotThreadsTab
           threads={threads}
           threadsLoading={threadsLoading}
@@ -373,11 +381,11 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 2 && (
+      {activeTab === 3 && (
         <CharactersTab characters={characters} />
       )}
 
-      {activeTab === 3 && (
+      {activeTab === 4 && (
         <ConsistencyTab
           report={report}
           isLoading={consistencyLoading}
@@ -385,7 +393,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 4 && (
+      {activeTab === 5 && (
         <AgentCallsTab
           calls={agentCalls}
           isLoading={false}
@@ -397,7 +405,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 5 && (
+      {activeTab === 6 && (
         <WhispersTabAdmin
           whispers={whispers}
           isLoading={false}
@@ -407,7 +415,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 6 && (
+      {activeTab === 7 && (
         <GameStateTab
           game={game}
           gameStateJson={gameStateJson}
@@ -421,7 +429,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 7 && (
+      {activeTab === 8 && (
         <LLMPresetsTab
           presets={presets}
           isLoading={presetsLoading}
@@ -432,7 +440,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 8 && (
+      {activeTab === 9 && (
         <LLMLogsTab
           logs={llmLogs}
           isLoading={logsLoading}
@@ -448,7 +456,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 9 && (
+      {activeTab === 10 && (
         <SystemsTab
           systems={systems}
           showRegistry={showSystemRegistry}

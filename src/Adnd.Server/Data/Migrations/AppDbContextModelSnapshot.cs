@@ -764,11 +764,57 @@ namespace Adnd.Server.Data.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("Category")
+                        .HasColumnType("integer");
+
+                    b.Property<float>("Momentum")
+                        .HasColumnType("real");
+
+                    b.Property<float>("RelevanceScore")
+                        .HasColumnType("real");
+
+                    b.Property<bool>("IsDynamic")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("MilestoneEvents")
+                        .HasColumnType("jsonb");
+
                     b.HasKey("Id");
 
                     b.HasIndex("GameId");
 
                     b.ToTable("PlotThreads");
+                });
+
+            modelBuilder.Entity("Adnd.Server.Models.PlotReview", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("GameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Updates")
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GameId", "ReviewedAt")
+                        .IsDescending(false, true);
+
+                    b.ToTable("PlotReviews");
                 });
 
             modelBuilder.Entity("Adnd.Server.Models.RefreshToken", b =>
@@ -1077,6 +1123,17 @@ namespace Adnd.Server.Data.Migrations
                     b.Navigation("PlotThread");
                 });
 
+            modelBuilder.Entity("Adnd.Server.Models.PlotReview", b =>
+                {
+                    b.HasOne("Adnd.Server.Models.Game", "Game")
+                        .WithMany("PlotReviews")
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Game");
+                });
+
             modelBuilder.Entity("Adnd.Server.Models.Player", b =>
                 {
                     b.HasOne("Adnd.Server.Models.Game", "Game")
@@ -1166,6 +1223,8 @@ namespace Adnd.Server.Data.Migrations
                     b.Navigation("Players");
 
                     b.Navigation("PlotThreads");
+
+                    b.Navigation("PlotReviews");
 
                     b.Navigation("Sessions");
                 });
