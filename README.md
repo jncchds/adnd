@@ -13,15 +13,19 @@
 ## ✨ Features
 
 - **Multi-system TTRPG support** — D&D 5e, Pathfinder 2e, Call of Cthulhu 7e, plus custom systems
-- **LLM-powered Game Master** — Pluggable provider system (OpenAI, Anthropic, Ollama, etc.)
-- **Agentic framework** — GM, LLM, Dice, RAG, NPC, Player, and System agents collaborate
+- **AI-driven Game Master** — Per-game GameAgent runs the game using the Creator's LLM preset
+- **Creator/GM split** — Creator defines plot seed, tone, and LLM preset; AI-GM handles all narrative
+- **MediatR event bus** — In-process event-driven architecture between SignalR hub and services
+- **Persistent GameAgent** — Per-game background processor with Hangfire + PostgreSQL (survives restarts)
+- **Agentic framework** — Creator, GM, LLM, Dice, RAG, NPC, Player, and System agents
 - **RAG for plot consistency** — Embedding-based context retrieval and continuity checks
 - **Real-time multiplayer** — SignalR hub for chat, dice rolls, skill checks, and combat
-- **Private whispers** — Player-to-player, player-to-GM, GM-to-player, and group whispers
+- **Private whispers** — Player-to-player, player-to-creator, creator-to-player, and group whispers
+- **Creator story sway** — Creators can nudge the AI-GM's narrative direction in real-time
 - **Character management** — Full character sheets, creation wizard, and proficiency tracking
 - **Combat system** — Initiative, attacks, skill checks, and per-system resolution
 - **JWT authentication** — Register, login, refresh tokens with role-based game access
-- **Docker-first deployment** — One-command setup with PostgreSQL + pgvector
+- **Docker-first deployment** — One-command setup with PostgreSQL + pgvector + Hangfire
 
 ## 🚀 Quick Start
 
@@ -80,6 +84,17 @@ dotnet ef database update
 │  │ Game,     │  │ Migrations│  │ pgvector       │  │
 │  │ Character │  └──────────┘  └──────────────────┘  │
 │  └──────────┘                                        │
+│  ┌──────────────────────────────────────────┐        │
+│  │  MediatR Event Bus                       │        │
+│  │  Events: GameCreated, DiceRolled, etc.   │        │
+│  │  Handlers: GameLifecycle, Chat, Combat   │        │
+│  └──────────────────────────────────────────┘        │
+│  ┌──────────────────────────────────────────┐        │
+│  │  GameAgentManager (singleton)             │        │
+│  │  Per-game GameAgents (polling DB for     │        │
+│  │  pending AgentCalls)                     │        │
+│  │  Recovery on startup via Hangfire+PostgreSQL│       │
+│  └──────────────────────────────────────────┘        │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -92,11 +107,35 @@ dotnet ef database update
 | Call of Cthulhu 7e | `coc7e` | d100 skill rolls, sanity, critical/fumble |
 | Custom | `custom` | Define your own via the admin panel |
 
-## 🤖 Agentic Framework
+## 🤖 AI Game Master & Agentic Framework
+
+### Creator / AI-GM Split
+
+| Role | Responsibility |
+|------|---------------|
+| **Creator** | Defines game premise (plot seed), tone, difficulty, and LLM preset. Can "sway" the story with narrative nudges. |
+| **AI-GM** | Runs the game autonomously using the Creator's LLM preset. Generates narrative, manages plot threads, handles combat narration. |
+| **Player** | Plays the game, rolls dice, makes skill checks, engages in combat. |
+
+### Agent Architecture
+
+```
+Player Action → GameHub (SignalR)
+              → MediatR Event (e.g., DiceRolled)
+              → GameAgentManager.GetOrCreate(gameId)
+              → GameAgent (per-game, polls AgentCalls DB table)
+              → AgentBus.ExecuteCall()
+              → LLM Agent (narrative) → GM Agent → Players via SignalR
+                           ↓
+                      RAG Agent (consistency check)
+                           ↓
+                      Dice Agent (if needed)
+```
 
 | Agent | Responsibility |
 |-------|---------------|
-| **GM Agent** | Orchestrator — manages game state, delegates to other agents |
+| **Creator Agent** | Sends narrative nudges (story sway) to the GM |
+| **GM Agent** | Per-game orchestrator — processes events, delegates to other agents |
 | **LLM Agent** | Narrative generation, plot suggestions, NPC dialogue |
 | **Dice Agent** | Dice rolling per system rules |
 | **RAG Agent** | Plot consistency checks, context retrieval |
@@ -104,12 +143,15 @@ dotnet ef database update
 | **Player Agent** | Character sheet queries, rules lookups |
 | **System Agent** | RPG system rules engine |
 
+### GameAgent Lifecycle
+
 ```
-Player Action → GM Agent → LLM Agent (narrative) → GM Agent → Players
-                           ↓
-                      RAG Agent (consistency check)
-                           ↓
-                      Dice Agent (if needed)
+Game Created → GameAgentManager.GetOrCreate(gameId)
+             → GameAgent.StartAsync(gameId, creatorId)
+             → Processing loop polls AgentCalls table
+             → Each event → AgentBus.ExecuteCall() → LLM call
+             → Creator can pause/resume at any time
+             → On restart: GameAgentManager.StartAllActiveGamesAsync() recovers agents
 ```
 
 ## 📡 API Overview
@@ -119,10 +161,11 @@ All API endpoints are under `/api/`. Swagger docs are available at `/swagger`.
 | Area | Endpoints |
 |------|-----------|
 | **Auth** | `POST /register`, `/login`, `/refresh`, `/logout` · `GET /me` |
-| **Games** | CRUD games/sessions/players · invite · join/leave · promote |
+| **Games** | CRUD games/sessions/players · invite · join/leave · start · archive |
 | **Admin** | NPCs, plot threads, characters, LLM presets, systems |
+| **GM Agent** | `GET/POST /games/{id}/gm-status`, `/gm/pause`, `/gm/resume`, `/sway` |
 | **RAG** | Plot context, similar threads, consistency checks, summaries |
-| **Whispers** | Private messaging (player↔player, player↔GM, GM↔player) |
+| **Whispers** | Private messaging (player↔player, player↔creator, creator↔player) |
 | **Agent Calls** | Agent-to-agent communication and history |
 | **Combat** | Initiative, attacks, skill checks, game state |
 
@@ -133,7 +176,7 @@ All API endpoints are under `/api/`. Swagger docs are available at `/swagger`.
 | `JoinGame` / `LeaveGame` | `NewMessage`, `NewWhisper` |
 | `SendMessage` | `DiceRollResult`, `SkillCheckResult` |
 | `RollDice` / `SkillCheck` / `Attack` | `AttackResult`, `PlayerJoined`/`Left` |
-| `SendWhisper` / `SendGMWhisper` | `AgentCallStarted`/`Completed` |
+| `SendWhisper` / `SendCreatorWhisper` | `AgentCallStarted`/`Completed` |
 | `CallAgent` | `Error` |
 
 ## 🗄️ Dice Formula Support
@@ -174,13 +217,13 @@ All API endpoints are under `/api/`. Swagger docs are available at `/swagger`.
 - **LLM:** Pluggable provider system (OpenAI, Anthropic, Ollama, etc.)
 - **Deployment:** Docker Compose
 
-## 📝 Game Master & Creator Roles
+## 📝 Creator / AI-GM / Player Roles
 
 | Role | Permissions |
 |------|-------------|
-| **Creator** | Creates game, sets plot seed, assigns GM, sees all data |
-| **Game Master** | Runs game, manages plot, sends whispers, sees agent logs |
-| **Player** | Plays the game, whispers (if permitted), sees public chat |
+| **Creator** | Creates game, sets plot seed/tone/LLM preset, sways story, pauses/resumes GM |
+| **AI-GM** | Runs the game autonomously — generates narrative, manages plot, handles combat |
+| **Player** | Plays the game, rolls dice, makes skill checks, engages in combat |
 | **Spectator** | Watches the game, no interaction |
 | **Observer** | Creator who can watch but not play (read-only) |
 

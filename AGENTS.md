@@ -5,9 +5,11 @@
 ## Project Overview
 
 **ADnD (Advanced Dungeon Network)** is a multi-system TTRPG web framework with:
-- ASP.NET Core 10 backend (API + SignalR hub)
+- ASP.NET Core 10 backend (API + SignalR hub + MediatR event bus)
 - React 19 + TypeScript + MUI frontend
 - PostgreSQL 17 + pgvector database
+- Per-game GameAgent with Hangfire persistence
+- Creator/AI-GM split architecture
 - Pluggable LLM provider system with agentic framework
 
 ## Directory Structure
@@ -18,7 +20,7 @@ src/
 │   ├── Controllers/          # REST API endpoints
 │   │   ├── AuthController.cs     # JWT auth, register, login, refresh, logout
 │   │   ├── GamesController.cs    # Games, sessions, players CRUD
-│   │   └── AdminController.cs    # NPCs, plots, characters, LLM, RAG, systems
+│   │   └── AdminController.cs    # NPCs, plots, characters, LLM, RAG, systems, GM agent
 │   ├── Hubs/
 │   │   └── GameHub.cs            # SignalR: chat, dice, skill checks, attacks, whispers
 │   ├── Services/
@@ -34,7 +36,14 @@ src/
 │   │   ├── AgentBus.cs               # Agent-to-agent messaging framework
 │   │   ├── WhisperService.cs         # Private messaging
 │   │   ├── CombatService.cs          # Initiative, attacks, combat state
-│   │   └── UserIdProvider.cs         # Current user from JWT
+│   │   ├── UserIdProvider.cs         # Current user from JWT
+│   │   └── IGameAgent.cs             # IGameAgent + IGameAgentManager interfaces
+│   ├── Agent/                    # NEW: Per-game GameAgent system
+│   │   └── GameAgent.cs          # GameAgent + GameAgentManager (singleton)
+│   ├── Events/                   # NEW: MediatR events
+│   │   └── GameEvents.cs         # 25+ game event types
+│   ├── Handlers/                 # NEW: MediatR event handlers
+│   │   └── GameEventHandlers.cs  # GameLifecycle, GameAction, Chat, Plot, Session handlers
 │   ├── Models/
 │   │   ├── User.cs, Player.cs, Game.cs, GameSession.cs
 │   │   ├── Character.cs, Message.cs, NPC.cs, PlotThread.cs
@@ -46,7 +55,7 @@ src/
 │   │   ├── MigrationService.cs     # Auto-applies migrations on startup
 │   │   ├── GameExtensions.cs       # EF query helpers for games
 │   │   └── Migrations/             # EF Core migrations
-│   └── Program.cs            # DI, auth, Swagger, CORS, SPA middleware
+│   └── Program.cs            # DI, auth, Swagger, CORS, SPA, MediatR, GameAgent recovery
 └── Adnd.Client/              # Frontend (React 19 + TS + MUI)
     ├── src/
     │   ├── App.tsx               # Router with auth guards
@@ -54,15 +63,15 @@ src/
     │   ├── api/
     │   │   ├── client.ts         # APIClient class (fetch wrapper, auth headers)
     │   │   ├── authHook.tsx      # useAuth context provider
-    │   │   ├── gameHooks.ts      # useGames, useGame, useSessions, etc.
+    │   │   ├── gameHooks.ts      # useGames, useGame, useSessions, useGMStatus, useSway
     │   │   ├── hubHook.ts        # useGameHub SignalR wrapper
     │   │   ├── useEntity.ts      # Generic entity CRUD hook
     │   │   └── types/index.ts    # Shared TypeScript types
     │   ├── pages/
     │   │   ├── HomePage.tsx           # Landing page
     │   │   ├── AuthPage.tsx           # Login/Register tabs
-    │   │   ├── DashboardPage.tsx      # Game list, create/join
-    │   │   ├── GameRoomPage.tsx       # Chat, dice, players, actions, settings
+    │   │   ├── DashboardPage.tsx      # Game list, create/join (with LLM preset, plot seed)
+    │   │   ├── GameRoomPage.tsx       # Chat, dice, players, actions, settings, GM status
     │   │   ├── AdminPage.tsx          # NPCs, plots, characters, LLM presets, systems
     │   │   ├── CharacterSheetPage.tsx # View/edit character
     │   │   ├── CharacterCreateWizard.tsx # Multi-step character creation
@@ -80,21 +89,28 @@ src/
 - **Models** use EF Core conventions. Primary keys are convention-based (`Id`).
 - **Migrations** are auto-applied at startup via `MigrationService`. No manual `dotnet ef` needed in prod.
 - **Auth** uses JWT bearer tokens with refresh token rotation. `UserIdProvider` extracts user ID from JWT.
-- **Authorization** is game-scoped. `GameAuthorizationService` checks role permissions (Creator/GM/Player/Spectator/Observer).
+- **Authorization** is game-scoped. `GameAuthorizationService` checks role permissions (Creator/Player/Spectator/Observer).
 - **SignalR** hub is `GameHub`. Use `Clients.Group($"game:{gameId}")` for game-scoped broadcasts.
 - **LLM providers** implement a pluggable interface. Configure via admin panel, stored in DB.
 - **RAG** uses pgvector for embeddings. `RAGService` handles similarity search and consistency checks.
 - **AgentBus** is the agentic framework. Agents register handlers and call each other via `CallAgent`.
 - **DiceEngine** parses formulas like `4d6kh3+2d4-1`. System-aware resolution.
+- **MediatR** event bus decouples GameHub from services. Events are published for all game actions.
+- **GameAgent** per-game background processor polls `AgentCalls` table for pending events.
+- **GameAgentManager** is a singleton that manages per-game agents and recovers them on startup.
+- **Hangfire + PostgreSQL** provides persistent job queue (survives restarts, future external broker replacement).
+- **Creator/GM split**: Creator defines plot seed/tone/LLM preset; AI-GM runs the game autonomously.
 
 ### Frontend (React)
 
 - **API Client** (`api/client.ts`) wraps fetch with auth headers. All API calls go through it.
-- **Hooks** follow `useXxx` pattern: `useAuth`, `useGames`, `useGame`, `useGameHub`.
+- **Hooks** follow `useXxx` pattern: `useAuth`, `useGames`, `useGame`, `useGameHub`, `useGMStatus`, `useSway`.
 - **GameHub** (`hubHook.ts`) manages SignalR connection, groups, and event subscriptions.
 - **Pages** are route-based. Auth guards wrap protected routes.
 - **MUI** theme is dark-mode by default. All components use MUI theming.
 - **Types** are shared in `api/types/index.ts`. Match backend models.
+- **Game creation** includes LLM preset selection, plot seed, and game parameters.
+- **Game room** shows GM status indicator, pause/resume buttons, and creator sway input.
 
 ### Docker
 
@@ -107,14 +123,22 @@ src/
 
 | File | Purpose |
 |------|---------|
-| `src/Adnd.Server/Program.cs` | App entry, DI, auth, Swagger, CORS, SPA |
+| `src/Adnd.Server/Program.cs` | App entry, DI, auth, Swagger, CORS, SPA, MediatR, GameAgent recovery |
 | `src/Adnd.Server/Data/AppDbContext.cs` | All EF entities and relationships |
 | `src/Adnd.Server/Services/GameEngine.cs` | Core game logic — understand this first |
 | `src/Adnd.Server/Services/AgentBus.cs` | Agentic framework — agent registration and dispatch |
 | `src/Adnd.Server/Services/LLMProvider.cs` | LLM provider interface and base |
 | `src/Adnd.Server/Services/RAGService.cs` | Embedding search, plot consistency |
+| `src/Adnd.Server/Services/IGameAgent.cs` | IGameAgent + IGameAgentManager interfaces |
+| `src/Adnd.Server/Agent/GameAgent.cs` | GameAgent (per-game) + GameAgentManager (singleton) |
+| `src/Adnd.Server/Events/GameEvents.cs` | 25+ MediatR event types |
+| `src/Adnd.Server/Handlers/GameEventHandlers.cs` | MediatR notification handlers |
+| `src/Adnd.Server/Hubs/GameHub.cs` | SignalR hub — publishes events via IMediator |
+| `src/Adnd.Server/Controllers/AdminController.cs` | NPCs, plots, characters, LLM presets, systems, GM agent |
+| `src/Adnd.Server/Controllers/GamesController.cs` | Games, sessions, players CRUD |
 | `src/Adnd.Client/src/api/client.ts` | API client — all backend calls |
 | `src/Adnd.Client/src/api/hubHook.ts` | SignalR wrapper |
+| `src/Adnd.Client/src/api/gameHooks.ts` | useGames, useGame, useGMStatus, useSway |
 | `src/Adnd.Client/src/App.tsx` | Router and auth guards |
 | `docker-compose.yml` | Dev/prod container orchestration |
 
@@ -153,10 +177,14 @@ cd ../Adnd.Server && dotnet publish -c Release -o ../publish
 
 ## Adding a New Agent
 
-1. Register the agent in `AgentBus.cs` with its handler methods
-2. Define agent call contract in `AgentCall.cs` model
-3. Add agent-specific logic in a dedicated service class
-4. Update `GameHub.cs` to route agent calls through the bus
+1. Add agent type to `AgentType` enum in `AgentCall.cs`
+2. Add action type to `AgentAction` enum in `AgentCall.cs` (if needed)
+3. Add dispatch handler in `AgentBus.cs` `DispatchCall()` method
+4. Define agent call contract in `AgentCall.cs` model
+5. Add agent-specific logic in a dedicated service class
+6. Update `GameHub.cs` to route agent calls through the bus
+7. Add event type in `Events/GameEvents.cs` if it should trigger narrative
+8. Add handler in `Handlers/GameEventHandlers.cs` if it should be event-driven
 
 ## Common Tasks
 
@@ -168,6 +196,7 @@ cd ../Adnd.Server && dotnet publish -c Release -o ../publish
 5. Add frontend API call in `api/client.ts`
 6. Add hook in `api/gameHooks.ts` if reusable
 7. Add UI component/page as needed
+8. If it triggers game narrative, add event in `Events/GameEvents.cs` and handler in `Handlers/GameEventHandlers.cs`
 
 ### Debugging
 - Swagger UI: `http://localhost:5010/swagger`
