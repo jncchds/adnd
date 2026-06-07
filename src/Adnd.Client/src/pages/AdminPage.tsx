@@ -12,7 +12,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Button, IconButton, Chip, Alert, AlertTitle,
   Divider, Card, CardContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Select, MenuItem
+  Select, MenuItem, Collapse
 } from '@mui/material';
 import { Delete as DeleteIcon, Add as AddIcon,
   CheckCircle as CheckCircleIcon,
@@ -20,7 +20,9 @@ import { Delete as DeleteIcon, Add as AddIcon,
   AutoFixHigh as ConsistencyIcon, Mic as MicIcon, Chat as ChatBubbleIcon,
   Settings as SettingsIcon, Shield as ShieldIcon, Article as SheetIcon,
   Lightbulb as BulbIcon,
-  BarChart as BarChartIcon } from '@mui/icons-material';
+  BarChart as BarChartIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon,
+  Chat as ChatIcon, Cloud as OllamaIcon, Home as LMStudioIcon,
+  Google as GoogleIcon, Circle as OpenAIIcon } from '@mui/icons-material';
 
 export default function AdminPage() {
   const { id } = useParams<{ id: string }>();
@@ -142,7 +144,7 @@ export default function AdminPage() {
       setEditingPreset(preset);
       setPresetName(preset.name);
       setPresetProvider(preset.providerType);
-      setPresetModel(preset.baseUrlModel);
+      setPresetModel(preset.baseModel);
       setPresetEndpoint(preset.endpointUrl || '');
       setPresetApiKey('');
       setPresetTemp(preset.temperature);
@@ -171,7 +173,7 @@ export default function AdminPage() {
       const request = {
         name: presetName,
         providerType: presetProvider,
-        baseUrlModel: presetModel,
+        baseModel: presetModel,
         endpointUrl: presetEndpoint || undefined,
         apiKey: presetApiKey || undefined,
         temperature: presetTemp,
@@ -1101,7 +1103,7 @@ function SystemsTab({ systems, showRegistry, customSystemName, setCustomSystemNa
           <Button variant="outlined" onClick={onToggleRegistry}>
             {showRegistry ? 'Hide Registry' : 'Show Registry'}
           </Button>
-          <Button variant="contained" onClick={() => setShowCreate(!showCreate)}>
+          <Button variant="outlined" onClick={() => setShowCreate(!showCreate)}>
             Add Custom System
           </Button>
         </Box>
@@ -1188,13 +1190,15 @@ function SystemsTab({ systems, showRegistry, customSystemName, setCustomSystemNa
 // ==================== LLM Presets Tab ====================
 
 function LLMPresetsTab({ presets, isLoading, onOpenDialog, onDelete, onTest, onSetDefault }: any) {
+  const [expanded, setExpanded] = useState(true);
+
   const getProviderIcon = (provider: string) => {
     switch (provider) {
-      case 'ollama': return '🦙';
-      case 'lmstudio': return '🏠';
-      case 'openai': return '🔵';
-      case 'google': return '🟢';
-      default: return '🤖';
+      case 'ollama': return <OllamaIcon fontSize="small" />;
+      case 'lmstudio': return <LMStudioIcon fontSize="small" />;
+      case 'openai': return <OpenAIIcon fontSize="small" sx={{ color: '#10a97f' }} />;
+      case 'google': return <GoogleIcon fontSize="small" />;
+      default: return <ChatIcon fontSize="small" />;
     }
   };
 
@@ -1212,61 +1216,71 @@ function LLMPresetsTab({ presets, isLoading, onOpenDialog, onDelete, onTest, onS
     <Paper>
       <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h6">LLM Presets ({presets.length})</Typography>
-        <Button variant="contained" onClick={() => onOpenDialog()} size="small">New Preset</Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button variant="outlined" size="small" onClick={() => setExpanded(!expanded)}>
+            {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+            {expanded ? 'Collapse' : 'Expand'}
+          </Button>
+          <Button variant="contained" size="small" onClick={() => onOpenDialog()} startIcon={<AddIcon fontSize="small" />}>
+            Add Preset
+          </Button>
+        </Box>
       </Box>
-      <Divider />
-      {isLoading ? (
-        <Typography sx={{ p: 2 }}>Loading...</Typography>
-      ) : presets.length === 0 ? (
-        <Typography sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
-          No LLM presets configured. Create one to get started.
-        </Typography>
-      ) : (
-        <List>
-          {presets.map((preset: any) => (
-            <ListItem key={preset.id} sx={{ px: 2, alignItems: 'flex-start' }}>
-              <ListItemAvatar>
-                <Avatar>{getProviderIcon(preset.providerType)}</Avatar>
-              </ListItemAvatar>
-              <ListItemText
-                primary={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="body1">{preset.name}</Typography>
-                    {preset.isDefault && <Chip label="Default" size="small" color="primary" />}
-                    {!preset.isActive && <Chip label="Inactive" size="small" color="default" />}
-                  </Box>
-                }
-                secondary={
-                  <Box sx={{ mt: 0.5 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {getProviderLabel(preset.providerType)} · {preset.baseUrlModel} · Temp: {preset.temperature} · Max: {preset.maxTokens}T
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {preset.endpointUrl || 'Default endpoint'}{preset.hasApiKey ? ' · Has API key' : ' · No API key'}
-                    </Typography>
-                  </Box>
-                }
-              />
-              <Box sx={{ display: 'flex', gap: 0.5 }}>
-                <IconButton size="small" onClick={() => onTest(preset.id)} color="info">
-                  <CheckCircleIcon fontSize="small" />
-                </IconButton>
-                <IconButton size="small" onClick={() => onOpenDialog(preset)}>
-                  <SettingsIcon fontSize="small" />
-                </IconButton>
-                {!preset.isDefault && (
-                  <IconButton size="small" onClick={() => onSetDefault(preset.id)} color="primary">
-                    <ShieldIcon fontSize="small" />
+      <Collapse in={expanded}>
+        <Divider />
+        {isLoading ? (
+          <Typography sx={{ p: 2 }}>Loading...</Typography>
+        ) : presets.length === 0 ? (
+          <Typography sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
+            No LLM presets configured. Click "Add Preset" to get started.
+          </Typography>
+        ) : (
+          <List>
+            {presets.map((preset: any) => (
+              <ListItem key={preset.id} sx={{ px: 2, alignItems: 'flex-start' }}>
+                <ListItemAvatar>
+                  <Avatar sx={{ width: 32, height: 32 }}>{getProviderIcon(preset.providerType)}</Avatar>
+                </ListItemAvatar>
+                <ListItemText
+                  primary={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body1">{preset.name}</Typography>
+                      {preset.isDefault && <Chip label="Default" size="small" color="primary" />}
+                      {!preset.isActive && <Chip label="Inactive" size="small" color="default" />}
+                    </Box>
+                  }
+                  secondary={
+                    <Box sx={{ mt: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {getProviderLabel(preset.providerType)} · {preset.baseModel} · Temp: {preset.temperature} · Max: {preset.maxTokens}T
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {preset.endpointUrl || 'Default endpoint'}{preset.hasApiKey ? ' · Has API key' : ' · No API key'}
+                      </Typography>
+                    </Box>
+                  }
+                />
+                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  <IconButton size="small" onClick={() => onTest(preset.id)} color="info">
+                    <CheckCircleIcon fontSize="small" />
                   </IconButton>
-                )}
-                <IconButton size="small" onClick={() => onDelete(preset.id)} color="error">
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </Box>
-            </ListItem>
-          ))}
-        </List>
-      )}
+                  <IconButton size="small" onClick={() => onOpenDialog(preset)}>
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                  {!preset.isDefault && (
+                    <IconButton size="small" onClick={() => onSetDefault(preset.id)} color="primary">
+                      <ShieldIcon fontSize="small" />
+                    </IconButton>
+                  )}
+                  <IconButton size="small" onClick={() => onDelete(preset.id)} color="error">
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              </ListItem>
+            ))}
+          </List>
+        )}
+      </Collapse>
     </Paper>
   );
 }
