@@ -3,7 +3,7 @@ FROM node:20-alpine AS build-client
 WORKDIR /app
 
 COPY src/Adnd.Client/package.json src/Adnd.Client/package-lock.json* ./
-RUN npm ci --omit=dev
+RUN npm ci
 
 COPY src/Adnd.Client/ ./
 RUN npm run build
