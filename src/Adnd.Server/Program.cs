@@ -13,6 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
 builder.Services.AddControllers();
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -86,6 +87,8 @@ builder.Services.AddAuthorization();
 // Services
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<MigrationService>();
+builder.Services.AddScoped<IUserIdProvider, UserIdProvider>();
+builder.Services.AddScoped<IGameAuthorizationService, GameAuthorizationService>();
 
 // Game Engine
 builder.Services.AddScoped<IDiceEngine, DiceEngine>();

@@ -22,6 +22,8 @@ public class AdminController : ControllerBase
     private readonly IWhisperService _whisperService;
     private readonly ILLMPresetService _presetService;
     private readonly ILLMInteractionLogger _interactionLogger;
+    private readonly IUserIdProvider _userIdProvider;
+    private readonly IGameAuthorizationService _authService;
     private readonly ILogger<AdminController> _logger;
 
     public AdminController(
@@ -33,6 +35,8 @@ public class AdminController : ControllerBase
         IWhisperService whisperService,
         ILLMPresetService presetService,
         ILLMInteractionLogger interactionLogger,
+        IUserIdProvider userIdProvider,
+        IGameAuthorizationService authService,
         ILogger<AdminController> logger)
     {
         _context = context;
@@ -43,6 +47,8 @@ public class AdminController : ControllerBase
         _whisperService = whisperService;
         _presetService = presetService;
         _interactionLogger = interactionLogger;
+        _userIdProvider = userIdProvider;
+        _authService = authService;
         _logger = logger;
     }
 
@@ -54,7 +60,7 @@ public class AdminController : ControllerBase
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
 
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var npcs = await _context.NPCs
             .Where(n => n.GameId == gameId)
@@ -80,7 +86,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         var npc = new NPC
         {
@@ -108,7 +114,7 @@ public class AdminController : ControllerBase
         if (npc == null) return NotFound(new { error = "NPC not found." });
 
         var game = await _context.Games.FindAsync(npc.GameId);
-        if (game == null || game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game == null || game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         if (request.Name != null) npc.Name = request.Name;
         if (request.Description != null) npc.Description = request.Description;
@@ -129,7 +135,7 @@ public class AdminController : ControllerBase
         if (npc == null) return NotFound(new { error = "NPC not found." });
 
         var game = await _context.Games.FindAsync(npc.GameId);
-        if (game == null || game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game == null || game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         _context.NPCs.Remove(npc);
         await _context.SaveChangesAsync();
@@ -144,7 +150,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var threads = await _context.PlotThreads
             .Where(p => p.GameId == gameId)
@@ -169,7 +175,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         var thread = new PlotThread
         {
@@ -194,7 +200,7 @@ public class AdminController : ControllerBase
         if (thread == null) return NotFound(new { error = "Plot thread not found." });
 
         var game = await _context.Games.FindAsync(thread.GameId);
-        if (game == null || game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game == null || game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         if (request.Title != null) thread.Title = request.Title;
         if (request.Description != null) thread.Description = request.Description;
@@ -229,7 +235,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var characters = await _context.Characters
             .Where(c => c.Player!.GameId == gameId)
@@ -269,8 +275,8 @@ public class AdminController : ControllerBase
         var playerId = character.Player?.GameId;
         if (playerId == null) return NotFound(new { error = "Character player not found." });
 
-        var game = await _context.Games.FindAsync(playerId);
-        if (game == null || !HasAccess(game)) return Forbid();
+        var game = await _context.Games.FindAsync(playerId.Value);
+        if (game == null || !await _authService.HasAccessAsync(_context, playerId.Value, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         return Ok(new
         {
@@ -298,7 +304,7 @@ public class AdminController : ControllerBase
         if (character == null) return NotFound(new { error = "Character not found." });
 
         var game = await _context.Games.FindAsync(character.Player!.GameId);
-        if (game == null || !HasAccess(game)) return Forbid();
+        if (game == null || !await _authService.HasAccessAsync(_context, character.Player.GameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         if (request.Name != null) character.Name = request.Name;
         if (request.Class != null) character.Class = request.Class;
@@ -327,7 +333,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         game.Status = GameStatus.Active;
         game.StartedAt = DateTime.UtcNow;
@@ -341,7 +347,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         game.Status = GameStatus.Archived;
         game.EndedAt = DateTime.UtcNow;
@@ -364,7 +370,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var context = await _ragService.GeneratePlotContextAsync(gameId, maxMessages);
         return Ok(new { context });
@@ -375,7 +381,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var threads = await _ragService.FindSimilarPlotThreadsAsync(gameId, request.Query, request.Limit);
 
@@ -394,7 +400,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var report = await _ragService.CheckPlotConsistencyAsync(gameId, messageCount);
         return Ok(report);
@@ -405,7 +411,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var summary = await _ragService.GenerateSessionSummaryAsync(sessionId, messageCount);
         return Ok(new { summary });
@@ -434,7 +440,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         var system = new CustomSystemDefinition
         {
@@ -457,9 +463,9 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         var player = await _context.Players
             .FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId);
 
@@ -484,9 +490,9 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         var player = await _context.Players
             .FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId && p.Status == PlayerStatus.Active);
 
@@ -518,9 +524,9 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         var player = await _context.Players
             .FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId && p.Status == PlayerStatus.Active);
 
@@ -542,7 +548,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var calls = await _agentBus.GetCallHistoryAsync(gameId, fromAgent, action, limit);
 
@@ -572,7 +578,7 @@ public class AdminController : ControllerBase
         if (game == null)
             return NotFound(new { error = "Game not found." });
 
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         var hasAccess = game.CreatorId == userId || game.Players.Any(p => p.UserId == userId);
         if (!hasAccess) return Forbid();
 
@@ -598,7 +604,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var call = new AgentCall
         {
@@ -632,7 +638,7 @@ public class AdminController : ControllerBase
     {
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         return Ok(new
         {
@@ -649,7 +655,7 @@ public class AdminController : ControllerBase
         var game = await _context.Games.FindAsync(gameId);
         if (game == null) return NotFound(new { error = "Game not found." });
 
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         if (game.CreatorId != userId && game.GameMasterId != userId)
             return Forbid();
 
@@ -667,7 +673,7 @@ public class AdminController : ControllerBase
     [HttpGet("llm-presets")]
     public async Task<IActionResult> GetLLMPresets()
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         var presets = await _presetService.GetUserPresetsAsync(userId);
         return Ok(presets.Select(p => new
         {
@@ -690,7 +696,7 @@ public class AdminController : ControllerBase
     [HttpGet("llm-presets/{presetId}")]
     public async Task<IActionResult> GetLLMPreset(Guid presetId)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         var preset = await _presetService.GetPresetAsync(userId, presetId);
         if (preset == null) return NotFound(new { error = "Preset not found." });
 
@@ -721,7 +727,7 @@ public class AdminController : ControllerBase
     [HttpPost("llm-presets")]
     public async Task<IActionResult> CreateLLMPreset([FromBody] CreateLLMPresetRequest request)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         var preset = await _presetService.CreatePresetAsync(userId, request);
         return Ok(new { preset.Id, preset.Name, preset.ProviderType, preset.BaseModel });
     }
@@ -729,7 +735,7 @@ public class AdminController : ControllerBase
     [HttpPut("llm-presets/{presetId}")]
     public async Task<IActionResult> UpdateLLMPreset(Guid presetId, [FromBody] UpdateLLMPresetRequest request)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         var preset = await _presetService.UpdatePresetAsync(userId, presetId, request);
         return Ok(new { preset.Id, preset.Name, preset.ProviderType, preset.BaseModel });
     }
@@ -737,7 +743,7 @@ public class AdminController : ControllerBase
     [HttpDelete("llm-presets/{presetId}")]
     public async Task<IActionResult> DeleteLLMPreset(Guid presetId)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         await _presetService.DeletePresetAsync(userId, presetId);
         return Ok(new { message = "Preset deleted." });
     }
@@ -745,7 +751,7 @@ public class AdminController : ControllerBase
     [HttpPost("llm-presets/{presetId}/test")]
     public async Task<IActionResult> TestLLMPreset(Guid presetId)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         try
         {
             var isConnected = await _presetService.TestConnectionAsync(userId, presetId);
@@ -760,7 +766,7 @@ public class AdminController : ControllerBase
     [HttpPost("llm-presets/{presetId}/set-default")]
     public async Task<IActionResult> SetDefaultPreset(Guid presetId)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         await _presetService.SetDefaultPresetAsync(userId, presetId);
         return Ok(new { message = "Default preset updated." });
     }
@@ -776,14 +782,14 @@ public class AdminController : ControllerBase
         [FromQuery] DateTime? to,
         [FromQuery] int limit = 100)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         List<LLMInteractionLog> logs;
 
         if (gameId.HasValue)
         {
             var game = await _context.Games.FindAsync(gameId.Value);
             if (game == null) return NotFound(new { error = "Game not found." });
-            if (!HasAccess(game)) return Forbid();
+            if (!await _authService.HasAccessAsync(_context, gameId.Value, _userIdProvider.GetCurrentUserId())) return Forbid();
             logs = await _interactionLogger.GetGameLogsAsync(gameId.Value, limit);
         }
         else
@@ -820,7 +826,7 @@ public class AdminController : ControllerBase
     [HttpGet("llm-interactions/{logId}")]
     public async Task<IActionResult> GetLLMInteraction(Guid logId)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         var log = await _context.LLMInteractionLogs
             .Include(l => l.Preset)
             .FirstOrDefaultAsync(l => l.UserId == userId && l.Id == logId);
@@ -858,7 +864,7 @@ public class AdminController : ControllerBase
     [HttpDelete("llm-interactions/{logId}")]
     public async Task<IActionResult> DeleteLLMInteraction(Guid logId)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         await _interactionLogger.DeleteLogAsync(userId, logId);
         return Ok(new { message = "Interaction log deleted." });
     }
@@ -868,7 +874,7 @@ public class AdminController : ControllerBase
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         var usage = await _interactionLogger.GetPresetUsageAsync(userId, from, to);
         return Ok(usage);
     }
@@ -876,7 +882,7 @@ public class AdminController : ControllerBase
     [HttpPost("llm-interactions/cleanup")]
     public async Task<IActionResult> CleanupOldLogs([FromBody] DateTime before)
     {
-        var userId = GetCurrentUserId();
+        var userId = _userIdProvider.GetCurrentUserId();
         await _interactionLogger.DeleteOldLogsAsync(userId, before);
         return Ok(new { message = "Old logs cleaned up." });
     }
@@ -890,20 +896,6 @@ public class AdminController : ControllerBase
         if (level <= 12) return 4;
         if (level <= 16) return 5;
         return 6;
-    }
-
-    private Guid GetCurrentUserId()
-    {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var id))
-            throw new UnauthorizedAccessException();
-        return id;
-    }
-
-    private bool HasAccess(Game game)
-    {
-        var userId = GetCurrentUserId();
-        return game.CreatorId == userId || game.Players.Any(p => p.UserId == userId && p.Status == PlayerStatus.Active);
     }
 }
 

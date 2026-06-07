@@ -191,9 +191,7 @@ public class AuthService : IAuthService
             signingCredentials: signingCredentials
         );
 
-        // Generate refresh token
         var refreshToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-
         return (new JwtSecurityTokenHandler().WriteToken(token), refreshToken);
     }
 }

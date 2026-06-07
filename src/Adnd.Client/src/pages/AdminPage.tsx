@@ -81,7 +81,7 @@ export default function AdminPage() {
   const handleCreateNPC = async () => {
     if (!npcName.trim()) return;
     try {
-      await createNPC(npcName, npcDesc);
+      await createNPC!({ name: npcName, description: npcDesc });
       setNpcDialogOpen(false);
       setNpcName('');
       setNpcDesc('');
@@ -93,7 +93,7 @@ export default function AdminPage() {
   const handleCreateThread = async () => {
     if (!threadTitle.trim()) return;
     try {
-      await createThread(threadTitle, threadDesc);
+      await createThread!({ title: threadTitle, description: threadDesc });
       setThreadDialogOpen(false);
       setThreadTitle('');
       setThreadDesc('');

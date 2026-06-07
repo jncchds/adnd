@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, GameListItem, GameDetail, GameSessionListItem, PlayerListItem, NPCListItem, PlotThreadListItem, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary } from './client';
+import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary } from './client';
+import { useEntity } from './useEntity';
 
 export function useGames() {
   const [games, setGames] = useState<GameListItem[]>([]);
@@ -100,45 +101,25 @@ export function useGame(id: string | undefined) {
 }
 
 export function useSessions(gameId: string | undefined) {
-  const [sessions, setSessions] = useState<GameSessionListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchSessions = useCallback(async () => {
-    if (!gameId) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await api.getSessions(gameId);
-      setSessions(data);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [gameId]);
-
-  useEffect(() => {
-    fetchSessions();
-  }, [fetchSessions]);
-
-  const createSession = async (title: string, description?: string) => {
-    const session = await api.createSession(gameId!, title, description);
-    setSessions(prev => [{ ...session, messageCount: 0 }, ...prev]);
-    return session;
-  };
+  const result = useEntity<GameSessionListItem, GameSessionDetail, GameSessionDetail, void>(
+    () => gameId ? api.getSessions(gameId) : Promise.resolve([]),
+    [gameId],
+    (data) => api.createSession(gameId!, (data as any).title ?? '', (data as any).description) as Promise<GameSessionDetail>,
+    undefined,
+    undefined
+  );
 
   const closeSession = async (sessionId: string) => {
     await api.closeSession(gameId!, sessionId);
-    await fetchSessions();
+    await result.refetch();
   };
 
   return {
-    sessions,
-    isLoading,
-    error,
-    refetch: fetchSessions,
-    createSession,
+    sessions: result.items,
+    isLoading: result.isLoading,
+    error: result.error,
+    refetch: result.refetch,
+    createSession: result.create,
     closeSession,
   };
 }
@@ -175,133 +156,59 @@ export function usePlayers(gameId: string | undefined) {
 }
 
 export function useNPCs(gameId: string | undefined) {
-  const [npcs, setNPCs] = useState<NPCListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchNPCs = useCallback(async () => {
-    if (!gameId) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await api.getNPCs(gameId);
-      setNPCs(data);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [gameId]);
-
-  useEffect(() => {
-    fetchNPCs();
-  }, [fetchNPCs]);
-
-  const createNPC = async (name: string, description?: string) => {
-    const npc = await api.createNPC(gameId!, name, description);
-    setNPCs(prev => [...prev, npc as NPCListItem]);
-    return npc;
-  };
-
-  const updateNPC = async (npcId: string, updates: any) => {
-    await api.updateNPC(npcId, updates);
-    await fetchNPCs();
-  };
-
-  const deleteNPC = async (npcId: string) => {
-    await api.deleteNPC(npcId);
-    setNPCs(prev => prev.filter(n => n.id !== npcId));
-  };
+  const result = useEntity<NPCListItem, NPCListItem, NPCListItem, void>(
+    () => gameId ? api.getNPCs(gameId) : Promise.resolve([]),
+    [gameId],
+    (data) => api.createNPC(gameId!, (data as any).name ?? '', (data as any).description) as Promise<NPCListItem>,
+    (id) => api.deleteNPC(id) as Promise<void>,
+    (id, data) => api.updateNPC(id, data) as Promise<NPCListItem>
+  );
 
   return {
-    npcs,
-    isLoading,
-    error,
-    refetch: fetchNPCs,
-    createNPC,
-    updateNPC,
-    deleteNPC,
+    npcs: result.items,
+    isLoading: result.isLoading,
+    error: result.error,
+    refetch: result.refetch,
+    createNPC: result.create,
+    updateNPC: result.update,
+    deleteNPC: result.remove,
   };
 }
 
 export function usePlotThreads(gameId: string | undefined) {
-  const [threads, setThreads] = useState<PlotThreadListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchThreads = useCallback(async () => {
-    if (!gameId) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await api.getPlotThreads(gameId);
-      setThreads(data);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [gameId]);
-
-  useEffect(() => {
-    fetchThreads();
-  }, [fetchThreads]);
-
-  const createThread = async (title: string, description: string) => {
-    const thread = await api.createPlotThread(gameId!, title, description);
-    setThreads(prev => [...prev, thread as PlotThreadListItem]);
-    return thread;
-  };
-
-  const updateThread = async (threadId: string, updates: any) => {
-    await api.updatePlotThread(threadId, updates);
-    await fetchThreads();
-  };
+  const result = useEntity<PlotThreadListItem, PlotThreadListItem, PlotThreadListItem, void>(
+    () => gameId ? api.getPlotThreads(gameId) : Promise.resolve([]),
+    [gameId],
+    (data) => api.createPlotThread(gameId!, (data as any).title ?? '', (data as any).description ?? '') as Promise<PlotThreadListItem>,
+    undefined,
+    (id, data) => api.updatePlotThread(id, data) as Promise<PlotThreadListItem>
+  );
 
   return {
-    threads,
-    isLoading,
-    error,
-    refetch: fetchThreads,
-    createThread,
-    updateThread,
+    threads: result.items,
+    isLoading: result.isLoading,
+    error: result.error,
+    refetch: result.refetch,
+    createThread: result.create,
+    updateThread: result.update,
   };
 }
 
 export function useCharacters(gameId: string | undefined) {
-  const [characters, setCharacters] = useState<CharacterListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchCharacters = useCallback(async () => {
-    if (!gameId) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await api.getCharacters(gameId);
-      setCharacters(data);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [gameId]);
-
-  useEffect(() => {
-    fetchCharacters();
-  }, [fetchCharacters]);
-
-  const updateCharacter = async (characterId: string, updates: any) => {
-    await api.updateCharacter(characterId, updates);
-    await fetchCharacters();
-  };
+  const result = useEntity<CharacterListItem, unknown, unknown, unknown>(
+    () => gameId ? api.getCharacters(gameId) : Promise.resolve([]),
+    [gameId],
+    undefined,
+    undefined,
+    (id, data) => api.updateCharacter(id, data) as Promise<CharacterListItem>
+  );
 
   return {
-    characters,
-    isLoading,
-    error,
-    refetch: fetchCharacters,
-    updateCharacter,
+    characters: result.items,
+    isLoading: result.isLoading,
+    error: result.error,
+    refetch: result.refetch,
+    updateCharacter: result.update,
   };
 }
 
@@ -365,43 +272,13 @@ export function useConsistency(gameId: string | undefined) {
 // ==================== LLM Preset Hooks ====================
 
 export function useLLMPresets() {
-  const [presets, setPresets] = useState<LLMPreset[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchPresets = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await api.getLLMPresets();
-      setPresets(data);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchPresets();
-  }, [fetchPresets]);
-
-  const createPreset = async (request: CreateLLMPresetRequest) => {
-    const preset = await api.createLLMPreset(request);
-    setPresets(prev => [...prev, preset]);
-    return preset;
-  };
-
-  const updatePreset = async (presetId: string, request: UpdateLLMPresetRequest) => {
-    const preset = await api.updateLLMPreset(presetId, request);
-    setPresets(prev => prev.map(p => p.id === presetId ? preset : p));
-    return preset;
-  };
-
-  const deletePreset = async (presetId: string) => {
-    await api.deleteLLMPreset(presetId);
-    setPresets(prev => prev.filter(p => p.id !== presetId));
-  };
+  const result = useEntity<LLMPreset, LLMPresetDetail, LLMPresetDetail, void>(
+    () => api.getLLMPresets(),
+    [],
+    (data) => api.createLLMPreset(data as CreateLLMPresetRequest) as Promise<LLMPresetDetail>,
+    (id) => api.deleteLLMPreset(id) as Promise<void>,
+    (id, data) => api.updateLLMPreset(id, data as UpdateLLMPresetRequest) as Promise<LLMPresetDetail>
+  );
 
   const testConnection = async (presetId: string) => {
     return api.testLLMPreset(presetId);
@@ -409,17 +286,17 @@ export function useLLMPresets() {
 
   const setDefault = async (presetId: string) => {
     await api.setDefaultPreset(presetId);
-    await fetchPresets();
+    await result.refetch();
   };
 
   return {
-    presets,
-    isLoading,
-    error,
-    refetch: fetchPresets,
-    createPreset,
-    updatePreset,
-    deletePreset,
+    presets: result.items,
+    isLoading: result.isLoading,
+    error: result.error,
+    refetch: result.refetch,
+    createPreset: result.create,
+    updatePreset: result.update,
+    deletePreset: result.remove,
     testConnection,
     setDefault,
   };

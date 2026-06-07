@@ -14,11 +14,19 @@ namespace Adnd.Server.Controllers;
 public class GamesController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly IUserIdProvider _userIdProvider;
+    private readonly IGameAuthorizationService _authService;
     private readonly ILogger<GamesController> _logger;
 
-    public GamesController(AppDbContext context, ILogger<GamesController> logger)
+    public GamesController(
+        AppDbContext context,
+        IUserIdProvider userIdProvider,
+        IGameAuthorizationService authService,
+        ILogger<GamesController> logger)
     {
         _context = context;
+        _userIdProvider = userIdProvider;
+        _authService = authService;
         _logger = logger;
     }
 
@@ -299,7 +307,7 @@ public class GamesController : ControllerBase
         var game = await _context.Games.FindAsync(id);
         if (game == null) return NotFound(new { error = "Game not found." });
 
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, id, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var sessions = await _context.GameSessions
             .Where(s => s.GameId == id)
@@ -323,7 +331,7 @@ public class GamesController : ControllerBase
     {
         var game = await _context.Games.FindAsync(id);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         var session = new GameSession
         {
@@ -344,7 +352,7 @@ public class GamesController : ControllerBase
     {
         var game = await _context.Games.FindAsync(id);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         var session = await _context.GameSessions.FindAsync(sessionId);
         if (session == null || session.GameId != id)
@@ -361,7 +369,7 @@ public class GamesController : ControllerBase
     {
         var game = await _context.Games.FindAsync(id);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (!HasAccess(game)) return Forbid();
+        if (!await _authService.HasAccessAsync(_context, id, _userIdProvider.GetCurrentUserId())) return Forbid();
 
         var players = await _context.Players
             .Where(p => p.GameId == id)
@@ -386,7 +394,7 @@ public class GamesController : ControllerBase
     {
         var game = await _context.Games.FindAsync(id);
         if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != GetCurrentUserId()) return Forbid();
+        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
         var player = await _context.Players.FirstOrDefaultAsync(p => p.GameId == id && p.Id == playerId);
         if (player == null) return NotFound(new { error = "Player not found." });
@@ -416,19 +424,6 @@ public class GamesController : ControllerBase
         return code;
     }
 
-    private Guid GetCurrentUserId()
-    {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var id))
-            throw new UnauthorizedAccessException();
-        return id;
-    }
-
-    private bool HasAccess(Game game)
-    {
-        var userId = GetCurrentUserId();
-        return game.CreatorId == userId || game.Players.Any(p => p.UserId == userId && p.Status == PlayerStatus.Active);
-    }
 }
 
 public class CreateSessionRequest

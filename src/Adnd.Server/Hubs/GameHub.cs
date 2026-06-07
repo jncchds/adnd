@@ -217,22 +217,10 @@ public class GameHub : Hub
 
         if (targets == "all" || string.IsNullOrEmpty(targets))
         {
-            // Send to all players in the game
-            await Clients.Group(player.GameId.ToString()).SendAsync("NewWhisper", new
-            {
-                whisper.Id,
-                FromPlayerId = whisper.FromPlayerId,
-                FromCharacter = player.CharacterName,
-                FromRole = player.Role,
-                Content = whisper.Content,
-                Type = whisper.Type,
-                Targets = whisper.Targets,
-                CreatedAt = whisper.CreatedAt
-            });
+            await Clients.Group(player.GameId.ToString()).SendAsync("NewWhisper", BuildWhisperResponse(whisper, player.CharacterName, player.Role));
         }
         else
         {
-            // Send to specific targets
             foreach (var targetId in targetIds)
             {
                 var targetPlayer = await _context.Players
@@ -242,21 +230,10 @@ public class GameHub : Hub
                 if (targetConnectionId != null)
                 {
                     await Clients.Client(targetConnectionId)
-                        .SendAsync("NewWhisper", new
-                        {
-                            whisper.Id,
-                            FromPlayerId = whisper.FromPlayerId,
-                            FromCharacter = player.CharacterName,
-                            FromRole = player.Role,
-                            Content = whisper.Content,
-                            Type = whisper.Type,
-                            Targets = whisper.Targets,
-                            CreatedAt = whisper.CreatedAt
-                        });
+                        .SendAsync("NewWhisper", BuildWhisperResponse(whisper, player.CharacterName, player.Role));
                 }
             }
 
-            // Also send to sender (confirmation)
             await Clients.Caller.SendAsync("NewWhisper", new
             {
                 whisper.Id,
@@ -314,17 +291,7 @@ public class GameHub : Hub
         if (targetConnectionId != null)
         {
             await Clients.Client(targetConnectionId)
-                .SendAsync("NewWhisper", new
-            {
-                whisper.Id,
-                FromPlayerId = whisper.FromPlayerId,
-                FromCharacter = gmPlayer.CharacterName,
-                FromRole = gmPlayer.Role,
-                Content = whisper.Content,
-                Type = whisper.Type,
-                Targets = whisper.Targets,
-                CreatedAt = whisper.CreatedAt
-            });
+                .SendAsync("NewWhisper", BuildWhisperResponse(whisper, gmPlayer.CharacterName, gmPlayer.Role));
         }
 
         // Confirmation to GM
@@ -591,10 +558,24 @@ public class GameHub : Hub
             return connectionId;
         }
 
-        // Fallback: try to find via the game group
-        // This handles the case where the connection was made before the mapping was updated
         return null;
     }
+
+    /// <summary>
+    /// Builds a normalized whisper response object for SignalR broadcasting.
+    /// </summary>
+    private static object BuildWhisperResponse(Whisper w, string fromCharacter, PlayerRole fromRole) =>
+        new
+        {
+            w.Id,
+            FromPlayerId = w.FromPlayerId,
+            FromCharacter = fromCharacter,
+            FromRole = fromRole,
+            Content = w.Content,
+            Type = w.Type,
+            Targets = w.Targets,
+            CreatedAt = w.CreatedAt
+        };
 }
 
 // ============= Response DTOs =============

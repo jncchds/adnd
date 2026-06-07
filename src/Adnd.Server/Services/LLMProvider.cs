@@ -136,7 +136,32 @@ public abstract class BaseLLMProvider : ILLMProvider
 
     public abstract Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null);
 
-    public abstract Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null);
+    /// <summary>
+    /// Calls CompleteAsync with a JSON-enforcing system prompt,
+    /// strips markdown code fences if present, and deserializes the result.
+    /// </summary>
+    public async Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null)
+    {
+        var jsonPrompt = systemPrompt + "\n\nRespond with ONLY valid JSON. No markdown, no explanation.";
+        var text = await CompleteAsync(jsonPrompt, userPrompt, options);
+
+        var jsonText = StripMarkdownCodeFences(text.Trim());
+        return JsonSerializer.Deserialize<T>(jsonText)
+            ?? throw new InvalidOperationException("Failed to deserialize LLM response");
+    }
+
+    /// <summary>
+    /// Strips surrounding markdown code fences (```json ... ``` or ``` ... ```).
+    /// </summary>
+    protected static string StripMarkdownCodeFences(string text)
+    {
+        if (text.StartsWith("```"))
+        {
+            var lines = text.Split('\n');
+            return string.Join('\n', lines.Skip(1).Take(lines.Length - 2));
+        }
+        return text;
+    }
 
     public abstract Task<float[]> GetEmbeddingAsync(string text);
 
@@ -207,21 +232,6 @@ public class OllamaLLMProvider : BaseLLMProvider
             _logger.LogError(ex, "Ollama request failed");
             return "Error: " + ex.Message;
         }
-    }
-
-    public override async Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null)
-    {
-        string jsonPrompt = systemPrompt + "\n\nRespond with ONLY valid JSON. No markdown, no explanation.";
-        string text = await CompleteAsync(jsonPrompt, userPrompt, options);
-
-        string jsonText = text.Trim();
-        if (jsonText.StartsWith("```"))
-        {
-            string[] lines = jsonText.Split('\n');
-            jsonText = string.Join('\n', lines.Skip(1).Take(lines.Length - 2));
-        }
-
-        return JsonSerializer.Deserialize<T>(jsonText) ?? throw new InvalidOperationException("Failed to deserialize LLM response");
     }
 
     public override async Task<float[]> GetEmbeddingAsync(string text)
@@ -338,21 +348,6 @@ public class LmStudioLLMProvider : BaseLLMProvider
         }
     }
 
-    public override async Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null)
-    {
-        string jsonPrompt = systemPrompt + "\n\nRespond with ONLY valid JSON. No markdown, no explanation.";
-        string text = await CompleteAsync(jsonPrompt, userPrompt, options);
-
-        string jsonText = text.Trim();
-        if (jsonText.StartsWith("```"))
-        {
-            string[] lines = jsonText.Split('\n');
-            jsonText = string.Join('\n', lines.Skip(1).Take(lines.Length - 2));
-        }
-
-        return JsonSerializer.Deserialize<T>(jsonText) ?? throw new InvalidOperationException("Failed to deserialize LLM response");
-    }
-
     public override async Task<float[]> GetEmbeddingAsync(string text)
     {
         var payload = new { model = "nomic-embed-text", input = text };
@@ -464,21 +459,6 @@ public class OpenAILLMProvider : BaseLLMProvider
         }
     }
 
-    public override async Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null)
-    {
-        string jsonPrompt = systemPrompt + "\n\nRespond with ONLY valid JSON. No markdown, no explanation.";
-        string text = await CompleteAsync(jsonPrompt, userPrompt, options);
-
-        string jsonText = text.Trim();
-        if (jsonText.StartsWith("```"))
-        {
-            string[] lines = jsonText.Split('\n');
-            jsonText = string.Join('\n', lines.Skip(1).Take(lines.Length - 2));
-        }
-
-        return JsonSerializer.Deserialize<T>(jsonText) ?? throw new InvalidOperationException("Failed to deserialize LLM response");
-    }
-
     public override async Task<float[]> GetEmbeddingAsync(string text)
     {
         var payload = new { model = "text-embedding-3-small", input = text };
@@ -584,21 +564,6 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
         }
     }
 
-    public override async Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null)
-    {
-        string jsonPrompt = systemPrompt + "\n\nRespond with ONLY valid JSON. No markdown, no explanation.";
-        string text = await CompleteAsync(jsonPrompt, userPrompt, options);
-
-        string jsonText = text.Trim();
-        if (jsonText.StartsWith("```"))
-        {
-            string[] lines = jsonText.Split('\n');
-            jsonText = string.Join('\n', lines.Skip(1).Take(lines.Length - 2));
-        }
-
-        return JsonSerializer.Deserialize<T>(jsonText) ?? throw new InvalidOperationException("Failed to deserialize LLM response");
-    }
-
     public override async Task<float[]> GetEmbeddingAsync(string text)
     {
         var payload = new { content = new { parts = new[] { new { text } } } };
@@ -699,8 +664,6 @@ public class OllamaLLMProviderFromPreset : BaseLLMProvider
         }
     }
 
-    public override async Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null) =>
-        await Task.FromException<T>(new NotImplementedException());
     public override Task<float[]> GetEmbeddingAsync(string text) =>
         Task.FromResult(Array.Empty<float>());
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
@@ -772,8 +735,6 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
         }
     }
 
-    public override async Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null) =>
-        await Task.FromException<T>(new NotImplementedException());
     public override Task<float[]> GetEmbeddingAsync(string text) =>
         Task.FromResult(Array.Empty<float>());
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
@@ -846,8 +807,6 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
         }
     }
 
-    public override async Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null) =>
-        await Task.FromException<T>(new NotImplementedException());
     public override Task<float[]> GetEmbeddingAsync(string text) =>
         Task.FromResult(Array.Empty<float>());
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
@@ -915,8 +874,6 @@ public class GoogleAIStudioLLMProviderFromPreset : BaseLLMProvider
         }
     }
 
-    public override async Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null) =>
-        await Task.FromException<T>(new NotImplementedException());
     public override Task<float[]> GetEmbeddingAsync(string text) =>
         Task.FromResult(Array.Empty<float>());
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
