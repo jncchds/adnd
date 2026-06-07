@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useGame, useNPCs, usePlotThreads, useCharacters, useConsistency, useLLMPresets } from '../api/gameHooks';
 import { useGameHub } from '../api/hubHook';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
+import CharacterCreateWizard from './CharacterCreateWizard';
 import {
   Container, Box, Typography, Paper, Tabs, Tab,
   List, ListItem, ListItemText, ListItemAvatar, Avatar,
@@ -46,7 +47,7 @@ export default function AdminPage() {
   const [gameStateJson, setGameStateJson] = useState('{}');
   const [plotSeed, setPlotSeed] = useState('');
   const [gameParameters, setGameParameters] = useState('');
-  const [showCharCreateDialog, setShowCharCreateDialog] = useState(false);
+  const [showCharCreateWizard, setShowCharCreateWizard] = useState(false);
   const [showSystemRegistry, setShowSystemRegistry] = useState(false);
   const [systems, setSystems] = useState<any[]>([]);
   const [customSystemName, setCustomSystemName] = useState('');
@@ -416,7 +417,7 @@ export default function AdminPage() {
           gameParameters={gameParameters}
           setGameParameters={setGameParameters}
           onSave={handleSaveGameState}
-          onOpenCharCreate={() => setShowCharCreateDialog(true)}
+          onOpenCharCreate={() => setShowCharCreateWizard(true)}
         />
       )}
 
@@ -526,11 +527,11 @@ export default function AdminPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Character Create Dialog */}
-      <CharCreateDialog
-        open={showCharCreateDialog}
-        onClose={() => setShowCharCreateDialog(false)}
-        game={game}
+      {/* Character Create Wizard */}
+      <CharacterCreateWizard
+        open={showCharCreateWizard}
+        onClose={() => setShowCharCreateWizard(false)}
+        gameId={id || ''}
       />
 
       {/* LLM Preset Dialog */}
@@ -1164,76 +1165,6 @@ function SystemsTab({ systems, showRegistry, customSystemName, setCustomSystemNa
         )}
       </Box>
     </Paper>
-  );
-}
-
-// ==================== Character Create Dialog ====================
-
-function CharCreateDialog({ open, onClose }: any) {
-  const [name, setName] = useState('');
-  const [class_, setClass_] = useState('Fighter');
-  const [level, setLevel] = useState(1);
-  const [systemId, setSystemId] = useState('dnd5e');
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  const handleCreate = async () => {
-    if (!name.trim()) return;
-    setError(null);
-    setSuccess(null);
-    try {
-      const hub = (window as any).__gameHub;
-      if (hub) {
-        await hub.invoke('CallAgent', 0, 5, 6, JSON.stringify({
-          characterName: name,
-          characterClass: class_,
-          level: level,
-          systemId: systemId
-        }));
-      }
-      setSuccess(`Character '${name}' created!`);
-      setName('');
-      setTimeout(onClose, 1500);
-    } catch (e: any) {
-      setError(e.message);
-    }
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Create Character</DialogTitle>
-      <DialogContent sx={{ mt: 1 }}>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-        <TextField fullWidth label="Character Name" value={name} onChange={e => setName(e.target.value)} sx={{ mb: 2 }} autoFocus />
-        <TextField fullWidth select label="Class" value={class_} onChange={e => setClass_(e.target.value)} SelectProps={{ native: true }} sx={{ mb: 2 }}>
-          <option value="Fighter">Fighter</option>
-          <option value="Wizard">Wizard</option>
-          <option value="Rogue">Rogue</option>
-          <option value="Cleric">Cleric</option>
-          <option value="Ranger">Ranger</option>
-          <option value="Barbarian">Barbarian</option>
-          <option value="Bard">Bard</option>
-          <option value="Druid">Druid</option>
-          <option value="Monk">Monk</option>
-          <option value="Paladin">Paladin</option>
-          <option value="Sorcerer">Sorcerer</option>
-          <option value="Warlock">Warlock</option>
-        </TextField>
-        <TextField fullWidth type="number" label="Level" value={level} onChange={e => setLevel(parseInt(e.target.value) || 1)} sx={{ mb: 2 }} />
-        <TextField fullWidth select label="System" value={systemId} onChange={e => setSystemId(e.target.value)} SelectProps={{ native: true }}>
-          <option value="dnd5e">D&D 5th Edition</option>
-          <option value="pf2e">Pathfinder 2nd Edition</option>
-          <option value="coc7e">Call of Cthulhu 7th Edition</option>
-        </TextField>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleCreate} variant="contained" disabled={!name.trim()}>
-          Create
-        </Button>
-      </DialogActions>
-    </Dialog>
   );
 }
 

@@ -416,7 +416,7 @@ export function useGameHub() {
     },
     combatAttack: async (combatId: string, attackerName: string, weapon: string,
       targetId: string, attackFormula: string, attackBonus?: number,
-      damageFormula?: number, damageBonus?: number, description?: string) => {
+      damageFormula?: string, damageBonus?: number, description?: string) => {
       return hubRef.current?.invoke('CombatAttack', combatId, attackerName, weapon,
         targetId, attackFormula, attackBonus, damageFormula, damageBonus, description);
     },

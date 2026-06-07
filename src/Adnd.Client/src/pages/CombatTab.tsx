@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
 import { useGameHub } from '../api/hubHook';
@@ -8,13 +8,14 @@ import {
   TextField, Chip, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Alert, Collapse, MenuItem, Select,
   FormControl, InputLabel, Grid, Divider, Avatar,
-  Tooltip,
+  Tooltip, List, ListItem, ListItemText,
+  Slider,
 } from '@mui/material';
 import {
   DirectionsRun as CombatIcon, Replay as TurnIcon, People as PeopleIcon,
   Add as AddIcon, Remove as RemoveIcon, HealthAndSafety as HPIcon,
   Shield as ACIcon, EmojiEvents as InitiativeIcon,
-  ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon,
+  ExpandMore as ExpandMoreIcon,
   Gavel as AttackIcon, LocalHospital as HealIcon,
   Warning as ConditionIcon, AutoFixNormal as DeathSaveIcon,
   Refresh as RefreshIcon, Pause as PauseIcon, PlayArrow as PlayIcon,
@@ -22,6 +23,9 @@ import {
   Psychology as AICogIcon, Bed as RestIcon,
   Map as GridIcon, Inventory as InventoryIcon,
   Star as StarIcon,
+  Book as SheetIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon,
 } from '@mui/icons-material';
 import {
   type CombatLog, type CombatParticipantSummary,
@@ -29,11 +33,240 @@ import {
   type SpellCastResult, type AISuggestions, type SANCheckResult,
 } from '../types';
 
-interface CombatTabProps {
-  gameId: string;
+// ==================== Sub-components ====================
+
+function CombatLogPanel({ events, showCombatLog }: {
+  events: CombatLogEvent[]; showCombatLog: boolean;
+}) {
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (showCombatLog && logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [events, showCombatLog]);
+
+  const getEventIcon = (type: string) => {
+    switch (type) {
+      case 'CombatStart': return '🎯'; case 'CombatEnd': return '🏁'; case 'TurnChange': return '🔄';
+      case 'Attack': return '⚔️'; case 'Damage': return '💥'; case 'Healing': return '💚';
+      case 'Condition': return '🔮'; case 'SaveThrow': return '🛡️'; case 'Initiative': return '🎲';
+      case 'Death': return '💀'; case 'Revival': return '✨'; case 'RoundStart': return '📢';
+      case 'DeathSave': return '☠️';
+      default: return '•';
+    }
+  };
+
+  const getEventColor = (type: string) => {
+    switch (type) {
+      case 'Damage': return 'error.main'; case 'Healing': return 'success.main';
+      case 'Death': return '#8B0000'; case 'Revival': return '#FFD700';
+      case 'Condition': return 'primary.main'; case 'Attack': return 'warning.main';
+      default: return 'text.secondary';
+    }
+  };
+
+  const groupByRound = (evts: CombatLogEvent[]) => {
+    const groups: Record<number, CombatLogEvent[]> = {};
+    evts.forEach(e => {
+      if (!groups[e.round]) groups[e.round] = [];
+      groups[e.round].push(e);
+    });
+    return Object.entries(groups).sort(([a], [b]) => Number(a) - Number(b));
+  };
+
+  const grouped = groupByRound(events);
+
+  return (
+    <Paper ref={logRef} sx={{ maxHeight: '70vh', overflow: 'auto' }}>
+      <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 1, borderBottom: 1, borderColor: 'divider' }}>
+        <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <HistoryIcon fontSize="small" /> Combat Log
+        </Typography>
+        <Chip label={`${events.length} events`} size="small" variant="outlined" />
+      </Box>
+      <Divider />
+      {events.length === 0 ? (
+        <Box sx={{ p: 4, textAlign: 'center' }}>
+          <Typography variant="body2" color="text.secondary">No combat events yet. Start a combat to begin tracking.</Typography>
+        </Box>
+      ) : (
+        <Box>
+          {grouped.map(([round, evts]) => (
+            <Box key={round}>
+              <Box sx={{ p: 0.5, px: 2, bgcolor: 'action.hover', position: 'sticky', top: 36, zIndex: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                  Round {round}
+                </Typography>
+              </Box>
+              {evts.map((evt) => (
+                <Box key={evt.id} sx={{
+                  p: 0.75, px: 2,
+                  borderLeft: `3px solid ${getEventColor(evt.type)}`,
+                  ml: 1, mr: 1, mb: 0.25,
+                  bgcolor: evt.type === 'Death' ? 'rgba(139,0,0,0.05)' : evt.type === 'Healing' ? 'rgba(76,175,80,0.05)' : 'transparent',
+                }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.25 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {getEventIcon(evt.type)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      T{evt.turnIndex} · {new Date(evt.createdAt).toLocaleTimeString()}
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2">
+                    <strong>{evt.actorName}</strong>
+                    {evt.targetName && <span> → <em>{evt.targetName}</em></span>}
+                    : {evt.content}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          ))}
+        </Box>
+      )}
+    </Paper>
+  );
 }
 
-export default function CombatTab({ gameId }: CombatTabProps) {
+function DeathSaveTracker({ participant }: { participant: CombatParticipantSummary }) {
+  const deathState = (participant as any).deathSaveState as { successes?: number; failures?: number } | null;
+  const successes = deathState?.successes ?? 0;
+  const failures = deathState?.failures ?? 0;
+
+  if (participant.currentHP > 0) return null;
+
+  return (
+    <Box sx={{ mt: 0.5 }}>
+      <Typography variant="caption" color="text.secondary">Death Saves:</Typography>
+      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25 }}>
+        {[0, 1, 2].map(i => (
+          <Box key={`s${i}`} sx={{
+            width: 14, height: 14, borderRadius: '50%',
+            bgcolor: i < successes ? 'success.main' : 'grey.500',
+            border: `2px solid ${i < successes ? 'success.main' : 'grey.400'}`,
+          }} />
+        ))}
+        <Typography variant="caption" color="text.secondary" sx={{ mx: 0.5 }}>|</Typography>
+        {[0, 1, 2].map(i => (
+          <Box key={`f${i}`} sx={{
+            width: 14, height: 14, borderRadius: '50%',
+            bgcolor: i < failures ? 'error.main' : 'grey.500',
+            border: `2px solid ${i < failures ? 'error.main' : 'grey.400'}`,
+          }} />
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+function CharacterSheetPopup({ participant, open, onClose, onHeal, onDamage }: {
+  participant: CombatParticipantSummary | null; open: boolean; onClose: () => void;
+  onHeal: (id: string, amount: number) => void; onDamage: (id: string, amount: number) => void;
+}) {
+  const [healAmount, setHealAmount] = useState(1);
+  const [damageAmount, setDamageAmount] = useState(1);
+
+  if (!participant) return null;
+
+  const hpPercent = participant.maxHP > 0 ? (participant.currentHP / participant.maxHP) * 100 : 0;
+  const hpColor = hpPercent > 60 ? '#4caf50' : hpPercent > 30 ? '#ff9800' : '#f44336';
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Avatar sx={{ width: 32, height: 32, bgcolor: participant.participantType === 'NPC' ? 'error.main' : 'primary.main' }}>
+            {participant.participantType === 'NPC' ? '👹' : '👤'}
+          </Avatar>
+          <Typography variant="h6">{participant.displayName}</Typography>
+          <Chip label={participant.participantType} size="small" color={participant.participantType === 'NPC' ? 'error' : 'primary'} />
+        </Box>
+      </DialogTitle>
+      <DialogContent sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {/* HP */}
+        <Paper sx={{ p: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+            <Typography variant="body2" color="text.secondary">Hit Points</Typography>
+            <Typography variant="body2" sx={{ color: hpColor, fontWeight: 'bold' }}>
+              {participant.currentHP} / {participant.maxHP}
+            </Typography>
+          </Box>
+          <Slider
+            value={hpPercent}
+            onChange={(_, val) => {
+              const pct = val as number;
+              const newHP = Math.round((pct / 100) * participant.maxHP);
+              if (newHP > participant.currentHP) {
+                onHeal(participant.id, newHP - participant.currentHP);
+              } else {
+                onDamage(participant.id, participant.currentHP - newHP);
+              }
+            }}
+            sx={{ color: hpColor }}
+            size="small"
+          />
+          <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+            <TextField size="small" type="number" label="Heal" value={healAmount}
+              onChange={e => setHealAmount(parseInt(e.target.value) || 1)} inputProps={{ min: 1 }} sx={{ width: 80 }} />
+            <Button size="small" variant="outlined" color="success" onClick={() => {
+              onHeal(participant.id, healAmount); setHealAmount(1);
+            }}>Heal</Button>
+            <TextField size="small" type="number" label="Damage" value={damageAmount}
+              onChange={e => setDamageAmount(parseInt(e.target.value) || 1)} inputProps={{ min: 1 }} sx={{ width: 80 }} />
+            <Button size="small" variant="outlined" color="error" onClick={() => {
+              onDamage(participant.id, damageAmount); setDamageAmount(1);
+            }}>Damage</Button>
+          </Box>
+        </Paper>
+
+        {/* Stats */}
+        <Grid container spacing={1}>
+          <Grid size={4}>
+            <Paper sx={{ p: 1, textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary">AC</Typography>
+              <Typography variant="h6">{participant.ac}</Typography>
+            </Paper>
+          </Grid>
+          <Grid size={4}>
+            <Paper sx={{ p: 1, textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary">Initiative</Typography>
+              <Typography variant="h6">{participant.initiative}</Typography>
+            </Paper>
+          </Grid>
+          <Grid size={4}>
+            <Paper sx={{ p: 1, textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary">HP</Typography>
+              <Typography variant="h6">{participant.currentHP}/{participant.maxHP}</Typography>
+            </Paper>
+          </Grid>
+        </Grid>
+
+        {/* Conditions */}
+        {participant.conditions && participant.conditions.length > 0 && (
+          <Box>
+            <Typography variant="subtitle2" gutterBottom>Active Conditions</Typography>
+            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+              {participant.conditions.map((c: ConditionEntry, i: number) => (
+                <Chip key={i} label={`${c.name}${c.duration > 0 ? ` (${c.duration}r)` : ''}`} size="small" color="warning" variant="outlined" />
+              ))}
+            </Box>
+          </Box>
+        )}
+
+        {/* Death Saves */}
+        <DeathSaveTracker participant={participant} />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ==================== Main Component ====================
+
+export default function CombatTab({ gameId }: { gameId: string }) {
   const { id: _id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { isConnected, invoke, on } = useGameHub();
@@ -54,10 +287,14 @@ export default function CombatTab({ gameId }: CombatTabProps) {
   const [showGridDialog, setShowGridDialog] = useState(false);
   const [showInventoryDialog, setShowInventoryDialog] = useState(false);
   const [showSANDialog, setShowSANDialog] = useState(false);
+  const [showCharSheet, setShowCharSheet] = useState(false);
+  const [selectedCharSheet, setSelectedCharSheet] = useState<CombatParticipantSummary | null>(null);
+
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [aiSuggestions, setAISuggestions] = useState<AISuggestions | null>(null);
 
+  // Attack dialog state
   const [attackTarget, setAttackTarget] = useState('');
   const [attackFormula, setAttackFormula] = useState('1d20');
   const [attackBonus, setAttackBonus] = useState(0);
@@ -65,20 +302,26 @@ export default function CombatTab({ gameId }: CombatTabProps) {
   const [damageBonus, setDamageBonus] = useState(0);
   const [weaponName, setWeaponName] = useState('Longsword');
 
+  // Save throw dialog state
   const [saveTarget, setSaveTarget] = useState('');
   const [saveType, setSaveType] = useState('Fortitude');
   const [saveFormula, setSaveFormula] = useState('1d20');
   const [saveDC, setSaveDC] = useState(15);
 
+  // Condition dialog state
   const [conditionTarget, setConditionTarget] = useState('');
   const [conditionName, setConditionName] = useState('');
   const [conditionDuration, setConditionDuration] = useState(1);
 
+  // Death save dialog state
   const [deathSaveTarget, setDeathSaveTarget] = useState('');
+  const [_deathSaveSuccess, setDeathSaveSuccess] = useState(true);
 
+  // Heal dialog state
   const [healTarget, setHealTarget] = useState('');
   const [healAmount, setHealAmount] = useState(1);
 
+  // Spell dialog state
   const [spellTarget, setSpellTarget] = useState('');
   const [spellName, setSpellName] = useState('');
   const [spellLevel, setSpellLevel] = useState('1');
@@ -88,29 +331,48 @@ export default function CombatTab({ gameId }: CombatTabProps) {
   const [spellDamageBonus, setSpellDamageBonus] = useState(0);
   const [spellDescription, setSpellDescription] = useState('');
 
+  // Add participant state
   const [newParticipantType, setNewParticipantType] = useState('NPC');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newAC, setNewAC] = useState(10);
   const [newHP, setNewHP] = useState(10);
   const [newMaxHP, setNewMaxHP] = useState(10);
 
+  // Grid state
   const [gridWidth, setGridWidth] = useState(20);
   const [gridHeight, setGridHeight] = useState(15);
 
+  // SAN state
   const [sanTarget, setSanTarget] = useState('');
   const [sanLoss, setSanLoss] = useState(1);
   const [sanRecovery, setSanRecovery] = useState(1);
   const [sanDC, setSanDC] = useState(20);
 
+  // Inventory state
   const [invItemName, setInvItemName] = useState('');
   const [invItemType, setInvItemType] = useState('Weapon');
   const [invQuantity, setInvQuantity] = useState(1);
+
+  const loadActiveCombats = useCallback(async () => {
+    try {
+      const combats = await invoke('GetActiveCombats', gameId);
+      if (combats) setActiveCombats(combats);
+    } catch { /* ignore */ }
+  }, [gameId, invoke]);
+
+  const loadActiveCombat = useCallback(async () => {
+    if (activeCombats.length === 0) { setActiveCombat(null); return; }
+    try {
+      const log = await invoke('GetCombatLog', activeCombats[0].id);
+      if (log) setActiveCombat(log);
+    } catch { /* ignore */ }
+  }, [activeCombats, invoke]);
 
   useEffect(() => { loadActiveCombats(); }, [gameId]);
 
   useEffect(() => {
     if (!isConnected) return;
-    on('CombatStarted', (data: any) => { setActiveCombat(data); loadActiveCombats(); });
+    on('CombatStarted', () => loadActiveCombat());
     on('CombatEnded', () => { setActiveCombat(null); loadActiveCombats(); });
     on('CombatPaused', () => loadActiveCombat());
     on('CombatResumed', () => loadActiveCombat());
@@ -146,22 +408,9 @@ export default function CombatTab({ gameId }: CombatTabProps) {
     on('CombatMove', () => loadActiveCombat());
     on('CombatAutoResolved', () => loadActiveCombat());
     return () => {};
-  }, [isConnected, on, activeCombat]);
+  }, [isConnected, on, loadActiveCombat]);
 
-  const loadActiveCombats = async () => {
-    try {
-      const combats = await invoke('GetActiveCombats', gameId);
-      if (combats) setActiveCombats(combats);
-    } catch { /* ignore */ }
-  };
-
-  const loadActiveCombat = async () => {
-    if (activeCombats.length === 0) { setActiveCombat(null); return; }
-    try {
-      const log = await invoke('GetCombatLog', activeCombats[0].id);
-      if (log) setActiveCombat(log);
-    } catch { /* ignore */ }
-  };
+  // ==================== Handlers ====================
 
   const handleStartCombat = async () => {
     try {
@@ -209,6 +458,7 @@ export default function CombatTab({ gameId }: CombatTabProps) {
   };
 
   const handleAdvanceTurn = async () => { if (!activeCombat) return; try { await invoke('AdvanceTurn', activeCombat.combatId); } catch (e: any) { setError(e.message); } };
+  const handleRetreatTurn = async () => { if (!activeCombat) return; try { await invoke('RetreatTurn', activeCombat.combatId); } catch (e: any) { setError(e.message); } };
 
   const handleAttack = async () => {
     if (!activeCombat || !attackTarget) return;
@@ -221,8 +471,7 @@ export default function CombatTab({ gameId }: CombatTabProps) {
   const handleSaveThrow = async () => {
     if (!activeCombat || !saveTarget) return;
     try {
-      const participant = activeCombat.participants.find((p: any) => p.id === saveTarget);
-      await invoke('CombatSaveThrow', activeCombat.combatId, participant?.displayName || 'Unknown', saveTarget, saveType, saveFormula, saveDC);
+      await invoke('CombatSaveThrow', activeCombat.combatId, saveTarget, saveTarget, saveType, saveFormula, saveDC);
       setShowSaveThrowDialog(false); setSuccess(`${saveType} save resolved!`); setTimeout(() => setSuccess(null), 2000);
     } catch (e: any) { setError(e.message); }
   };
@@ -324,32 +573,23 @@ export default function CombatTab({ gameId }: CombatTabProps) {
     catch (e: any) { setError(e.message); }
   };
 
+  const handleViewCharSheet = (participant: CombatParticipantSummary) => {
+    setSelectedCharSheet(participant);
+    setShowCharSheet(true);
+  };
+
+  // ==================== Derived Data ====================
+
   const getCurrentTurnParticipant = () => {
     if (!activeCombat || activeCombat.participants.length === 0) return null;
     const idx = Math.min(activeCombat.currentTurnIndex, activeCombat.participants.length - 1);
     return activeCombat.participants[idx];
   };
 
-  const sortedParticipants = activeCombat ? [...activeCombat.participants].sort((a, b) => b.initiative - a.initiative) : [];
+  const sortedParticipants = activeCombat ? [...activeCombat.participants].sort((a: CombatParticipantSummary, b: CombatParticipantSummary) => b.initiative - a.initiative) : [];
+  const currentTurn = getCurrentTurnParticipant();
 
-  const getEventIcon = (type: string) => {
-    switch (type) {
-      case 'CombatStart': return '🎯'; case 'CombatEnd': return '🏁'; case 'TurnChange': return '🔄';
-      case 'Attack': return '⚔️'; case 'Damage': return '💥'; case 'Healing': return '💚';
-      case 'Condition': return '🔮'; case 'SaveThrow': return '🛡️'; case 'Initiative': return '🎲';
-      case 'Death': return '💀'; case 'Revival': return '✨'; case 'RoundStart': return '📢';
-      default: return '•';
-    }
-  };
-
-  const getEventColor = (type: string) => {
-    switch (type) {
-      case 'Damage': return 'error.main'; case 'Healing': return 'success.main';
-      case 'Death': return '#8B0000'; case 'Revival': return '#FFD700';
-      case 'Condition': return 'primary.main'; case 'Attack': return 'warning.main';
-      default: return 'text.secondary';
-    }
-  };
+  // ==================== Render ====================
 
   if (!activeCombat || activeCombat.participants.length === 0) {
     return (
@@ -363,8 +603,6 @@ export default function CombatTab({ gameId }: CombatTabProps) {
     );
   }
 
-  const currentTurn = getCurrentTurnParticipant();
-
   return (
     <>
       {/* Header */}
@@ -374,6 +612,7 @@ export default function CombatTab({ gameId }: CombatTabProps) {
           <Typography variant="h5">{activeCombat.name || 'Combat'}</Typography>
           <Chip label={activeCombat.status} size="small" color={activeCombat.status === 'Active' ? 'success' : 'default'} />
           <Chip label={`Round ${activeCombat.currentRound}`} size="small" variant="outlined" />
+          <Chip label={`${activeCombat.participants.length} participants`} size="small" variant="outlined" />
         </Box>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           {activeCombat.status === 'Active' && (
@@ -399,12 +638,17 @@ export default function CombatTab({ gameId }: CombatTabProps) {
           {currentTurn?.conditions && currentTurn.conditions.length > 0 && (
             <Chip icon={<ConditionIcon />} label={`${currentTurn.conditions.length} condition${currentTurn.conditions.length > 1 ? 's' : ''}`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }} />
           )}
+          {currentTurn && <Chip icon={<SheetIcon />} label="View Sheet" size="small" clickable onClick={() => handleViewCharSheet(currentTurn)} sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }} />}
+        </Box>
+        <Box sx={{ flex: 1 }} />
+        <Box sx={{ display: 'flex', gap: 0.5 }}>
+          <Button size="small" variant="outlined" startIcon={<TurnIcon />} onClick={handleRetreatTurn} sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)' }}>◀</Button>
+          <Button size="small" variant="contained" startIcon={<TurnIcon />} onClick={handleAdvanceTurn}>Next ▶</Button>
         </Box>
       </Paper>
 
       {/* Action Bar */}
       <Paper sx={{ p: 1, mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Button size="small" variant="outlined" startIcon={<TurnIcon />} onClick={handleAdvanceTurn}>Next Turn</Button>
         <Button size="small" variant="outlined" startIcon={<InitiativeIcon />} onClick={() => setShowRollInitiative(true)}>🎲 Roll Initiative</Button>
         <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setShowAddParticipant(true)}>Add Participant</Button>
         <Divider sx={{ height: 24, mx: 0.5 }} orientation="vertical" />
@@ -420,11 +664,6 @@ export default function CombatTab({ gameId }: CombatTabProps) {
         <Button size="small" variant="outlined" startIcon={<GridIcon />} onClick={() => setShowGridDialog(true)}>Grid</Button>
         <Button size="small" variant="outlined" startIcon={<InventoryIcon />} onClick={() => setShowInventoryDialog(true)}>Inventory</Button>
         <Button size="small" variant="outlined" startIcon={<StarIcon />} onClick={() => setShowSANDialog(true)}>SAN</Button>
-        <Box sx={{ flex: 1 }} />
-        <IconButton size="small" onClick={() => setShowCombatLog(!showCombatLog)}>
-          {showCombatLog ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-          <HistoryIcon fontSize="small" sx={{ ml: 0.5 }} />
-        </IconButton>
       </Paper>
 
       <Grid container spacing={2}>
@@ -445,7 +684,11 @@ export default function CombatTab({ gameId }: CombatTabProps) {
                 </TableHead>
                 <TableBody>
                   {sortedParticipants.map((p: CombatParticipantSummary, idx: number) => (
-                    <TableRow key={p.id} sx={{ bgcolor: p.isCurrentTurn ? 'primary.light' : 'inherit', opacity: p.isDead ? 0.5 : 1 }}>
+                    <TableRow key={p.id} sx={{
+                      bgcolor: p.isCurrentTurn ? 'primary.light' : 'inherit',
+                      opacity: p.isDead ? 0.5 : 1,
+                      borderLeft: p.isCurrentTurn ? `4px solid ${'primary.main'}` : 'transparent',
+                    }}>
                       <TableCell><Chip label={idx + 1} size="small" color={p.isCurrentTurn ? 'primary' : 'default'} variant={p.isCurrentTurn ? 'filled' : 'outlined'} /></TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -453,13 +696,17 @@ export default function CombatTab({ gameId }: CombatTabProps) {
                             {p.participantType === 'NPC' ? '👹' : '👤'}
                           </Avatar>
                           <Typography variant="body2" sx={{ fontWeight: p.isCurrentTurn ? 'bold' : 'normal' }}>{p.displayName}</Typography>
+                          {p.isCurrentTurn && <Chip label="TURN" size="small" color="primary" variant="filled" sx={{ height: 16, fontSize: 9 }} />}
                         </Box>
                       </TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <HPIcon fontSize="small" sx={{ color: p.currentHP < p.maxHP * 0.3 ? 'error.main' : 'success.main' }} />
-                          <Typography variant="body2" sx={{ color: p.currentHP < p.maxHP * 0.3 ? 'error.main' : 'inherit' }}>{p.currentHP}/{p.maxHP}</Typography>
+                          <Typography variant="body2" sx={{ color: p.currentHP < p.maxHP * 0.3 ? 'error.main' : 'inherit', fontWeight: p.isCurrentTurn ? 'bold' : 'normal' }}>
+                            {p.currentHP}/{p.maxHP}
+                          </Typography>
                         </Box>
+                        <DeathSaveTracker participant={p} />
                       </TableCell>
                       <TableCell><Typography variant="body2">{p.ac}</Typography></TableCell>
                       <TableCell><Typography variant="body2">{p.initiative}</Typography></TableCell>
@@ -474,6 +721,7 @@ export default function CombatTab({ gameId }: CombatTabProps) {
                       </TableCell>
                       <TableCell sx={{ textAlign: 'right' }}>
                         <Box sx={{ display: 'flex', gap: 0.25, justifyContent: 'flex-end' }}>
+                          <Tooltip title="View Sheet"><IconButton size="small" onClick={() => handleViewCharSheet(p)}><SheetIcon fontSize="small" /></IconButton></Tooltip>
                           <Tooltip title="Attack"><IconButton size="small" onClick={() => { setAttackTarget(p.id); setShowAttackDialog(true); }}><AttackIcon fontSize="small" /></IconButton></Tooltip>
                           <Tooltip title="Cast Spell"><IconButton size="small" onClick={() => { setSpellTarget(p.id); setShowSpellDialog(true); }}><SpellIcon fontSize="small" /></IconButton></Tooltip>
                           <Tooltip title="Heal"><IconButton size="small" onClick={() => { setHealTarget(p.id); setShowHealDialog(true); }}><HealIcon fontSize="small" /></IconButton></Tooltip>
@@ -492,25 +740,18 @@ export default function CombatTab({ gameId }: CombatTabProps) {
         {/* Combat Log */}
         <Grid size={{ xs: 12, lg: 5 }}>
           <Collapse in={showCombatLog}>
-            <Paper sx={{ p: 2, maxHeight: '70vh', overflow: 'auto' }}>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><HistoryIcon /> Combat Log</Typography>
-              {activeCombat.events.length === 0 ? (
-                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 4 }}>No combat events yet.</Typography>
-              ) : (
-                <Box>
-                  {activeCombat.events.map((evt: CombatLogEvent) => (
-                    <Box key={evt.id} sx={{ mb: 0.5, pl: 1, borderLeft: `2px solid ${getEventColor(evt.type)}` }}>
-                      <Typography variant="caption" color="text.secondary">R{evt.round} T{evt.turnIndex} · {new Date(evt.createdAt).toLocaleTimeString()}</Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography variant="body2" sx={{ color: getEventColor(evt.type) }}>{getEventIcon(evt.type)}</Typography>
-                        <Typography variant="body2"><strong>{evt.actorName}</strong>{evt.targetName && ` → ${evt.targetName}`}{': '}{evt.content}</Typography>
-                      </Box>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-            </Paper>
+            <CombatLogPanel events={activeCombat.events} showCombatLog={showCombatLog} />
           </Collapse>
+          {!showCombatLog && (
+            <Paper sx={{ p: 2, textAlign: 'center' }}>
+              <IconButton onClick={() => setShowCombatLog(true)}>
+                <ExpandMoreIcon />
+              </IconButton>
+              <Typography variant="body2" color="text.secondary">
+                Click to expand combat log ({activeCombat.events.length} events)
+              </Typography>
+            </Paper>
+          )}
         </Grid>
       </Grid>
 
@@ -691,8 +932,8 @@ export default function CombatTab({ gameId }: CombatTabProps) {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowDeathSaveDialog(false)}>Cancel</Button>
-          <Button onClick={() => handleDeathSave(false)} variant="outlined" color="error" startIcon={<ConditionIcon />}>Failed</Button>
-          <Button onClick={() => handleDeathSave(true)} variant="contained" color="success" startIcon={<HPIcon />}>Success</Button>
+          <Button onClick={() => { setDeathSaveTarget(deathSaveTarget); setDeathSaveSuccess(false); handleDeathSave(false); }} variant="outlined" color="error" startIcon={<CancelIcon />}>Failed</Button>
+          <Button onClick={() => { setDeathSaveTarget(deathSaveTarget); setDeathSaveSuccess(true); handleDeathSave(true); }} variant="contained" color="success" startIcon={<CheckCircleIcon />}>Success</Button>
         </DialogActions>
       </Dialog>
 
@@ -706,6 +947,11 @@ export default function CombatTab({ gameId }: CombatTabProps) {
             </Select>
           </FormControl>
           <TextField fullWidth label="Heal Amount" type="number" value={healAmount} onChange={e => setHealAmount(parseInt(e.target.value) || 1)} inputProps={{ min: 1 }} />
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {[1, 5, 10, 25, 50].map(v => (
+              <Chip key={v} label={`+${v}`} size="small" clickable onClick={() => setHealAmount(v)} />
+            ))}
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowHealDialog(false)}>Cancel</Button>
@@ -789,20 +1035,18 @@ export default function CombatTab({ gameId }: CombatTabProps) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={showInventoryDialog} onClose={() => setShowInventoryDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog open={showInventoryDialog} onClose={() => setShowInventoryDialog(false)} maxWidth="md" fullWidth>
         <DialogTitle>Inventory</DialogTitle>
-        <DialogContent sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Typography variant="body2" color="text.secondary">Add items to a participant's inventory.</Typography>
-          <FormControl fullWidth>
+        <DialogContent sx={{ mt: 1 }}>
+          <FormControl fullWidth sx={{ mb: 2 }}>
             <InputLabel>Target</InputLabel>
             <Select value={sanTarget} label="Target" onChange={e => setSanTarget(e.target.value)}>
               {sortedParticipants.map(p => (<MenuItem key={p.id} value={p.id}>{p.displayName}</MenuItem>))}
             </Select>
           </FormControl>
-          <TextField fullWidth label="Item Name" value={invItemName} onChange={e => setInvItemName(e.target.value)} autoFocus />
-          <FormControl fullWidth>
-            <InputLabel>Item Type</InputLabel>
-            <Select value={invItemType} label="Item Type" onChange={e => setInvItemType(e.target.value)}>
+          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+            <TextField size="small" label="Item Name" value={invItemName} onChange={e => setInvItemName(e.target.value)} sx={{ flex: 1 }} />
+            <Select size="small" value={invItemType} onChange={e => setInvItemType(e.target.value)} sx={{ width: 120 }}>
               <MenuItem value="Weapon">Weapon</MenuItem>
               <MenuItem value="Armor">Armor</MenuItem>
               <MenuItem value="Shield">Shield</MenuItem>
@@ -810,13 +1054,19 @@ export default function CombatTab({ gameId }: CombatTabProps) {
               <MenuItem value="Consumable">Consumable</MenuItem>
               <MenuItem value="Magic">Magic Item</MenuItem>
             </Select>
-          </FormControl>
-          <TextField fullWidth label="Quantity" type="number" value={invQuantity} onChange={e => setInvQuantity(parseInt(e.target.value) || 1)} />
+            <TextField size="small" type="number" label="Qty" value={invQuantity} onChange={e => setInvQuantity(parseInt(e.target.value) || 1)} inputProps={{ min: 1, max: 99 }} sx={{ width: 60 }} />
+            <Button variant="contained" size="small" onClick={handleAddItem} disabled={!invItemName.trim()}>Add</Button>
+          </Box>
+          <Divider sx={{ my: 1 }} />
+          <Typography variant="subtitle2" gutterBottom>Items on {sortedParticipants.find(p => p.id === sanTarget)?.displayName || 'selected'}:</Typography>
+          <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
+            {/* Note: inventory is stored in participant notes/JSON, so we show a placeholder */}
+            <ListItem>
+              <ListItemText primary={<Typography color="text.secondary" variant="body2">Items are stored per-participant in the combat state.</Typography>} />
+            </ListItem>
+          </List>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowInventoryDialog(false)}>Close</Button>
-          <Button onClick={handleAddItem} variant="contained" startIcon={<AddIcon />}>Add Item</Button>
-        </DialogActions>
+        <DialogActions><Button onClick={() => setShowInventoryDialog(false)}>Close</Button></DialogActions>
       </Dialog>
 
       <Dialog open={showSANDialog} onClose={() => setShowSANDialog(false)} maxWidth="sm" fullWidth>
@@ -847,6 +1097,17 @@ export default function CombatTab({ gameId }: CombatTabProps) {
         </DialogContent>
         <DialogActions><Button onClick={() => setShowSANDialog(false)}>Close</Button></DialogActions>
       </Dialog>
+
+      {/* Character Sheet Popup */}
+      {selectedCharSheet && (
+        <CharacterSheetPopup
+          participant={selectedCharSheet}
+          open={showCharSheet}
+          onClose={() => { setShowCharSheet(false); setSelectedCharSheet(null); }}
+          onHeal={(id, amount) => { setHealTarget(id); setHealAmount(amount); setShowHealDialog(true); }}
+          onDamage={(id, amount) => { setHealTarget(id); setHealAmount(amount); }}
+        />
+      )}
     </>
   );
 }
