@@ -19,6 +19,17 @@ public interface ILLMProvider
     string ProviderId { get; }
 
     /// <summary>
+    /// Get the API endpoint URL used by this provider.
+    /// </summary>
+    string EndpointUrl { get; }
+
+    /// <summary>
+    /// Extract token usage from a raw response string (JSON-parsed from the provider).
+    /// Returns null if the response is not valid JSON or contains no usage data.
+    /// </summary>
+    (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText);
+
+    /// <summary>
     /// Generate text completion with optional system prompt.
     /// </summary>
     Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null);
@@ -134,6 +145,10 @@ public abstract class BaseLLMProvider : ILLMProvider
 
     public abstract string ProviderId { get; }
 
+    public abstract string EndpointUrl { get; }
+
+    public abstract (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText);
+
     public abstract Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null);
 
     /// <summary>
@@ -191,6 +206,21 @@ public class OllamaLLMProvider : BaseLLMProvider
     }
 
     public override string ProviderId => "ollama";
+
+    public override string EndpointUrl => _baseUrl;
+
+    public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
+    {
+        try
+        {
+            // Ollama doesn't return token counts in chat responses
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
@@ -303,6 +333,25 @@ public class LmStudioLLMProvider : BaseLLMProvider
 
     public override string ProviderId => "lmstudio";
 
+    public override string EndpointUrl => _baseUrl;
+
+    public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
+    {
+        try
+        {
+            var usage = System.Text.Json.JsonSerializer.Deserialize<OpenAIUsage>(responseText);
+            if (usage != null && usage.TotalTokens > 0)
+            {
+                return (usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens);
+            }
+        }
+        catch
+        {
+            // Response is not the usage object, ignore
+        }
+        return null;
+    }
+
     public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
@@ -414,6 +463,25 @@ public class OpenAILLMProvider : BaseLLMProvider
 
     public override string ProviderId => "openai";
 
+    public override string EndpointUrl => _baseUrl;
+
+    public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
+    {
+        try
+        {
+            var usage = System.Text.Json.JsonSerializer.Deserialize<OpenAIUsage>(responseText);
+            if (usage != null && usage.TotalTokens > 0)
+            {
+                return (usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens);
+            }
+        }
+        catch
+        {
+            // Response is not the usage object, ignore
+        }
+        return null;
+    }
+
     public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
@@ -521,6 +589,30 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
 
     public override string ProviderId => "google";
 
+    public override string EndpointUrl => $"https://generativelanguage.googleapis.com/v1beta/models/{_model}";
+
+    public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
+    {
+        try
+        {
+            // Google AI response structure: { "usageMetadata": { "promptTokenCount": 100, "candidatesTokenCount": 200, "totalTokenCount": 300 } }
+            var doc = System.Text.Json.JsonDocument.Parse(responseText);
+            var metadata = doc.RootElement.GetProperty("usageMetadata");
+            var promptTokens = metadata.TryGetProperty("promptTokenCount", out var p) ? p.GetInt32() : 0;
+            var completionTokens = metadata.TryGetProperty("candidatesTokenCount", out var c) ? c.GetInt32() : 0;
+            var totalTokens = metadata.TryGetProperty("totalTokenCount", out var t) ? t.GetInt32() : 0;
+            if (totalTokens > 0)
+            {
+                return (promptTokens, completionTokens, totalTokens);
+            }
+        }
+        catch
+        {
+            // Response is not the usage object, ignore
+        }
+        return null;
+    }
+
     public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
@@ -624,6 +716,21 @@ public class OllamaLLMProviderFromPreset : BaseLLMProvider
 
     public override string ProviderId => "ollama";
 
+    public override string EndpointUrl => _baseUrl;
+
+    public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
+    {
+        try
+        {
+            // Ollama doesn't return token counts in chat responses
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
@@ -691,6 +798,25 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
     }
 
     public override string ProviderId => "lmstudio";
+
+    public override string EndpointUrl => _baseUrl;
+
+    public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
+    {
+        try
+        {
+            var usage = System.Text.Json.JsonSerializer.Deserialize<OpenAIUsage>(responseText);
+            if (usage != null && usage.TotalTokens > 0)
+            {
+                return (usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens);
+            }
+        }
+        catch
+        {
+            // Response is not the usage object, ignore
+        }
+        return null;
+    }
 
     public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
@@ -764,6 +890,25 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
 
     public override string ProviderId => "openai";
 
+    public override string EndpointUrl => _baseUrl;
+
+    public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
+    {
+        try
+        {
+            var usage = System.Text.Json.JsonSerializer.Deserialize<OpenAIUsage>(responseText);
+            if (usage != null && usage.TotalTokens > 0)
+            {
+                return (usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens);
+            }
+        }
+        catch
+        {
+            // Response is not the usage object, ignore
+        }
+        return null;
+    }
+
     public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
@@ -832,6 +977,30 @@ public class GoogleAIStudioLLMProviderFromPreset : BaseLLMProvider
     }
 
     public override string ProviderId => "google";
+
+    public override string EndpointUrl => $"https://generativelanguage.googleapis.com/v1beta/models/{_model}";
+
+    public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
+    {
+        try
+        {
+            // Google AI response structure: { "usageMetadata": { "promptTokenCount": 100, "candidatesTokenCount": 200, "totalTokenCount": 300 } }
+            var doc = System.Text.Json.JsonDocument.Parse(responseText);
+            var metadata = doc.RootElement.GetProperty("usageMetadata");
+            var promptTokens = metadata.TryGetProperty("promptTokenCount", out var p) ? p.GetInt32() : 0;
+            var completionTokens = metadata.TryGetProperty("candidatesTokenCount", out var c) ? c.GetInt32() : 0;
+            var totalTokens = metadata.TryGetProperty("totalTokenCount", out var t) ? t.GetInt32() : 0;
+            if (totalTokens > 0)
+            {
+                return (promptTokens, completionTokens, totalTokens);
+            }
+        }
+        catch
+        {
+            // Response is not the usage object, ignore
+        }
+        return null;
+    }
 
     public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {

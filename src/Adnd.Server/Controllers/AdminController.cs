@@ -992,6 +992,18 @@ public class AdminController : ControllerBase
         return Ok(new { message = "Old logs cleaned up." });
     }
 
+    [HttpGet("games/{gameId}/llm-provider-usage")]
+    public async Task<IActionResult> GetGameProviderUsage(Guid gameId,
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+
+        var usage = await _interactionLogger.GetGameProviderUsageAsync(gameId, from, to);
+        return Ok(usage);
+    }
+
     // ==================== PlotWeaver ====================
 
     [HttpPost("games/{gameId}/plot-weaver/review")]

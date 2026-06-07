@@ -464,6 +464,13 @@ class APIClient {
       body: JSON.stringify(before),
     });
   }
+
+  async getGameProviderUsage(gameId: string, from?: string, to?: string) {
+    const searchParams = new URLSearchParams();
+    if (from) searchParams.set('from', from);
+    if (to) searchParams.set('to', to);
+    return this.request<GameProviderUsageSummary[]>(`/admin/games/${gameId}/llm-provider-usage?${searchParams}`);
+  }
 }
 
 export const api = new APIClient();
@@ -895,6 +902,22 @@ export interface PresetUsageSummary {
   totalCompletionTokens: number;
   avgDurationMs: number;
   lastUsed: string;
+}
+
+export interface GameProviderUsageSummary {
+  providerType: string;
+  model: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  successRate: number;
+  totalTokens: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  avgDurationMs: number;
+  maxDurationMs: number;
+  firstCall: string;
+  lastCall: string;
 }
 
 export type JsonElement = any;

@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Data;
@@ -42,6 +43,12 @@ public interface ILLMInteractionLogger
     /// Get interaction logs grouped by preset with summary statistics.
     /// </summary>
     Task<List<PresetUsageSummary>> GetPresetUsageAsync(Guid userId, DateTime? from = null, DateTime? to = null);
+
+    /// <summary>
+    /// Get interaction logs grouped by provider+model for a specific game with summary statistics.
+    /// Designed for game creators to monitor provider usage and plan spendings.
+    /// </summary>
+    Task<List<GameProviderUsageSummary>> GetGameProviderUsageAsync(Guid gameId, DateTime? from = null, DateTime? to = null);
 
     /// <summary>
     /// Delete old interaction logs (cleanup).
@@ -229,6 +236,52 @@ public class LLMInteractionLogger : ILLMInteractionLogger
         }
     }
 
+    public async Task<List<GameProviderUsageSummary>> GetGameProviderUsageAsync(Guid gameId, DateTime? from = null, DateTime? to = null)
+    {
+        var query = _context.LLMInteractionLogs
+            .Where(l => l.OriginGameId == gameId)
+            .GroupBy(l => new { l.ProviderType, l.Model })
+            .Select(g => new
+            {
+                ProviderType = g.Key.ProviderType,
+                Model = g.Key.Model,
+                TotalCalls = g.Count(),
+                SuccessfulCalls = g.Count(l => l.Success),
+                FailedCalls = g.Count(l => !l.Success),
+                SuccessRate = g.Count() > 0 ? (double)g.Count(l => l.Success) / g.Count() : 0.0,
+                TotalTokens = g.Sum(l => l.TotalTokens.GetValueOrDefault(0)),
+                TotalPromptTokens = g.Sum(l => l.PromptTokens.GetValueOrDefault(0)),
+                TotalCompletionTokens = g.Sum(l => l.CompletionTokens.GetValueOrDefault(0)),
+                AvgDurationMs = g.Average(l => l.DurationMs),
+                MaxDurationMs = g.Max(l => l.DurationMs),
+                FirstCall = g.Min(l => l.StartedAt),
+                LastCall = g.Max(l => l.StartedAt)
+            });
+
+        if (from.HasValue)
+            query = query.Where(g => g.FirstCall >= from.Value);
+        if (to.HasValue)
+            query = query.Where(g => g.LastCall <= to.Value);
+
+        return await query.OrderByDescending(g => g.TotalCalls)
+            .Select(g => new GameProviderUsageSummary
+            {
+                ProviderType = g.ProviderType,
+                Model = g.Model,
+                TotalCalls = g.TotalCalls,
+                SuccessfulCalls = g.SuccessfulCalls,
+                FailedCalls = g.FailedCalls,
+                SuccessRate = g.SuccessRate,
+                TotalTokens = g.TotalTokens,
+                TotalPromptTokens = g.TotalPromptTokens,
+                TotalCompletionTokens = g.TotalCompletionTokens,
+                AvgDurationMs = g.AvgDurationMs,
+                MaxDurationMs = g.MaxDurationMs,
+                FirstCall = g.FirstCall,
+                LastCall = g.LastCall
+            }).ToListAsync();
+    }
+
     private static string? Truncate(string? value, int maxLength)
     {
         if (string.IsNullOrEmpty(value)) return value;
@@ -249,4 +302,25 @@ public class PresetUsageSummary
     public int TotalCompletionTokens { get; set; }
     public double AvgDurationMs { get; set; }
     public DateTime LastUsed { get; set; }
+}
+
+/// <summary>
+/// Usage summary grouped by provider and model for a specific game.
+/// Designed for game creators to monitor provider usage and plan spendings.
+/// </summary>
+public class GameProviderUsageSummary
+{
+    public string ProviderType { get; set; } = string.Empty;
+    public string Model { get; set; } = string.Empty;
+    public int TotalCalls { get; set; }
+    public int SuccessfulCalls { get; set; }
+    public int FailedCalls { get; set; }
+    public double SuccessRate { get; set; }
+    public int TotalTokens { get; set; }
+    public int TotalPromptTokens { get; set; }
+    public int TotalCompletionTokens { get; set; }
+    public double AvgDurationMs { get; set; }
+    public int MaxDurationMs { get; set; }
+    public DateTime FirstCall { get; set; }
+    public DateTime LastCall { get; set; }
 }

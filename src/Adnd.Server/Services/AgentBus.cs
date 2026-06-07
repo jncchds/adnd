@@ -87,6 +87,7 @@ public class AgentBus : IAgentBus
     private readonly IDiceEngine _diceEngine;
     private readonly ISystemRegistry _systemRegistry;
     private readonly ILLMPresetService _presetService;
+    private readonly ILLMInteractionLogger _interactionLogger;
     private readonly ILogger<AgentBus> _logger;
 
     public AgentBus(
@@ -97,6 +98,7 @@ public class AgentBus : IAgentBus
         IDiceEngine diceEngine,
         ISystemRegistry systemRegistry,
         ILLMPresetService presetService,
+        ILLMInteractionLogger interactionLogger,
         ILogger<AgentBus> logger)
     {
         _context = context;
@@ -106,6 +108,7 @@ public class AgentBus : IAgentBus
         _diceEngine = diceEngine;
         _systemRegistry = systemRegistry;
         _presetService = presetService;
+        _interactionLogger = interactionLogger;
         _logger = logger;
     }
 
@@ -282,6 +285,8 @@ public class AgentBus : IAgentBus
 
         try
         {
+            string result;
+
             if (call.Action == AgentAction.Generate || call.Action == AgentAction.Narrate)
             {
                 var options = JsonSerializer.Deserialize<LLMDispatchOptions>(call.Input)
@@ -290,7 +295,20 @@ public class AgentBus : IAgentBus
                 var systemPrompt = options.SystemPrompt ?? "You are a TTRPG Game Master assistant.";
                 var userPrompt = options.UserPrompt ?? call.Input ?? "Generate content.";
 
-                var result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+                sw.Stop();
+
+                // Log successful interaction
+                var model = options?.Options?.Model ?? "default";
+                var tokenUsage = provider.GetTokenUsage(result);
+                await _interactionLogger.LogInteractionAsync(
+                    Guid.Empty, null, provider.ProviderId, model,
+                    tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
+                    (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, result,
+                    null, null, "agent", call.GameId, call.SessionId,
+                    "AgentBus", call.Action.ToString());
+
                 return result;
             }
 
@@ -305,7 +323,18 @@ public class AgentBus : IAgentBus
 
                 var userPrompt = options.UserPrompt ?? call.Input ?? "Suggest plot continuations.";
 
-                var result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+                sw.Stop();
+
+                var model = options?.Options?.Model ?? "default";
+                var tokenUsage = provider.GetTokenUsage(result);
+                await _interactionLogger.LogInteractionAsync(
+                    Guid.Empty, null, provider.ProviderId, model,
+                    tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
+                    (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, result,
+                    null, null, "agent", call.GameId, call.SessionId,
+                    "AgentBus", call.Action.ToString());
 
                 // Try to parse as JSON array
                 try
@@ -330,13 +359,40 @@ public class AgentBus : IAgentBus
                 var systemPrompt = "You are a helpful TTRPG assistant. Answer questions about the game state, rules, and lore.";
                 var userPrompt = options.UserPrompt ?? call.Input ?? "Answer the question.";
 
-                return await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+                sw.Stop();
+
+                var model = options?.Options?.Model ?? "default";
+                var tokenUsage = provider.GetTokenUsage(result);
+                await _interactionLogger.LogInteractionAsync(
+                    Guid.Empty, null, provider.ProviderId, model,
+                    tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
+                    (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, result,
+                    null, null, "agent", call.GameId, call.SessionId,
+                    "AgentBus", call.Action.ToString());
+
+                return result;
             }
 
             return "LLM: action not handled.";
         }
         catch (Exception ex)
         {
+            // Log failed interaction
+            try
+            {
+                await _interactionLogger.LogFailureAsync(
+                    Guid.Empty, null, "unknown", "unknown", null, null, null,
+                    0, ex.ToString(),
+                    "agent", call.GameId, call.SessionId,
+                    "AgentBus", call.Action.ToString());
+            }
+            catch
+            {
+                // Ignore logging failures
+            }
+
             throw new InvalidOperationException($"LLM call failed: {ex.Message}", ex);
         }
     }
@@ -533,7 +589,19 @@ public class AgentBus : IAgentBus
 
             var userPrompt = options.UserPrompt ?? call.Input ?? "Continue the narrative.";
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+            sw.Stop();
+
+            // Log successful interaction
+            var model = options?.Options?.Model ?? game.LLMPreset.BaseModel;
+            var tokenUsage = provider.GetTokenUsage(result);
+            await _interactionLogger.LogInteractionAsync(
+                game.CreatorId, game.LLMPresetId, provider.ProviderId, model,
+                tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
+                (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, result,
+                null, provider.EndpointUrl, "agent", call.GameId, call.SessionId,
+                "GM", call.Action.ToString());
 
             game.LastGMAction = "Narrate";
             game.LastGMActionAt = DateTime.UtcNow;
@@ -561,7 +629,19 @@ public class AgentBus : IAgentBus
 
             var userPrompt = $"Incorporate this narrative direction: {call.Input}";
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+            sw.Stop();
+
+            // Log successful interaction
+            var model = options?.Options?.Model ?? game.LLMPreset.BaseModel;
+            var tokenUsage = provider.GetTokenUsage(result);
+            await _interactionLogger.LogInteractionAsync(
+                game.CreatorId, game.LLMPresetId, provider.ProviderId, model,
+                tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
+                (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, result,
+                null, provider.EndpointUrl, "agent", call.GameId, call.SessionId,
+                "GM", call.Action.ToString());
 
             game.LastGMAction = "Nudge";
             game.LastGMActionAt = DateTime.UtcNow;

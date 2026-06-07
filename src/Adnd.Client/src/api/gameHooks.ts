@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, PlotThreadResponse, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary, GMStatusResponse, SwayResponse, PlotReviewResponse } from './client';
+import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, PlotThreadResponse, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary, GameProviderUsageSummary, GMStatusResponse, SwayResponse, PlotReviewResponse } from './client';
 import { useEntity } from './useEntity';
 
 export function useGames() {
@@ -431,6 +431,39 @@ export function useLLMInteractions(gameId?: string) {
     fetchLogs,
     deleteLog,
     getUsage,
+  };
+}
+
+// ==================== Game Provider Usage Hook ====================
+
+export function useGameProviderUsage(gameId: string | undefined) {
+  const [usage, setUsage] = useState<GameProviderUsageSummary[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchUsage = useCallback(async (from?: string, to?: string) => {
+    if (!gameId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getGameProviderUsage(gameId, from, to);
+      setUsage(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [gameId]);
+
+  useEffect(() => {
+    fetchUsage();
+  }, [fetchUsage]);
+
+  return {
+    usage,
+    isLoading,
+    error,
+    refetch: fetchUsage,
   };
 }
 

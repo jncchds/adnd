@@ -46,6 +46,7 @@ public class LLMInteractionLog
     public Guid? OriginSessionId { get; set; }
     public string? OriginAgent { get; set; } // Agent type name
     public string? OriginAction { get; set; } // Agent action
+    public string? EndpointUrl { get; set; } // API endpoint URL used
 
     // Navigation
     public User? User { get; set; }

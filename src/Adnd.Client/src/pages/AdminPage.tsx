@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useGame, useNPCs, usePlotThreads, useCharacters, useConsistency, useLLMPresets, usePlotWeaver } from '../api/gameHooks';
+import LLMUsagePanel from './LLMUsagePanel';
 import { useGameHub } from '../api/hubHook';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
 import CharacterCreateWizard from './CharacterCreateWizard';
@@ -18,7 +19,8 @@ import { Delete as DeleteIcon, Add as AddIcon,
   MenuBook as BookIcon, People as PeopleIcon, History as HistoryIcon,
   AutoFixHigh as ConsistencyIcon, Mic as MicIcon, Chat as ChatBubbleIcon,
   Settings as SettingsIcon, Shield as ShieldIcon, Article as SheetIcon,
-  Lightbulb as BulbIcon } from '@mui/icons-material';
+  Lightbulb as BulbIcon,
+  BarChart as BarChartIcon } from '@mui/icons-material';
 
 export default function AdminPage() {
   const { id } = useParams<{ id: string }>();
@@ -321,6 +323,7 @@ export default function AdminPage() {
     { label: 'Consistency', icon: <ConsistencyIcon /> },
     { label: 'Agent Calls', icon: <MicIcon />, count: agentCalls.length },
     { label: 'LLM Presets', icon: <SettingsIcon />, count: presets.length },
+    { label: 'LLM Usage', icon: <BarChartIcon /> },
     { label: 'LLM Logs', icon: <HistoryIcon />, count: llmLogs.length },
     { label: 'Whispers', icon: <ChatBubbleIcon />, count: whispers.length },
     { label: 'Game State', icon: <SettingsIcon /> },
@@ -406,30 +409,6 @@ export default function AdminPage() {
       )}
 
       {activeTab === 6 && (
-        <WhispersTabAdmin
-          whispers={whispers}
-          isLoading={false}
-          onRefresh={handleRefreshWhispers}
-          filter={whisperFilter}
-          onFilterChange={setWhisperFilter}
-        />
-      )}
-
-      {activeTab === 7 && (
-        <GameStateTab
-          game={game}
-          gameStateJson={gameStateJson}
-          setGameStateJson={setGameStateJson}
-          plotSeed={plotSeed}
-          setPlotSeed={setPlotSeed}
-          gameParameters={gameParameters}
-          setGameParameters={setGameParameters}
-          onSave={handleSaveGameState}
-          onOpenCharCreate={() => setShowCharCreateWizard(true)}
-        />
-      )}
-
-      {activeTab === 8 && (
         <LLMPresetsTab
           presets={presets}
           isLoading={presetsLoading}
@@ -440,7 +419,11 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 9 && (
+      {activeTab === 7 && (
+        <LLMUsagePanel gameId={id!} />
+      )}
+
+      {activeTab === 8 && (
         <LLMLogsTab
           logs={llmLogs}
           isLoading={logsLoading}
@@ -456,7 +439,31 @@ export default function AdminPage() {
         />
       )}
 
+      {activeTab === 9 && (
+        <WhispersTabAdmin
+          whispers={whispers}
+          isLoading={false}
+          onRefresh={handleRefreshWhispers}
+          filter={whisperFilter}
+          onFilterChange={setWhisperFilter}
+        />
+      )}
+
       {activeTab === 10 && (
+        <GameStateTab
+          game={game}
+          gameStateJson={gameStateJson}
+          setGameStateJson={setGameStateJson}
+          plotSeed={plotSeed}
+          setPlotSeed={setPlotSeed}
+          gameParameters={gameParameters}
+          setGameParameters={setGameParameters}
+          onSave={handleSaveGameState}
+          onOpenCharCreate={() => setShowCharCreateWizard(true)}
+        />
+      )}
+
+      {activeTab === 11 && (
         <SystemsTab
           systems={systems}
           showRegistry={showSystemRegistry}

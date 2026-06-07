@@ -189,6 +189,22 @@ export interface PresetUsageSummary {
   lastUsed: string;
 }
 
+export interface GameProviderUsageSummary {
+  providerType: string;
+  model: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  successRate: number;
+  totalTokens: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  avgDurationMs: number;
+  maxDurationMs: number;
+  firstCall: string;
+  lastCall: string;
+}
+
 // Combat interfaces
 export interface CombatLog {
   combatId: string;
