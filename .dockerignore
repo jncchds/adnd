@@ -25,7 +25,6 @@ Thumbs.db
 *.pfx
 *.key
 appsettings.Development.json
-appsettings.Production.json
 
 # Docs
 README.md
