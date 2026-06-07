@@ -30,9 +30,14 @@ public record SessionClosed(Guid GameId, Guid SessionId) : INotification;
 
 // ==================== Chat Events ====================
 
-public record MessageSent(Guid GameId, Guid SessionId, Guid PlayerId, string Content, MessageType Type, string? Metadata) : INotification;
+public record MessageSent(Guid GameId, Guid SessionId, Guid PlayerId, string Content, MessageType Type, string? Metadata, bool IsOOC = false) : INotification;
 
 public record WhisperSent(Guid GameId, Guid FromPlayerId, string Targets, string Content, WhisperType Type) : INotification;
+
+// OOC-specific events — never processed by game agent
+public record OOCMessageSent(Guid GameId, Guid SessionId, Guid PlayerId, string Content, string OOCChannel) : INotification;
+public record OOCWhisperSent(Guid GameId, Guid FromPlayerId, string Targets, string Content) : INotification;
+public record OOCWhisperReceived(Guid GameId, Guid ToPlayerId, Guid FromPlayerId, string Content) : INotification;
 
 // ==================== Game Action Events ====================
 
@@ -112,22 +117,35 @@ public record GMActioned(Guid GameId, string Action, string? OutputMessage, stri
 
 public enum MessageType
 {
-    Chat = 0,
-    Action = 1,
-    Dice = 2,
-    System = 3,
-    GM = 4,
-    PlayerWhisper = 5,
-    GMWhisper = 6,
-    AgentCall = 7,
-    AgentResponse = 8
+    // === In-game messages (influence narrative) ===
+    InGamePublic = 0,
+    InGameWhisper = 1,
+
+    // === OOC messages (never influence narrative) ===
+    OOCPublic = 2,
+    OOCWhisper = 3,
+
+    // === System / meta messages ===
+    Action = 4,
+    Dice = 5,
+    System = 6,
+    GM = 7,
+    AgentCall = 8,
+    AgentResponse = 9
 }
 
 public enum WhisperType
 {
-    PlayerToPlayer = 0,
-    PlayerToGM = 1,
-    GMToPlayer = 2,
-    GMToGroup = 3,
-    GMToAll = 4
+    // === In-game whispers (narrative) ===
+    InGamePlayerToGM = 0,
+    InGameGMToPlayer = 1,
+
+    // === OOC whispers (non-narrative) ===
+    OOCPlayerToGM = 2,
+    OOCGMToPlayer = 3,
+
+    // === Legacy (kept for compatibility) ===
+    PlayerToPlayer = 4,
+    GMToGroup = 5,
+    GMToAll = 6,
 }

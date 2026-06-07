@@ -161,10 +161,15 @@ public class GameActionHandler :
 
 /// <summary>
 /// Handles chat/whisper events.
+/// In-game messages are processed by the GameAgent for narrative.
+/// OOC messages bypass the GameAgent entirely.
 /// </summary>
 public class ChatHandler :
     INotificationHandler<MessageSent>,
-    INotificationHandler<WhisperSent>
+    INotificationHandler<WhisperSent>,
+    INotificationHandler<OOCMessageSent>,
+    INotificationHandler<OOCWhisperSent>,
+    INotificationHandler<OOCWhisperReceived>
 {
     private readonly ILogger<ChatHandler> _logger;
 
@@ -175,14 +180,38 @@ public class ChatHandler :
 
     public Task Handle(MessageSent notification, CancellationToken ct)
     {
-        _logger.LogDebug("Message sent in game {GameId}: type={Type}", notification.GameId, notification.Type);
+        _logger.LogDebug("Message sent in game {GameId}: type={Type} ooc={IsOOC}",
+            notification.GameId, notification.Type, notification.IsOOC);
+        // OOC messages are NOT processed by the GameAgent — they bypass narrative entirely
         return Task.CompletedTask;
     }
 
     public Task Handle(WhisperSent notification, CancellationToken ct)
     {
-        _logger.LogDebug("Whisper in game {GameId}: {FromPlayerId} → {Targets}",
+        _logger.LogDebug("Whisper in game {GameId}: {FromPlayerId} → {Targets} (type: {Type})",
+            notification.GameId, notification.FromPlayerId, notification.Targets, notification.Type);
+        return Task.CompletedTask;
+    }
+
+    public Task Handle(OOCMessageSent notification, CancellationToken ct)
+    {
+        _logger.LogDebug("OOC message in game {GameId}: channel={Channel}",
+            notification.GameId, notification.OOCChannel);
+        // OOC messages never reach the GameAgent
+        return Task.CompletedTask;
+    }
+
+    public Task Handle(OOCWhisperSent notification, CancellationToken ct)
+    {
+        _logger.LogDebug("OOC whisper in game {GameId}: {FromPlayerId} → {Targets}",
             notification.GameId, notification.FromPlayerId, notification.Targets);
+        return Task.CompletedTask;
+    }
+
+    public Task Handle(OOCWhisperReceived notification, CancellationToken ct)
+    {
+        _logger.LogDebug("OOC whisper received in game {GameId}: {FromPlayerId} → {ToPlayerId}",
+            notification.GameId, notification.FromPlayerId, notification.ToPlayerId);
         return Task.CompletedTask;
     }
 }

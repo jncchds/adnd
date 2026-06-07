@@ -348,6 +348,31 @@ export function useGameHub() {
     off,
     invoke,
     // New hub methods
+    // In-game public message
+    sendMessage: async (sessionId: string, content: string) => {
+      return hubRef.current?.invoke('SendMessage', sessionId, content);
+    },
+    // In-game whisper to GM
+    sendInGameWhisper: async (sessionId: string, content: string) => {
+      return hubRef.current?.invoke('SendInGameWhisper', sessionId, content);
+    },
+    // OOC public message
+    sendOOCMessage: async (sessionId: string, content: string) => {
+      return hubRef.current?.invoke('SendOOCMessage', sessionId, content);
+    },
+    // OOC whisper from player to GM
+    sendOOCWhisper: async (sessionId: string, content: string) => {
+      return hubRef.current?.invoke('SendOOCWhisper', sessionId, content);
+    },
+    // OOC whisper from GM to player
+    sendOOCWhisperToPlayer: async (targetPlayerId: string, content: string) => {
+      return hubRef.current?.invoke('SendOOCWhisperToPlayer', targetPlayerId, content);
+    },
+    // In-game whisper from GM to player (e.g., divination)
+    sendInGameWhisperToPlayer: async (targetPlayerId: string, content: string) => {
+      return hubRef.current?.invoke('SendInGameWhisperToPlayer', targetPlayerId, content);
+    },
+    // Legacy (kept for compatibility)
     sendWhisper: async (targets: string, content: string) => {
       return hubRef.current?.invoke('SendWhisper', targets, content);
     },

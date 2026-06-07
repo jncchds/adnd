@@ -922,9 +922,11 @@ function AgentCallsTab({ calls, isLoading, onRefresh, onOpenDialog, onDelete, fi
 function WhispersTabAdmin({ whispers, isLoading, onRefresh }: any) {
   const getWhisperTypeLabel = (type: number) => {
     switch (type) {
+      case WhisperType.InGamePlayerToGM: return '🤫 P→GM (In-Game)';
+      case WhisperType.InGameGMToPlayer: return '🤫 GM→P (In-Game)';
+      case WhisperType.OOCPlayerToGM: return '🤫 P→GM (OOC)';
+      case WhisperType.OOCGMToPlayer: return '🤫 GM→P (OOC)';
       case WhisperType.PlayerToPlayer: return '🤫 P→P';
-      case WhisperType.PlayerToGM: return '🤫 P→Creator';
-      case WhisperType.GMToPlayer: return '🤫 Creator→P';
       case WhisperType.GMToGroup: return '🤫 Creator→G';
       case WhisperType.GMToAll: return '🤫 Creator→All';
       default: return '🤫 Whisper';

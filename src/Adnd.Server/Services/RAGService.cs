@@ -182,8 +182,8 @@ public class RAGService : IRAGService
 
         var summaryParts = new List<string> { "## Session Summary\n" };
 
-        // Group by type
-        var chatMsgs = messages.Where(m => m.Type == MessageType.Chat).ToList();
+        // Group by type (map old enum values to new ones)
+        var chatMsgs = messages.Where(m => m.Type == MessageType.InGamePublic).ToList();
         var actionMsgs = messages.Where(m => m.Type == MessageType.Action).ToList();
         var diceMsgs = messages.Where(m => m.Type == MessageType.Dice).ToList();
         var gmMsgs = messages.Where(m => m.Type == MessageType.GM).ToList();

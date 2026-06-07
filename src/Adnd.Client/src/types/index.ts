@@ -1,13 +1,19 @@
 export enum MessageType {
-  Chat = 0,
-  Action = 1,
-  Dice = 2,
-  System = 3,
-  GM = 4,
-  PlayerWhisper = 5,
-  GMWhisper = 6,
-  AgentCall = 7,
-  AgentResponse = 8,
+  // === In-game messages (influence narrative) ===
+  InGamePublic = 0,
+  InGameWhisper = 1,
+
+  // === OOC messages (never influence narrative) ===
+  OOCPublic = 2,
+  OOCWhisper = 3,
+
+  // === System / meta messages ===
+  Action = 4,
+  Dice = 5,
+  System = 6,
+  GM = 7,
+  AgentCall = 8,
+  AgentResponse = 9,
 }
 
 export enum GameStatus {
@@ -44,11 +50,18 @@ export enum PlotThreadStatus {
 
 // Whisper types
 export enum WhisperType {
-  PlayerToPlayer = 0,
-  PlayerToGM = 1,
-  GMToPlayer = 2,
-  GMToGroup = 3,
-  GMToAll = 4,
+  // === In-game whispers (narrative) ===
+  InGamePlayerToGM = 0,
+  InGameGMToPlayer = 1,
+
+  // === OOC whispers (non-narrative) ===
+  OOCPlayerToGM = 2,
+  OOCGMToPlayer = 3,
+
+  // === Legacy (kept for compatibility) ===
+  PlayerToPlayer = 4,
+  GMToGroup = 5,
+  GMToAll = 6,
 }
 
 // Agent framework types

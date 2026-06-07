@@ -32,9 +32,16 @@ public class Whisper
 
 public enum WhisperType
 {
-    PlayerToPlayer, // Player whispers to another player
-    PlayerToGM,     // Player whispers to GM
-    GMToPlayer,     // GM whispers to a player
-    GMToGroup,      // GM whispers to a group of players
-    GMToAll         // GM whispers to all players
+    // === In-game whispers (narrative) ===
+    InGamePlayerToGM = 0,   // Player whispers to GM — adds to GM knowledge
+    InGameGMToPlayer = 1,   // GM whispers to a player (e.g., divination result)
+
+    // === OOC whispers (non-narrative) ===
+    OOCPlayerToGM = 2,      // Player OOC to GM — for clarification
+    OOCGMToPlayer = 3,      // GM OOC response to player
+
+    // === Legacy (kept for compatibility) ===
+    PlayerToPlayer = 4,     // Player whispers to another player (ignored by GM)
+    GMToGroup = 5,          // GM whispers to a group
+    GMToAll = 6,            // GM whispers to all players
 }
