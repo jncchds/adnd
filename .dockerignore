@@ -1,0 +1,33 @@
+# Git
+.git/
+.gitignore
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+**/bin/
+**/obj/
+**/dist/
+**/build/
+**/node_modules/
+
+# Secrets
+*.pfx
+*.key
+appsettings.Development.json
+appsettings.Production.json
+
+# Docs
+README.md
+docker-compose.yml
+.dockerignore

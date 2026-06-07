@@ -1,0 +1,169 @@
+using Microsoft.EntityFrameworkCore;
+using Adnd.Server.Models;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using System.Text.Json;
+
+namespace Adnd.Server.Data;
+
+// Value converter for PGVector float[]? <-> JSON string
+public class VectorValueConverter : Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<float[]?, string>
+{
+    public VectorValueConverter() : base(
+        v => v == null ? "null" : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+        v => string.IsNullOrEmpty(v) || v == "null" ? null! : JsonSerializer.Deserialize<float[]>(v) ?? Array.Empty<float>()) { }
+}
+
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    public DbSet<User> Users => Set<User>();
+    public DbSet<Game> Games => Set<Game>();
+    public DbSet<Player> Players => Set<Player>();
+    public DbSet<Character> Characters => Set<Character>();
+    public DbSet<GameSession> GameSessions => Set<GameSession>();
+    public DbSet<Message> Messages => Set<Message>();
+    public DbSet<NPC> NPCs => Set<NPC>();
+    public DbSet<PlotThread> PlotThreads => Set<PlotThread>();
+    public DbSet<CustomSystemDefinition> CustomSystems => Set<CustomSystemDefinition>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<AgentCall> AgentCalls => Set<AgentCall>();
+    public DbSet<Whisper> Whispers => Set<Whisper>();
+    public DbSet<LLMPreset> LLMPresets => Set<LLMPreset>();
+    public DbSet<LLMInteractionLog> LLMInteractionLogs => Set<LLMInteractionLog>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Configure PGVector for embeddings (variable length)
+        // Note: ValueComparer not set for float[] properties to avoid EF Core validation warnings
+        // The vector type handles comparison at the database level
+        modelBuilder.Entity<Message>()
+            .Property(m => m.Embedding)
+            .HasConversion(new VectorValueConverter())
+            .HasColumnType("vector");
+
+        modelBuilder.Entity<PlotThread>()
+            .Property(p => p.Embedding)
+            .HasConversion(new VectorValueConverter())
+            .HasColumnType("vector");
+
+        // User email unique
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.Email)
+            .IsUnique();
+
+        // Game invite code unique
+        modelBuilder.Entity<Game>()
+            .Property(g => g.InviteCode)
+            .HasColumnName("invitecode");
+        modelBuilder.Entity<Game>()
+            .HasIndex(g => g.InviteCode)
+            .IsUnique()
+            .HasFilter("invitecode IS NOT NULL");
+
+        // Refresh token unique
+        modelBuilder.Entity<RefreshToken>()
+            .HasIndex(r => r.Token)
+            .IsUnique();
+
+        // Player unique per game
+        modelBuilder.Entity<Player>()
+            .HasIndex(p => new { p.GameId, p.UserId })
+            .IsUnique();
+
+        // Whisper: from player + targets
+        modelBuilder.Entity<Whisper>()
+            .HasIndex(w => new { w.GameId, w.CreatedAt })
+            .IsDescending(new[] { false, true });
+
+        // AgentCall: game + status indexes
+        modelBuilder.Entity<AgentCall>()
+            .HasIndex(a => new { a.GameId, a.Status, a.CreatedAt })
+            .IsDescending(new[] { false, false, true });
+
+        // Whisper targets stored as JSON-friendly string
+        modelBuilder.Entity<Whisper>()
+            .Property(w => w.Targets)
+            .HasColumnType("text");
+
+        // AgentCall input/output as text (JSON)
+        modelBuilder.Entity<AgentCall>()
+            .Property(a => a.Input)
+            .HasColumnType("text");
+        modelBuilder.Entity<AgentCall>()
+            .Property(a => a.Output)
+            .HasColumnType("text");
+        modelBuilder.Entity<AgentCall>()
+            .Property(a => a.OutputMessage)
+            .HasColumnType("text");
+
+        // AgentCall parent/child relationship
+        modelBuilder.Entity<AgentCall>()
+            .HasOne(a => a.ParentCall)
+            .WithMany(a => a.ChildCalls)
+            .HasForeignKey(a => a.ParentCallId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Player -> Character one-to-one (a player gets one character per game)
+        modelBuilder.Entity<Player>()
+            .HasOne(p => p.Character)
+            .WithOne(c => c.Player)
+            .HasForeignKey<Character>(c => c.PlayerId);
+
+        // Whisper -> Session (optional)
+        modelBuilder.Entity<Whisper>()
+            .HasOne(w => w.Session)
+            .WithMany()
+            .HasForeignKey(w => w.SessionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Value converter for AgentCall Metadata
+        modelBuilder.Entity<AgentCall>()
+            .Property(a => a.Metadata)
+            .HasConversion(
+                v => v == null ? "null" : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v) || v == "null" ? null! : JsonSerializer.Deserialize<JsonElement>(v)!);
+
+        // LLM Preset
+        modelBuilder.Entity<LLMPreset>()
+            .HasIndex(p => new { p.UserId, p.Name })
+            .IsUnique();
+        modelBuilder.Entity<LLMPreset>()
+            .HasOne(p => p.User)
+            .WithMany()
+            .HasForeignKey(p => p.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // LLM Interaction Log
+        modelBuilder.Entity<LLMInteractionLog>()
+            .Property(l => l.SystemPrompt)
+            .HasColumnType("text");
+        modelBuilder.Entity<LLMInteractionLog>()
+            .Property(l => l.UserPrompt)
+            .HasColumnType("text");
+        modelBuilder.Entity<LLMInteractionLog>()
+            .Property(l => l.Response)
+            .HasColumnType("text");
+        modelBuilder.Entity<LLMInteractionLog>()
+            .Property(l => l.RequestJson)
+            .HasColumnType("text");
+        modelBuilder.Entity<LLMInteractionLog>()
+            .Property(l => l.ResponseJson)
+            .HasColumnType("text");
+        modelBuilder.Entity<LLMInteractionLog>()
+            .HasOne(l => l.Preset)
+            .WithMany()
+            .HasForeignKey(l => l.PresetId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<LLMInteractionLog>()
+            .HasOne(l => l.User)
+            .WithMany()
+            .HasForeignKey(l => l.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<LLMInteractionLog>()
+            .HasIndex(l => new { l.UserId, l.OriginGameId, l.StartedAt })
+            .IsDescending(new[] { false, false, true });
+    }
+}

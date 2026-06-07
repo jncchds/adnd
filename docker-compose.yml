@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: adnd-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: adnd
+      POSTGRES_USER: adnd
+      POSTGRES_PASSWORD: adnd_secret
+    volumes:
+      - adnd-data:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adnd"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: src/Adnd.Server/Dockerfile
+    container_name: adnd-app
+    restart: unless-stopped
+    ports:
+      - "5010:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=adnd;Username=adnd;Password=adnd_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  adnd-data:
