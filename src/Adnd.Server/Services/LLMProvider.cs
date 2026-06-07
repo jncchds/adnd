@@ -1125,6 +1125,7 @@ internal class NullLogger<T> : ILogger<T>
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) { }
 }
 
+#pragma warning disable CS8767 // Nullability of reference types in type of indexer/Value setter doesn't match implicitly implemented member (null impl)
 internal class NullConfiguration : IConfiguration
 {
     public string this[string key] { get => string.Empty; set { } }
@@ -1144,6 +1145,7 @@ internal class NullConfigurationSection : IConfigurationSection
     public IConfigurationSection GetSection(string key) => this;
     public IChangeToken GetReloadToken() => new NullChangeToken();
 }
+#pragma warning restore CS8767
 
 internal class NullChangeToken : IChangeToken
 {

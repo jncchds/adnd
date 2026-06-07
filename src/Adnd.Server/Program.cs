@@ -65,7 +65,9 @@ builder.Services.AddCors(options =>
 // DB Context
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default"))
-        .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+        .ConfigureWarnings(w => w
+            .Ignore(RelationalEventId.PendingModelChangesWarning)
+            .Ignore((EventId)10620)));
 
 // Auth
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");

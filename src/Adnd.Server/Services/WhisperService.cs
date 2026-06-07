@@ -129,8 +129,8 @@ public class WhisperService : IWhisperService
             // GM sees all whispers in the game
             return await _context.Whispers
                 .Where(w => w.GameId == gameId)
-                .Include(w => w.FromPlayer)
-                .ThenInclude(p => p.User)
+                .Include(w => w.FromPlayer!)
+                .ThenInclude(p => p.User!)
                 .OrderByDescending(w => w.CreatedAt)
                 .Take(limit)
                 .ToListAsync();
@@ -142,8 +142,8 @@ public class WhisperService : IWhisperService
                 (w.FromPlayerId == playerId ||
                  w.TargetPlayerIds.Contains(playerId) ||
                  w.Targets == "all"))
-            .Include(w => w.FromPlayer)
-            .ThenInclude(p => p.User)
+            .Include(w => w.FromPlayer!)
+            .ThenInclude(p => p.User!)
             .OrderByDescending(w => w.CreatedAt)
             .Take(limit)
             .ToListAsync();
@@ -162,8 +162,8 @@ public class WhisperService : IWhisperService
 
         return await _context.Whispers
             .Where(w => w.GameId == gameId && w.Targets.Contains($"group:{groupName}"))
-            .Include(w => w.FromPlayer)
-            .ThenInclude(p => p.User)
+            .Include(w => w.FromPlayer!)
+            .ThenInclude(p => p.User!)
             .OrderByDescending(w => w.CreatedAt)
             .Take(limit)
             .ToListAsync();

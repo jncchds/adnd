@@ -289,7 +289,7 @@ public class AgentBus : IAgentBus
 
             if (call.Action == AgentAction.Generate || call.Action == AgentAction.Narrate)
             {
-                var options = JsonSerializer.Deserialize<LLMDispatchOptions>(call.Input)
+                var options = JsonSerializer.Deserialize<LLMDispatchOptions>(call.Input ?? "{}")
                     ?? new LLMDispatchOptions();
 
                 var systemPrompt = options.SystemPrompt ?? "You are a TTRPG Game Master assistant.";
@@ -314,7 +314,7 @@ public class AgentBus : IAgentBus
 
             if (call.Action == AgentAction.Suggest)
             {
-                var options = JsonSerializer.Deserialize<LLMDispatchOptions>(call.Input)
+                var options = JsonSerializer.Deserialize<LLMDispatchOptions>(call.Input ?? "{}")
                     ?? new LLMDispatchOptions();
 
                 var systemPrompt = "You are a creative TTRPG Game Master assistant. " +
@@ -353,7 +353,7 @@ public class AgentBus : IAgentBus
 
             if (call.Action == AgentAction.Query)
             {
-                var options = JsonSerializer.Deserialize<LLMDispatchOptions>(call.Input)
+                var options = JsonSerializer.Deserialize<LLMDispatchOptions>(call.Input ?? "{}")
                     ?? new LLMDispatchOptions();
 
                 var systemPrompt = "You are a helpful TTRPG assistant. Answer questions about the game state, rules, and lore.";
@@ -437,11 +437,11 @@ public class AgentBus : IAgentBus
                 AgentAction.Check =>
                     JsonSerializer.Serialize(await _ragService.CheckPlotConsistencyAsync(call.GameId, options.MessageCount)),
                 AgentAction.Recall =>
-                    JsonSerializer.Serialize(await _ragService.FindSimilarPlotThreadsAsync(call.GameId, options.Query, options.Limit)),
+                    JsonSerializer.Serialize(await _ragService.FindSimilarPlotThreadsAsync(call.GameId, options.Query ?? "", options.Limit)),
                 AgentAction.Generate =>
                     JsonSerializer.Serialize(await _ragService.GeneratePlotContextAsync(call.GameId, options.MessageCount)),
                 AgentAction.Suggest =>
-                    JsonSerializer.Serialize(await _ragService.SuggestContinuationAsync(call.SessionId ?? Guid.Empty, options.Query)),
+                    JsonSerializer.Serialize(await _ragService.SuggestContinuationAsync(call.SessionId ?? Guid.Empty, options.Query ?? "")),
                 _ => "RAG: action not handled."
             };
         }
@@ -455,7 +455,7 @@ public class AgentBus : IAgentBus
     {
         try
         {
-            var options = JsonSerializer.Deserialize<NPCDispatchOptions>(call.Input)
+            var options = JsonSerializer.Deserialize<NPCDispatchOptions>(call.Input ?? "{}")
                 ?? new NPCDispatchOptions();
 
             var npc = await _context.NPCs.FindAsync(options.NpcId);
@@ -485,7 +485,7 @@ public class AgentBus : IAgentBus
     {
         try
         {
-            var options = JsonSerializer.Deserialize<PlayerDispatchOptions>(call.Input)
+            var options = JsonSerializer.Deserialize<PlayerDispatchOptions>(call.Input ?? "{}")
                 ?? new PlayerDispatchOptions();
 
             if (call.Action == AgentAction.Query)
@@ -524,7 +524,7 @@ public class AgentBus : IAgentBus
     {
         try
         {
-            var options = JsonSerializer.Deserialize<SystemDispatchOptions>(call.Input)
+            var options = JsonSerializer.Deserialize<SystemDispatchOptions>(call.Input ?? "{}")
                 ?? new SystemDispatchOptions();
 
             var system = _systemRegistry.GetSystem(options.SystemId);
@@ -551,7 +551,7 @@ public class AgentBus : IAgentBus
     private async Task<string> HandleGMCall(AgentCall call)
     {
         // GM agent is the orchestrator - it manages state and delegates
-        var options = JsonSerializer.Deserialize<GMDispatchOptions>(call.Input)
+        var options = JsonSerializer.Deserialize<GMDispatchOptions>(call.Input ?? "{}")
             ?? new GMDispatchOptions();
 
         var game = await _context.Games

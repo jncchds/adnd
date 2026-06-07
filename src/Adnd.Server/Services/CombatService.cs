@@ -927,7 +927,8 @@ public class CombatService : ICombatService
         if (participant.DeathSaveState.HasValue &&
             participant.DeathSaveState.Value.ValueKind == System.Text.Json.JsonValueKind.Object)
         {
-            return JsonSerializer.Deserialize<DeathSaveState>(participant.DeathSaveState.ToString())
+            var ds = participant.DeathSaveState;
+            return JsonSerializer.Deserialize<DeathSaveState>(ds.ToString())
                 ?? new DeathSaveState();
         }
         return new DeathSaveState();
@@ -2071,7 +2072,8 @@ public class CombatService : ICombatService
         if (participant.Notes.HasValue &&
             participant.Notes.Value.ValueKind == System.Text.Json.JsonValueKind.Object)
         {
-            return JsonSerializer.Deserialize<Dictionary<string, object>>(participant.Notes.ToString());
+            var notes = participant.Notes;
+            return JsonSerializer.Deserialize<Dictionary<string, object>>(notes.ToString());
         }
         return null;
     }
@@ -2081,7 +2083,8 @@ public class CombatService : ICombatService
         if (participant.SavingThrows.HasValue &&
             participant.SavingThrows.Value.ValueKind == System.Text.Json.JsonValueKind.Object)
         {
-            return JsonSerializer.Deserialize<Dictionary<string, int>>(participant.SavingThrows.ToString())
+            var sv = participant.SavingThrows;
+            return JsonSerializer.Deserialize<Dictionary<string, int>>(sv.ToString())
                 ?? new Dictionary<string, int>();
         }
         return new Dictionary<string, int>();

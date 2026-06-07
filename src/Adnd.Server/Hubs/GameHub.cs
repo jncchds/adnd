@@ -652,6 +652,7 @@ public class GameHub : Hub
                 var targetPlayer = await _context.Players
                     .FirstOrDefaultAsync(p => p.Id == targetId && p.GameId == player.GameId);
 
+                if (targetPlayer == null) continue;
                 var targetConnectionId = GetConnectionIdForPlayer(targetPlayer.Id);
                 if (targetConnectionId != null)
                 {

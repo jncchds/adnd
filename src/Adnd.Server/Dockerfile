@@ -26,6 +26,9 @@ RUN dotnet publish "Adnd.Server.csproj" \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
 WORKDIR /app
 
+# Install Kerberos library for Npgsql GSSAPI authentication
+RUN apk add --no-cache krb5-libs
+
 # Copy published server
 COPY --from=build-server /app/publish .
 

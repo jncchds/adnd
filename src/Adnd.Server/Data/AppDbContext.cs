@@ -43,8 +43,6 @@ public class AppDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         // Configure PGVector for embeddings (variable length)
-        // Note: ValueComparer not set for float[] properties to avoid EF Core validation warnings
-        // The vector type handles comparison at the database level
         modelBuilder.Entity<Message>()
             .Property(m => m.Embedding)
             .HasConversion(new VectorValueConverter())

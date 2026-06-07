@@ -275,8 +275,8 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> GetCharacter(Guid characterId)
     {
         var character = await _context.Characters
-            .Include(c => c.Player)
-            .ThenInclude(p => p.User)
+            .Include(c => c.Player!)
+            .ThenInclude(p => p.User!)
             .FirstOrDefaultAsync(c => c.Id == characterId);
 
         if (character == null) return NotFound(new { error = "Character not found." });
@@ -302,7 +302,7 @@ public class AdminController : ControllerBase
             character.Conditions,
             character.CustomFields,
             character.UpdatedAt,
-            PlayerName = character.Player.User?.DisplayName ?? character.Player.CharacterName
+            PlayerName = character.Player?.User?.DisplayName ?? character.Player!.CharacterName
         });
     }
 

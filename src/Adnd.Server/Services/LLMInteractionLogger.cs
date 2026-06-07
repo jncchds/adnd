@@ -180,7 +180,7 @@ public class LLMInteractionLogger : ILLMInteractionLogger
             .GroupBy(l => l.PresetId)
             .Select(g => new
             {
-                PresetId = g.Key.Value,
+                PresetId = g.Key!.Value,
                 PresetName = g.First().Preset != null ? g.First().Preset.Name : "Deleted Preset",
                 ProviderType = g.First().ProviderType,
                 TotalCalls = g.Count(),
