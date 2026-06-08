@@ -137,7 +137,7 @@ export interface LLMPreset {
   id: string;
   name: string;
   providerType: string;
-  baseUrlModel: string;
+  baseModel: string;
   endpointUrl?: string;
   hasApiKey: boolean;
   temperature: number;

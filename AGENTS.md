@@ -17,44 +17,47 @@
 ```
 src/
 ├── Adnd.Server/              # Backend (.NET 10)
+│   ├── Agent/                # Per-game GameAgent system
+│   │   └── GameAgent.cs      # GameAgent + GameAgentManager (singleton)
 │   ├── Controllers/          # REST API endpoints
 │   │   ├── AuthController.cs     # JWT auth, register, login, refresh, logout
 │   │   ├── GamesController.cs    # Games, sessions, players CRUD
 │   │   └── AdminController.cs    # NPCs, plots, characters, LLM, RAG, systems, GM agent
-│   ├── Hubs/
-│   │   └── GameHub.cs            # SignalR: chat, dice, skill checks, attacks, whispers
-│   ├── Services/
-│   │   ├── AuthService.cs            # JWT + refresh tokens
-│   │   ├── GameEngine.cs             # Core game logic (dice, skills, attacks, chars)
-│   │   ├── GameAuthorizationService.cs # Role-based game access checks
-│   │   ├── DiceEngine.cs             # Dice formula parsing & resolution
-│   │   ├── SystemRegistry.cs         # RPG system definitions (dnd5e, pf2e, coc7e, custom)
-│   │   ├── LLMProvider.cs            # Pluggable LLM interface + implementations
-│   │   ├── LLMInteractionLogger.cs   # Logs LLM calls to DB
-│   │   ├── LLMPresetService.cs       # LLM preset CRUD
-│   │   ├── RAGService.cs             # Embedding search, plot consistency, summaries
-│   │   ├── AgentBus.cs               # Agent-to-agent messaging framework
-│   │   ├── WhisperService.cs         # Private messaging
-│   │   ├── CombatService.cs          # Initiative, attacks, combat state
-│   │   ├── UserIdProvider.cs         # Current user from JWT
-│   │   └── IGameAgent.cs             # IGameAgent + IGameAgentManager interfaces
-│   ├── Agent/                    # NEW: Per-game GameAgent system
-│   │   └── GameAgent.cs          # GameAgent + GameAgentManager (singleton)
-│   ├── Events/                   # NEW: MediatR events
-│   │   └── GameEvents.cs         # 25+ game event types
-│   ├── Handlers/                 # NEW: MediatR event handlers
-│   │   └── GameEventHandlers.cs  # GameLifecycle, GameAction, Chat, Plot, Session handlers
-│   ├── Models/
-│   │   ├── User.cs, Player.cs, Game.cs, GameSession.cs
-│   │   ├── Character.cs, Message.cs, NPC.cs, PlotThread.cs
-│   │   ├── CustomSystemDefinition.cs, RefreshToken.cs, AuthResponse.cs
-│   │   ├── AgentCall.cs, Whisper.cs, LLMPreset.cs, LLMInteractionLog.cs
-│   │   └── Combat.cs (initiative, attack, skill check entities)
 │   ├── Data/
 │   │   ├── AppDbContext.cs         # EF Core DbContext with all entities
 │   │   ├── MigrationService.cs     # Auto-applies migrations on startup
 │   │   ├── GameExtensions.cs       # EF query helpers for games
 │   │   └── Migrations/             # EF Core migrations
+│   ├── Events/               # MediatR events
+│   │   └── GameEvents.cs     # 25+ game event types
+│   ├── Handlers/             # MediatR event handlers
+│   │   ├── GameEventHandlers.cs  # GameLifecycle, GameAction, Chat, Plot, Session
+│   │   └── PlotWeaverHandler.cs  # PlotWeaver event handler
+│   ├── Hubs/
+│   │   └── GameHub.cs        # SignalR: chat, dice, skill checks, attacks, whispers
+│   ├── Models/
+│   │   ├── User.cs, Player.cs, Game.cs, GameSession.cs
+│   │   ├── Character.cs, Message.cs, NPC.cs, PlotThread.cs
+│   │   ├── CustomSystemDefinition.cs, RefreshToken.cs, AuthResponse.cs
+│   │   ├── AgentCall.cs, Whisper.cs, LLMPreset.cs, LLMInteractionLog.cs
+│   │   ├── Combat.cs (initiative, attack, skill check entities)
+│   │   └── PlotReview.cs
+│   ├── Services/
+│   │   ├── AuthService.cs                # JWT + refresh tokens
+│   │   ├── GameEngine.cs                 # Core game logic (dice, skills, attacks, chars)
+│   │   ├── GameAuthorizationService.cs   # Role-based game access checks
+│   │   ├── DiceEngine.cs                 # Dice formula parsing & resolution
+│   │   ├── SystemRegistry.cs             # RPG system definitions (dnd5e, pf2e, coc7e, custom)
+│   │   ├── LLMProvider.cs                # Pluggable LLM interface + implementations
+│   │   ├── LLMInteractionLogger.cs       # Logs LLM calls to DB
+│   │   ├── LLMPresetService.cs           # LLM preset CRUD
+│   │   ├── RAGService.cs                 # Embedding search, plot consistency, summaries
+│   │   ├── AgentBus.cs                   # Agent-to-agent messaging framework
+│   │   ├── WhisperService.cs             # Private messaging
+│   │   ├── CombatService.cs              # Initiative, attacks, combat state
+│   │   ├── UserIdProvider.cs             # Current user from JWT
+│   │   ├── IGameAgent.cs                 # IGameAgent + IGameAgentManager interfaces
+│   │   └── PlotWeaver.cs                 # Dynamic plot generation
 │   └── Program.cs            # DI, auth, Swagger, CORS, SPA, MediatR, GameAgent recovery
 └── Adnd.Client/              # Frontend (React 19 + TS + MUI)
     ├── src/
@@ -67,15 +70,21 @@ src/
     │   │   ├── hubHook.ts        # useGameHub SignalR wrapper
     │   │   ├── useEntity.ts      # Generic entity CRUD hook
     │   │   └── types/index.ts    # Shared TypeScript types
+    │   ├── components/
+    │   │   └── Layout.tsx        # App layout wrapper
     │   ├── pages/
-    │   │   ├── HomePage.tsx           # Landing page
-    │   │   ├── AuthPage.tsx           # Login/Register tabs
-    │   │   ├── DashboardPage.tsx      # Game list, create/join (with LLM preset, plot seed)
-    │   │   ├── GameRoomPage.tsx       # Chat, dice, players, actions, settings, GM status
-    │   │   ├── AdminPage.tsx          # NPCs, plots, characters, LLM presets, systems
-    │   │   ├── CharacterSheetPage.tsx # View/edit character
+    │   │   ├── HomePage.tsx              # Landing page
+    │   │   ├── AuthPage.tsx              # Login/Register tabs
+    │   │   ├── DashboardPage.tsx         # Game list, create/join (LLM preset, plot seed)
+    │   │   ├── GameRoomPage.tsx          # Chat, dice, players, actions, settings, GM status
+    │   │   ├── AdminPage.tsx             # NPCs, plots, characters, LLM presets, systems
+    │   │   ├── LLMPresetsPage.tsx        # LLM preset management
+    │   │   ├── LLMUsagePanel.tsx         # LLM usage statistics
+    │   │   ├── PlotBoardTab.tsx          # Plot board (player view)
+    │   │   ├── PlotBoardAdminTab.tsx     # Plot board (admin view)
+    │   │   ├── CharacterSheetPage.tsx    # View/edit character
     │   │   ├── CharacterCreateWizard.tsx # Multi-step character creation
-    │   │   └── CombatTab.tsx          # Combat panel (initiative, attacks)
+    │   │   └── CombatTab.tsx             # Combat panel (initiative, attacks)
     │   └── vite-env.d.ts
     └── vite.config.ts          # Dev server with API proxy to localhost:5010
 ```
@@ -100,6 +109,7 @@ src/
 - **GameAgentManager** is a singleton that manages per-game agents and recovers them on startup.
 - **Hangfire + PostgreSQL** provides persistent job queue (survives restarts, future external broker replacement).
 - **Creator/GM split**: Creator defines plot seed/tone/LLM preset; AI-GM runs the game autonomously.
+- **PlotWeaver** handles dynamic plot generation with `PlotWeaver.cs` service and `PlotWeaverHandler.cs` event handler.
 
 ### Frontend (React)
 
@@ -111,6 +121,8 @@ src/
 - **Types** are shared in `api/types/index.ts`. Match backend models.
 - **Game creation** includes LLM preset selection, plot seed, and game parameters.
 - **Game room** shows GM status indicator, pause/resume buttons, and creator sway input.
+- **LLM presets** managed via `LLMPresetsPage.tsx` and `LLMUsagePanel.tsx`.
+- **Plot board** has separate player (`PlotBoardTab.tsx`) and admin (`PlotBoardAdminTab.tsx`) views.
 
 ### Docker
 
@@ -129,10 +141,12 @@ src/
 | `src/Adnd.Server/Services/AgentBus.cs` | Agentic framework — agent registration and dispatch |
 | `src/Adnd.Server/Services/LLMProvider.cs` | LLM provider interface and base |
 | `src/Adnd.Server/Services/RAGService.cs` | Embedding search, plot consistency |
+| `src/Adnd.Server/Services/PlotWeaver.cs` | Dynamic plot generation |
 | `src/Adnd.Server/Services/IGameAgent.cs` | IGameAgent + IGameAgentManager interfaces |
 | `src/Adnd.Server/Agent/GameAgent.cs` | GameAgent (per-game) + GameAgentManager (singleton) |
 | `src/Adnd.Server/Events/GameEvents.cs` | 25+ MediatR event types |
 | `src/Adnd.Server/Handlers/GameEventHandlers.cs` | MediatR notification handlers |
+| `src/Adnd.Server/Handlers/PlotWeaverHandler.cs` | PlotWeaver event handler |
 | `src/Adnd.Server/Hubs/GameHub.cs` | SignalR hub — publishes events via IMediator |
 | `src/Adnd.Server/Controllers/AdminController.cs` | NPCs, plots, characters, LLM presets, systems, GM agent |
 | `src/Adnd.Server/Controllers/GamesController.cs` | Games, sessions, players CRUD |

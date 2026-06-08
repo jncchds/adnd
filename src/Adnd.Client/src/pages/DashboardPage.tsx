@@ -2,53 +2,50 @@ import { useState } from 'react';
 import { useAuth } from '../api/authHook';
 import { useGames, useLLMPresets } from '../api/gameHooks';
 import {
-  Container, Box, Typography, Button, Paper, Table, TableBody, TableCell, TableContainer,
+  Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Alert, Chip, IconButton, Tooltip, AlertTitle
+  TextField, Alert, Chip, IconButton, Tooltip, AlertTitle, Button
 } from '@mui/material';
-import { Delete as DeleteIcon, Add as AddIcon, PlayArrow as PlayIcon, Archive as ArchiveIcon,
+import { Delete as DeleteIcon, PlayArrow as PlayIcon, Archive as ArchiveIcon,
   Share as ShareIcon, ExitToApp as LeaveIcon } from '@mui/icons-material';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 export default function DashboardPage() {
-  const { user, logout } = useAuth();
-  const { games, isLoading, error, refetch, createGame, deleteGame, joinGame, leaveGame, generateInvite, startGame, archiveGame } = useGames();
-  const { presets } = useLLMPresets();
-  const [openDialog, setOpenDialog] = useState(false);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { games, isLoading, error, refetch, createGame, deleteGame, leaveGame, generateInvite, startGame, archiveGame } = useGames();
+  const { presets, isLoading: presetsLoading } = useLLMPresets();
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [gameName, setGameName] = useState('');
   const [systemId, setSystemId] = useState('dnd5e');
   const [llmPresetId, setLLMPresetId] = useState<string | null>(null);
   const [plotSeed, setPlotSeed] = useState('');
   const [gameParameters, setGameParameters] = useState('');
-  const [joinCode, setJoinCode] = useState('');
-  const [joinResult, setJoinResult] = useState<string | null>(null);
   const [errorState, setErrorState] = useState<string | null>(null);
-  const [openJoinDialog, setOpenJoinDialog] = useState(false);
+  const [successState, setSuccessState] = useState<string | null>(null);
+
+  const handleOpenCreate = () => {
+    setShowCreateDialog(true);
+  };
+
+  const handleCloseCreate = () => {
+    setShowCreateDialog(false);
+    setGameName('');
+    setLLMPresetId(null);
+    setPlotSeed('');
+    setGameParameters('');
+  };
 
   const handleCreate = async () => {
     if (!gameName.trim()) return;
     setErrorState(null);
+    setSuccessState(null);
     try {
       await createGame(gameName, systemId, undefined, undefined, llmPresetId || undefined, plotSeed || undefined, gameParameters || undefined);
-      setGameName('');
-      setLLMPresetId(null);
-      setPlotSeed('');
-      setGameParameters('');
-      setOpenDialog(false);
+      handleCloseCreate();
       refetch();
-    } catch (e: any) {
-      setErrorState(e.message);
-    }
-  };
-
-  const handleJoin = async () => {
-    setErrorState(null);
-    setJoinResult(null);
-    try {
-      await joinGame(joinCode);
-      setJoinCode('');
-      setJoinResult('Successfully joined the game!');
-      refetch();
+      setSuccessState('Game created!');
+      setTimeout(() => setSuccessState(null), 2000);
     } catch (e: any) {
       setErrorState(e.message);
     }
@@ -58,7 +55,8 @@ export default function DashboardPage() {
     try {
       const result = await generateInvite(gameId);
       await navigator.clipboard.writeText(result.inviteUrl);
-      setJoinResult(`Invite URL copied: ${result.inviteUrl}`);
+      setSuccessState('Invite URL copied!');
+      setTimeout(() => setSuccessState(null), 2000);
     } catch (e: any) {
       setErrorState(e.message);
     }
@@ -68,6 +66,7 @@ export default function DashboardPage() {
     setErrorState(null);
     try {
       await startGame(gameId);
+      refetch();
     } catch (e: any) {
       setErrorState(e.message);
     }
@@ -77,6 +76,7 @@ export default function DashboardPage() {
     setErrorState(null);
     try {
       await archiveGame(gameId);
+      refetch();
     } catch (e: any) {
       setErrorState(e.message);
     }
@@ -97,36 +97,44 @@ export default function DashboardPage() {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+    <Box>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
-          <Typography variant="h4">Welcome, {user?.displayName || 'Player'}!</Typography>
+          <Typography variant="h4" sx={{ fontWeight: 700 }}>
+            Welcome, {user?.displayName || 'Player'}!
+          </Typography>
           <Typography variant="body2" color="text.secondary">
             Manage your games and characters
           </Typography>
         </Box>
-        <Box>
-          <Button variant="outlined" onClick={() => setOpenDialog(true)} sx={{ mr: 1 }}>
-            <AddIcon sx={{ mr: 1 }} /> New Game
-          </Button>
-          <Button variant="outlined" onClick={() => setOpenJoinDialog(true)} sx={{ mr: 1 }}>
-            <AddIcon sx={{ mr: 1 }} /> Join by Code
-          </Button>
-          <Button variant="outlined" onClick={logout}>Logout</Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button variant="outlined" size="small" onClick={() => navigate('/llm-presets')}>LLM Presets</Button>
+          <Button variant="contained" onClick={handleOpenCreate}>+ New Game</Button>
         </Box>
       </Box>
 
-      {/* Error */}
+      {/* Messages */}
+      {successState && (
+        <Alert severity="success" onClose={() => setSuccessState(null)} sx={{ mb: 2, alignItems: 'center' }}>
+          {successState}
+        </Alert>
+      )}
       {errorState && (
         <Alert severity="error" onClose={() => setErrorState(null)} sx={{ mb: 2 }}>
           <AlertTitle>Error</AlertTitle>
           {errorState}
         </Alert>
       )}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <AlertTitle>Error</AlertTitle>
+          {error}
+        </Alert>
+      )}
 
       {/* Create Game Dialog */}
-      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="md" fullWidth>
+      <Dialog open={showCreateDialog} onClose={handleCloseCreate} maxWidth="md" fullWidth>
         <DialogTitle>Create New Game</DialogTitle>
         <DialogContent sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <TextField
@@ -155,10 +163,11 @@ export default function DashboardPage() {
             value={llmPresetId || ''}
             onChange={e => setLLMPresetId(e.target.value || null)}
             SelectProps={{ native: true }}
+            disabled={presetsLoading}
           >
             <option value="">None</option>
             {presets.map(p => (
-              <option key={p.id} value={p.id}>{p.name} ({p.providerType})</option>
+              <option key={p.id} value={p.id}>{p.name} ({p.providerType} / {p.baseModel})</option>
             ))}
           </TextField>
           <TextField
@@ -181,31 +190,9 @@ export default function DashboardPage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
+          <Button onClick={handleCloseCreate}>Cancel</Button>
           <Button onClick={handleCreate} variant="contained" disabled={!gameName.trim()}>
             Create
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Join by Code Dialog */}
-      <Dialog open={openJoinDialog} onClose={() => { setOpenJoinDialog(false); setJoinResult(null); setJoinCode(''); }} maxWidth="sm" fullWidth>
-        <DialogTitle>Join a Game</DialogTitle>
-        <DialogContent sx={{ mt: 1 }}>
-          <TextField
-            fullWidth
-            label="Invite Code"
-            value={joinCode}
-            onChange={e => setJoinCode(e.target.value)}
-            placeholder="Enter the 8-character invite code"
-            autoFocus
-          />
-          {joinResult && <Typography color="success.main" sx={{ mt: 2 }}>{joinResult}</Typography>}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => { setOpenJoinDialog(false); setJoinResult(null); setJoinCode(''); }}>Cancel</Button>
-          <Button onClick={handleJoin} variant="contained" disabled={!joinCode.trim()}>
-            Join
           </Button>
         </DialogActions>
       </Dialog>
@@ -228,9 +215,9 @@ export default function DashboardPage() {
                 <TableRow>
                   <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary" sx={{ mb: 2 }}>No games yet</Typography>
-                    <Button variant="contained" onClick={() => setOpenDialog(true)}>
-                      <AddIcon sx={{ mr: 1 }} /> Create Your First Game
-                    </Button>
+                    <Typography variant="body2" color="text.secondary">
+                      Use the sidebar to create a new game or join one by code.
+                    </Typography>
                   </TableCell>
                 </TableRow>
               ) : (
@@ -241,6 +228,11 @@ export default function DashboardPage() {
                       <Typography variant="body2" color="text.secondary">
                         by {game.creatorName}
                       </Typography>
+                      {game.llmPresetName && (
+                        <Typography variant="caption" color="primary">
+                          LLM: {game.llmPresetName}
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Chip label={game.systemId} size="small" variant="outlined" />
@@ -305,13 +297,6 @@ export default function DashboardPage() {
           </Table>
         </TableContainer>
       </Paper>
-
-      {error && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          <AlertTitle>Error</AlertTitle>
-          {error}
-        </Alert>
-      )}
-    </Container>
+    </Box>
   );
 }

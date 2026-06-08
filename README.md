@@ -191,16 +191,20 @@ All API endpoints are under `/api/`. Swagger docs are available at `/swagger`.
 ```
 ├── src/
 │   ├── Adnd.Server/          # ASP.NET Core 10 API
+│   │   ├── Agent/            # Per-game GameAgent + GameAgentManager
 │   │   ├── Controllers/      # Auth, Games, Admin REST endpoints
-│   │   ├── Hubs/             # SignalR GameHub
-│   │   ├── Services/         # GameEngine, LLMProvider, RAG, AgentBus, etc.
-│   │   ├── Models/           # EF Core entities (User, Game, Character, etc.)
 │   │   ├── Data/             # DbContext, migrations, auto-migration service
+│   │   ├── Events/           # MediatR event types (25+)
+│   │   ├── Handlers/         # MediatR event handlers + PlotWeaverHandler
+│   │   ├── Hubs/             # SignalR GameHub
+│   │   ├── Models/           # EF Core entities (User, Game, Character, etc.)
+│   │   ├── Services/         # GameEngine, LLMProvider, RAG, AgentBus, etc.
 │   │   └── Program.cs        # DI, auth, Swagger, CORS, SPA middleware
 │   └── Adnd.Client/          # React 19 + TypeScript + MUI SPA
 │       ├── src/
 │       │   ├── api/          # APIClient, auth hook, game hooks, SignalR wrapper
-│       │   ├── pages/        # Home, Auth, Dashboard, GameRoom, Admin, Character
+│       │   ├── components/   # Layout, shared UI components
+│       │   ├── pages/        # Home, Auth, Dashboard, GameRoom, Admin, LLM presets
 │       │   └── types/        # Shared TypeScript types
 │       └── vite.config.ts    # Dev server with API proxy
 ├── docker-compose.yml        # PostgreSQL + pgvector + app

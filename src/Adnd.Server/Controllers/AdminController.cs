@@ -791,6 +791,7 @@ public class AdminController : ControllerBase
             p.Temperature,
             p.MaxTokens,
             p.TopP,
+            p.EmbeddingModel,
             p.IsDefault,
             p.IsActive,
             p.CreatedAt,

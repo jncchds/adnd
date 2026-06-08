@@ -784,7 +784,7 @@ export interface LLMPreset {
   id: string;
   name: string;
   providerType: string;
-  baseUrlModel: string;
+  baseModel: string;
   endpointUrl?: string;
   hasApiKey: boolean;
   temperature: number;
@@ -800,7 +800,7 @@ export interface LLMPresetDetail {
   id: string;
   name: string;
   providerType: string;
-  baseUrlModel: string;
+  baseModel: string;
   endpointUrl?: string;
   hasApiKey: boolean;
   temperature: number;
@@ -821,7 +821,7 @@ export interface LLMPresetDetail {
 export interface CreateLLMPresetRequest {
   name: string;
   providerType: string;
-  baseUrlModel: string;
+  baseModel: string;
   endpointUrl?: string;
   apiKey?: string;
   temperature?: number;
@@ -839,7 +839,7 @@ export interface CreateLLMPresetRequest {
 export interface UpdateLLMPresetRequest {
   name?: string;
   providerType?: string;
-  baseUrlModel?: string;
+  baseModel?: string;
   endpointUrl?: string;
   apiKey?: string;
   temperature?: number;
