@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useGame, useNPCs, usePlotThreads, useCharacters, useConsistency, useLLMPresets, usePlotWeaver } from '../api/gameHooks';
+import { useGames, useGame, useNPCs, usePlotThreads, useCharacters, useConsistency, useLLMPresets, usePlotWeaver } from '../api/gameHooks';
 import LLMUsagePanel from './LLMUsagePanel';
 import { useGameHub } from '../api/hubHook';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
@@ -20,12 +20,13 @@ import { Delete as DeleteIcon, Add as AddIcon,
   Settings as SettingsIcon, Shield as ShieldIcon, Article as SheetIcon,
   ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon,
   Chat as ChatIcon, Cloud as OllamaIcon, Home as LMStudioIcon,
-  Google as GoogleIcon, Circle as OpenAIIcon } from '@mui/icons-material';
+  Google as GoogleIcon, Circle as OpenAIIcon, PlayArrow as PlayIcon, ChevronLeft as ChevronLeftIcon } from '@mui/icons-material';
 
 export default function AdminPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { game, isLoading } = useGame(id);
+  const { startGame } = useGames();
   const { npcs, isLoading: npcsLoading, createNPC, updateNPC, deleteNPC } = useNPCs(id);
   const { threads, isLoading: threadsLoading, createThread, updateThread } = usePlotThreads(id);
   const { characters, refetch: refetchCharacters } = useCharacters(id);
@@ -338,6 +339,18 @@ export default function AdminPage() {
         </Alert>
       )}
 
+      {/* Back to Game */}
+      <Box sx={{ mb: 2 }}>
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<ChevronLeftIcon />}
+          onClick={() => navigate(`/game/${id}`)}
+        >
+          Back to Game
+        </Button>
+      </Box>
+
       {/* Tab Content (tabs are now in the side panel) */}
       {hash === 'npcs' && (
         <NPCsTab
@@ -430,6 +443,7 @@ export default function AdminPage() {
       {hash === 'game-state' && (
         <GameStateTab
           game={game}
+          gameStatus={game?.status}
           gameStateJson={gameStateJson}
           setGameStateJson={setGameStateJson}
           plotSeed={plotSeed}
@@ -438,6 +452,7 @@ export default function AdminPage() {
           setGameParameters={setGameParameters}
           onSave={handleSaveGameState}
           onOpenCharCreate={() => setShowCharCreateWizard(true)}
+          onStartGame={startGame}
         />
       )}
 
@@ -969,20 +984,38 @@ function WhispersTabAdmin({ whispers, isLoading, onRefresh }: any) {
 
 // ==================== Game State Tab ====================
 
-function GameStateTab({ game, gameStateJson, setGameStateJson, plotSeed, setPlotSeed, gameParameters, setGameParameters, onSave, onOpenCharCreate }: any) {
+function GameStateTab({ game, gameStatus, gameStateJson, setGameStateJson, plotSeed, setPlotSeed, gameParameters, setGameParameters, onSave, onOpenCharCreate, onStartGame }: any) {
   const [editMode, setEditMode] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  const handleStart = async () => {
+    if (!game?.id || !onStartGame) return;
+    setStarting(true);
+    try {
+      await onStartGame(game.id);
+    } catch {
+      // error handled by hook
+    } finally {
+      setStarting(false);
+    }
+  };
 
   return (
     <Paper>
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
         <Typography variant="h6">Game State</Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           <Button variant="outlined" onClick={onOpenCharCreate}>Create Character</Button>
           <Button variant="outlined" onClick={() => setEditMode(!editMode)}>
             {editMode ? 'Cancel' : 'Edit State'}
           </Button>
           {editMode && (
             <Button variant="contained" onClick={onSave}>Save</Button>
+          )}
+          {gameStatus === 'Draft' && (
+            <Button variant="contained" color="success" startIcon={<PlayIcon />} onClick={handleStart} disabled={starting}>
+              {starting ? 'Starting...' : 'Start Game'}
+            </Button>
           )}
         </Box>
       </Box>

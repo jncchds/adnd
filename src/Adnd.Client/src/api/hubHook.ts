@@ -365,24 +365,48 @@ export function useGameHub() {
       console.error('Failed to connect to game hub:', e);
       setIsConnected(false);
     }
-  }, []);
+  }, [hubRef.current]);
 
   const disconnect = useCallback(async () => {
     await hubRef.current?.disconnect();
     setIsConnected(false);
-  }, []);
+  }, [hubRef.current]);
 
   const on = useCallback((event: string, handler: (...args: any[]) => void) => {
     hubRef.current?.on(event, handler);
-  }, []);
+  }, [hubRef.current]);
 
   const off = useCallback((event: string, handler?: (...args: any[]) => void) => {
     hubRef.current?.off(event, handler);
-  }, []);
+  }, [hubRef.current]);
 
   const invoke = useCallback(async (method: string, ...args: any[]) => {
     return hubRef.current?.invoke(method, ...args);
-  }, []);
+  }, [hubRef.current]);
+
+  // Wait for the hub connection to be active
+  const waitForConnection = useCallback((timeoutMs = 10000): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (isConnected) {
+        resolve();
+        return;
+      }
+
+      const startTime = Date.now();
+      const checkInterval = setInterval(() => {
+        if (isConnected) {
+          clearInterval(checkInterval);
+          resolve();
+        } else if (Date.now() - startTime >= timeoutMs) {
+          clearInterval(checkInterval);
+          reject(new Error('Hub connection timed out'));
+        }
+      }, 100);
+
+      // Cleanup on unmount
+      return () => clearInterval(checkInterval);
+    });
+  }, [isConnected]);
 
   return {
     isConnected,
@@ -391,6 +415,7 @@ export function useGameHub() {
     on,
     off,
     invoke,
+    waitForConnection,
     // New hub methods
     // In-game public message
     sendMessage: async (sessionId: string, content: string) => {

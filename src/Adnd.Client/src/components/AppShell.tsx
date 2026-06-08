@@ -80,9 +80,11 @@ export default function AppShell() {
         break;
       case 'game':
         setCurrentView('game');
+        if (currentGameId) navigate(`/game/${currentGameId}`);
         break;
       case 'admin':
         setCurrentView('admin');
+        if (currentGameId) navigate(`/admin/${currentGameId}`);
         break;
     }
   };

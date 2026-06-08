@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
 import { useGames, useLLMPresets } from '../api/gameHooks';
+import { api } from '../api/client';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -13,7 +14,7 @@ import { Delete as DeleteIcon, PlayArrow as PlayIcon, Archive as ArchiveIcon,
 export default function DashboardPage() {
   const { } = useAuth();
   const navigate = useNavigate();
-  const { games, isLoading, error, refetch, createGame, deleteGame, leaveGame, generateInvite, startGame, archiveGame, joinByCode } = useGames();
+  const { games, isLoading, error, refetch, createGame, deleteGame, leaveGame, generateInvite, archiveGame, joinByCode } = useGames();
   const { presets } = useLLMPresets();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showJoinDialog, setShowJoinDialog] = useState(false);
@@ -65,11 +66,22 @@ export default function DashboardPage() {
     setErrorState(null);
     setSuccessState(null);
     try {
-      await createGame(gameName, systemId, undefined, undefined, llmPresetId || undefined, plotSeed || undefined, gameParameters || undefined);
+      const result = await createGame(gameName, systemId, undefined, undefined, llmPresetId || undefined, plotSeed || undefined, gameParameters || undefined);
       handleCloseCreate();
       refetch();
-      setSuccessState('Game created!');
-      setTimeout(() => setSuccessState(null), 2000);
+      setSuccessState('Game created! Starting AI-GM...');
+      // Auto-start the game so the LLM agent activates and generates plot threads
+      try {
+        await api.startGame(result.id);
+      } catch (startErr: any) {
+        // If start fails (e.g., no LLM preset), still navigate but show warning
+        if (startErr.message?.includes('no LLM preset')) {
+          setSuccessState('Game created! Please select an LLM preset in settings to start the AI-GM.');
+        } else {
+          throw startErr;
+        }
+      }
+      setTimeout(() => navigate(`/game/${result.id}`), 500);
     } catch (e: any) {
       setErrorState(e.message);
     }
@@ -81,16 +93,6 @@ export default function DashboardPage() {
       await navigator.clipboard.writeText(result.inviteUrl);
       setSuccessState('Invite URL copied!');
       setTimeout(() => setSuccessState(null), 2000);
-    } catch (e: any) {
-      setErrorState(e.message);
-    }
-  };
-
-  const handleStartGame = async (gameId: string) => {
-    setErrorState(null);
-    try {
-      await startGame(gameId);
-      refetch();
     } catch (e: any) {
       setErrorState(e.message);
     }
@@ -323,18 +325,6 @@ export default function DashboardPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      {game.status === 'Draft' && (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="success"
-                          onClick={() => handleStartGame(game.id)}
-                          startIcon={<PlayIcon fontSize="small" />}
-                          sx={{ mr: 1 }}
-                        >
-                          Start Game
-                        </Button>
-                      )}
                       <Tooltip title="Play">
                         <IconButton component="a" href={`/game/${game.id}`} size="small">
                           <PlayIcon />

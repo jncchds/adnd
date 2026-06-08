@@ -99,7 +99,7 @@ export default function GameRoomPage() {
   const { characters } = useCharacters(id);
   const { status: gmStatus, refetch: refetchGMStatus, pause: pauseGM, resume: resumeGM } = useGMStatus(id);
   const { sway, lastSway, isLoading: swayLoading } = useSway(id);
-  const { isConnected, connect, on, invoke, disconnect } = useGameHub();
+  const { isConnected, connect, on, invoke, disconnect, waitForConnection } = useGameHub();
 
   const [_activeTab, setActiveTab] = useState(0);
   const [hash, setHash] = useState(window.location.hash.replace('#', '') || 'chat');
@@ -153,7 +153,16 @@ export default function GameRoomPage() {
       connect(token || undefined);
     }
     return () => { disconnect(); };
-  }, [id, user, connect, disconnect]);
+  }, [id, user]);
+
+  // Auto-start the game if it's in Draft status
+  useEffect(() => {
+    if (id && game && game.status === 'Draft') {
+      api.startGame(id).catch((e) => {
+        console.error('Failed to auto-start game:', e);
+      });
+    }
+  }, [id, game?.status]);
 
   // Set first active session as default
   useEffect(() => {
@@ -565,6 +574,11 @@ export default function GameRoomPage() {
     setErrorState(null);
     setSuccessState(null);
     try {
+      // Wait for hub connection to be active before invoking
+      if (!isConnected) {
+        await waitForConnection();
+      }
+
       // Check if the current user is the game creator
       if (game?.creatorId === user.id) {
         // Creator can create a character directly without being a player
