@@ -47,6 +47,9 @@ export default function AppShell() {
     } else if (path === '/systems' || path.startsWith('/systems/')) {
       setCurrentView('systems');
       setCurrentGameId(undefined);
+    } else if (path === '/user-settings') {
+      setCurrentView('user-settings');
+      setCurrentGameId(undefined);
     } else if (path === '/login' || path === '/register') {
       setCurrentView(currentView);
     } else if (gameId) {
@@ -77,6 +80,11 @@ export default function AppShell() {
         setCurrentView('systems');
         setCurrentGameId(undefined);
         navigate('/systems');
+        break;
+      case 'user-settings':
+        setCurrentView('user-settings');
+        setCurrentGameId(undefined);
+        navigate('/user-settings');
         break;
       case 'game':
         setCurrentView('game');

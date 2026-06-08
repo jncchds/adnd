@@ -121,6 +121,20 @@ class APIClient {
     return this.request<AuthUser>('/auth/me');
   }
 
+  async changePassword(currentPassword: string, newPassword: string) {
+    return this.request('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  }
+
+  async updateDisplayName(displayName: string) {
+    return this.request('/auth/display-name', {
+      method: 'PUT',
+      body: JSON.stringify({ displayName }),
+    });
+  }
+
   // ==================== Games ====================
   async getGames() {
     return this.request<GameListItem[]>('/games');

@@ -10,6 +10,7 @@ import CharacterSheetPage from './pages/CharacterSheetPage'
 import AuthPage from './pages/AuthPage'
 import LLMPresetsPage from './pages/LLMPresetsPage'
 import SystemsPage from './pages/SystemsPage'
+import UserSettingsPage from './pages/UserSettingsPage'
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
             <Route path="/llm-presets/new" element={<LLMPresetsPage />} />
             <Route path="/systems" element={<SystemsPage />} />
             <Route path="/systems/new" element={<SystemsPage />} />
+            <Route path="/user-settings" element={<UserSettingsPage />} />
             <Route path="/game/:id" element={<GameRoomPage />} />
             <Route path="/admin/:id" element={<AdminPage />} />
             <Route path="/character/:id" element={<CharacterSheetPage />} />

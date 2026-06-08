@@ -17,6 +17,8 @@ public interface IAuthService
     Task<bool> RevokeTokenAsync(string refreshToken);
     Task<User?> GetUserByIdAsync(Guid userId);
     Task<User?> GetUserByEmailAsync(string email);
+    Task<(bool success, string? errorMessage)> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword);
+    Task<(bool success, string? errorMessage)> UpdateDisplayNameAsync(Guid userId, string displayName);
 }
 
 public class AuthService : IAuthService
@@ -167,6 +169,37 @@ public class AuthService : IAuthService
     public async Task<User?> GetUserByEmailAsync(string email)
     {
         return await _context.Users.FirstOrDefaultAsync(u => u.Email == email.ToLower().Trim());
+    }
+
+    public async Task<(bool success, string? errorMessage)> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword)
+    {
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+            return (false, "User not found.");
+
+        if (!BCrypt.Net.BCrypt.Verify(currentPassword, user.PasswordHash))
+            return (false, "Current password is incorrect.");
+
+        if (newPassword.Length < 8)
+            return (false, "New password must be at least 8 characters.");
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+        await _context.SaveChangesAsync();
+        return (true, null);
+    }
+
+    public async Task<(bool success, string? errorMessage)> UpdateDisplayNameAsync(Guid userId, string displayName)
+    {
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+            return (false, "User not found.");
+
+        if (string.IsNullOrWhiteSpace(displayName))
+            return (false, "Display name cannot be empty.");
+
+        user.DisplayName = displayName.Trim();
+        await _context.SaveChangesAsync();
+        return (true, null);
     }
 
     private (string accessToken, string refreshToken) GenerateTokens(User user)

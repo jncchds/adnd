@@ -403,6 +403,34 @@ export function useProviderModels() {
   return { models, isLoading, error, fetchModels };
 }
 
+// ==================== User-wide LLM Usage Hook ====================
+
+export function useUserLLMUsage() {
+  const [usage, setUsage] = useState<PresetUsageSummary[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchUsage = useCallback(async (from?: string, to?: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getPresetUsage(from, to);
+      setUsage(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  return {
+    usage,
+    isLoading,
+    error,
+    refetch: fetchUsage,
+  };
+}
+
 // ==================== LLM Interaction Log Hooks ====================
 
 export function useLLMInteractions(gameId?: string) {

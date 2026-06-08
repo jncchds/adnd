@@ -45,7 +45,7 @@ import { useGames, useLLMPresets } from '../api/gameHooks';
 const DRAWER_WIDTH = 260;
 const DRAWER_COLLAPSED_WIDTH = 56;
 
-export type AppView = 'welcome' | 'dashboard' | 'llm-presets' | 'systems' | 'game' | 'admin';
+export type AppView = 'welcome' | 'dashboard' | 'llm-presets' | 'systems' | 'user-settings' | 'game' | 'admin';
 
 interface SidePanelProps {
   open: boolean;
@@ -207,6 +207,10 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
               <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><SystemsIcon color={currentView === 'systems' ? 'primary' : 'inherit'} /></ListItemIcon>
               {open && <ListItemText primary="Systems" />}
             </ListItemButton>
+            <ListItemButton onClick={() => onNavigate('user-settings')} sx={{ ...buttonBaseSx, bgcolor: currentView === 'user-settings' ? 'rgba(145,71,255,0.15)' : 'transparent', color: currentView === 'user-settings' ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
+              <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><SettingsIcon color={currentView === 'user-settings' ? 'primary' : 'inherit'} /></ListItemIcon>
+              {open && <ListItemText primary="User Settings" />}
+            </ListItemButton>
             <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
           </>
         )}
@@ -327,12 +331,10 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
                   { key: 'characters', label: 'Characters', icon: <SheetIcon fontSize="small" /> },
                   { key: 'consistency', label: 'Consistency', icon: <ConsistencyIcon fontSize="small" /> },
                   { key: 'agent-calls', label: 'Agent Calls', icon: <MicIcon fontSize="small" /> },
-                  { key: 'llm-presets', label: 'LLM Presets', icon: <SettingsIcon fontSize="small" /> },
                   { key: 'llm-usage', label: 'LLM Usage', icon: <BarChartIcon fontSize="small" /> },
                   { key: 'llm-logs', label: 'LLM Logs', icon: <HistoryIcon fontSize="small" /> },
                   { key: 'whispers', label: 'Whispers', icon: <ChatBubbleIcon fontSize="small" /> },
-                  { key: 'game-state', label: 'Game State', icon: <SettingsIcon fontSize="small" /> },
-                  { key: 'systems', label: 'Systems', icon: <ShieldIcon fontSize="small" /> }].map(tab => (
+                  { key: 'game-state', label: 'Game State', icon: <SettingsIcon fontSize="small" /> }].map(tab => (
                   <ListItemButton key={tab.key} onClick={() => { window.location.hash = tab.key; }} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
                     <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}>{tab.icon}</ListItemIcon>
                     <ListItemText primary={tab.label} />

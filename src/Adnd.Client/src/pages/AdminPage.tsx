@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useGames, useGame, useNPCs, usePlotThreads, useCharacters, useConsistency, useLLMPresets, usePlotWeaver } from '../api/gameHooks';
+import { useGames, useGame, useNPCs, usePlotThreads, useCharacters, useConsistency, usePlotWeaver } from '../api/gameHooks';
 import LLMUsagePanel from './LLMUsagePanel';
 import { useGameHub } from '../api/hubHook';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
@@ -12,15 +12,13 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Button, IconButton, Chip, Alert, AlertTitle,
   Divider, Card, CardContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Select, MenuItem, Collapse
+  Select, MenuItem
 } from '@mui/material';
 import { Delete as DeleteIcon, Add as AddIcon,
   CheckCircle as CheckCircleIcon,
   History as HistoryIcon,
-  Settings as SettingsIcon, Shield as ShieldIcon, Article as SheetIcon,
-  ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon,
-  Chat as ChatIcon, Cloud as OllamaIcon, Home as LMStudioIcon,
-  Google as GoogleIcon, Circle as OpenAIIcon, PlayArrow as PlayIcon, ChevronLeft as ChevronLeftIcon } from '@mui/icons-material';
+  Article as SheetIcon,
+  PlayArrow as PlayIcon, ChevronLeft as ChevronLeftIcon } from '@mui/icons-material';
 
 export default function AdminPage() {
   const { id } = useParams<{ id: string }>();
@@ -43,7 +41,7 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    const tabMap: Record<string, number> = { 'npcs': 0, 'plot-board': 1, 'plot-threads': 2, 'characters': 3, 'consistency': 4, 'agent-calls': 5, 'llm-presets': 6, 'llm-usage': 7, 'llm-logs': 8, 'whispers': 9, 'game-state': 10, 'systems': 11 };
+    const tabMap: Record<string, number> = { 'npcs': 0, 'plot-board': 1, 'plot-threads': 2, 'characters': 3, 'consistency': 4, 'agent-calls': 5, 'llm-usage': 6, 'llm-logs': 7, 'whispers': 8, 'game-state': 9 };
     setActiveTab(tabMap[hash] ?? 0);
   }, [hash]);
 
@@ -67,26 +65,7 @@ export default function AdminPage() {
   const [plotSeed, setPlotSeed] = useState('');
   const [gameParameters, setGameParameters] = useState('');
   const [showCharCreateWizard, setShowCharCreateWizard] = useState(false);
-  const [showSystemRegistry, setShowSystemRegistry] = useState(false);
-  const [systems, setSystems] = useState<any[]>([]);
-  const [customSystemName, setCustomSystemName] = useState('');
-  const [customSystemJson, setCustomSystemJson] = useState('{"name": "", "attributes": [], "skills": [], "defaultHP": 10}');
   const { invoke } = useGameHub();
-
-  // LLM Preset state
-  const { presets, isLoading: presetsLoading, createPreset, updatePreset, deletePreset, testConnection, setDefault: setDefaultPreset } = useLLMPresets();
-  const [showPresetDialog, setShowPresetDialog] = useState(false);
-  const [editingPreset, setEditingPreset] = useState<any>(null);
-  const [presetName, setPresetName] = useState('');
-  const [presetProvider, setPresetProvider] = useState('ollama');
-  const [presetModel, setPresetModel] = useState('');
-  const [presetEndpoint, setPresetEndpoint] = useState('');
-  const [presetApiKey, setPresetApiKey] = useState('');
-  const [presetTemp, setPresetTemp] = useState(0.7);
-  const [presetMaxTokens, setPresetMaxTokens] = useState(2048);
-  const [presetTopP, setPresetTopP] = useState(0.9);
-  const [presetEmbedModel, setPresetEmbedModel] = useState('');
-  const [presetTestLoading, setPresetTestLoading] = useState(false);
 
   // LLM Interaction logs state
   const [llmLogs, setLlmLogs] = useState<any[]>([]);
@@ -96,7 +75,7 @@ export default function AdminPage() {
   const [logFilterProvider, setLogFilterProvider] = useState('');
   const [logFilterFrom, setLogFilterFrom] = useState('');
   const [logFilterTo, setLogFilterTo] = useState('');
-  const [presetTestResult, setPresetTestResult] = useState<{success: boolean; message?: string} | null>(null);
+
 
   const handleCreateNPC = async () => {
     if (!npcName.trim()) return;
@@ -139,104 +118,6 @@ export default function AdminPage() {
     }
   };
 
-  const handleLoadSystems = async () => {
-    if (!id) return;
-    try {
-      const result = await invoke('GetSystems', id);
-      if (result) setSystems(result);
-    } catch (e) {
-      console.error('Failed to load systems', e);
-    }
-  };
-
-  // ==================== LLM Preset Handlers ====================
-
-  const handleOpenPresetDialog = (preset?: any) => {
-    if (preset) {
-      setEditingPreset(preset);
-      setPresetName(preset.name);
-      setPresetProvider(preset.providerType);
-      setPresetModel(preset.baseModel);
-      setPresetEndpoint(preset.endpointUrl || '');
-      setPresetApiKey('');
-      setPresetTemp(preset.temperature);
-      setPresetMaxTokens(preset.maxTokens);
-      setPresetTopP(preset.topP);
-      setPresetEmbedModel(preset.embeddingModel || '');
-    } else {
-      setEditingPreset(null);
-      setPresetName('');
-      setPresetProvider('ollama');
-      setPresetModel('');
-      setPresetEndpoint('');
-      setPresetApiKey('');
-      setPresetTemp(0.7);
-      setPresetMaxTokens(2048);
-      setPresetTopP(0.9);
-      setPresetEmbedModel('');
-    }
-    setPresetTestResult(null);
-    setShowPresetDialog(true);
-  };
-
-  const handleSavePreset = async () => {
-    if (!presetName.trim()) return;
-    try {
-      const request = {
-        name: presetName,
-        providerType: presetProvider,
-        baseModel: presetModel,
-        endpointUrl: presetEndpoint || undefined,
-        apiKey: presetApiKey || undefined,
-        temperature: presetTemp,
-        maxTokens: presetMaxTokens,
-        topP: presetTopP,
-        embeddingModel: presetEmbedModel || undefined,
-        isDefault: false,
-        isActive: true,
-      };
-      if (editingPreset) {
-        await updatePreset(editingPreset.id, request);
-      } else {
-        await createPreset(request);
-      }
-      setShowPresetDialog(false);
-      setPresetTestResult(null);
-    } catch (e: any) {
-      setErrorState(e.message);
-    }
-  };
-
-  const handleTestPreset = async (presetId: string) => {
-    setPresetTestLoading(true);
-    try {
-      const result: any = await testConnection(presetId);
-      setPresetTestResult({ success: result.success, message: result.message });
-    } catch (e: any) {
-      setPresetTestResult({ success: false, message: e.message });
-    } finally {
-      setPresetTestLoading(false);
-    }
-  };
-
-  const handleSetDefaultPreset = async (presetId: string) => {
-    try {
-      await setDefaultPreset(presetId);
-    } catch (e: any) {
-      setErrorState(e.message);
-    }
-  };
-
-  const handleDeletePreset = async (presetId: string) => {
-    if (window.confirm('Delete this preset?')) {
-      try {
-        await deletePreset(presetId);
-      } catch (e: any) {
-        setErrorState(e.message);
-      }
-    }
-  };
-
   // ==================== LLM Interaction Log Handlers ====================
 
   const handleRefreshLLMLogs = async () => {
@@ -261,19 +142,6 @@ export default function AdminPage() {
       setLlmLogs(prev => prev.filter(l => l.id !== logId));
     } catch (e) {
       console.error('Failed to delete log', e);
-    }
-  };
-
-  const handleCreateSystem = async () => {
-    if (!id || !customSystemName.trim()) return;
-    try {
-      await invoke('CreateSystem', id, customSystemName, customSystemJson);
-      setShowSystemRegistry(false);
-      setCustomSystemName('');
-      setCustomSystemJson('{"name": "", "attributes": [], "skills": [], "defaultHP": 10}');
-      await handleLoadSystems();
-    } catch (e: any) {
-      setErrorState(e.message);
     }
   };
 
@@ -399,17 +267,6 @@ export default function AdminPage() {
         />
       )}
 
-      {hash === 'llm-presets' && (
-        <LLMPresetsTab
-          presets={presets}
-          isLoading={presetsLoading}
-          onOpenDialog={handleOpenPresetDialog}
-          onDelete={handleDeletePreset}
-          onTest={handleTestPreset}
-          onSetDefault={handleSetDefaultPreset}
-        />
-      )}
-
       {hash === 'llm-usage' && (
         <LLMUsagePanel gameId={id!} />
       )}
@@ -453,22 +310,6 @@ export default function AdminPage() {
           onSave={handleSaveGameState}
           onOpenCharCreate={() => setShowCharCreateWizard(true)}
           onStartGame={startGame}
-        />
-      )}
-
-      {hash === 'systems' && (
-        <SystemsTab
-          systems={systems}
-          showRegistry={showSystemRegistry}
-          customSystemName={customSystemName}
-          setCustomSystemName={setCustomSystemName}
-          customSystemJson={customSystemJson}
-          setCustomSystemJson={setCustomSystemJson}
-          onToggleRegistry={() => {
-            setShowSystemRegistry(!showSystemRegistry);
-            if (!showSystemRegistry) handleLoadSystems();
-          }}
-          onCreateSystem={handleCreateSystem}
         />
       )}
 
@@ -541,43 +382,6 @@ export default function AdminPage() {
         onClose={() => setShowCharCreateWizard(false)}
         onFinish={() => { refetchCharacters(); }}
       />
-
-      {/* LLM Preset Dialog */}
-      <Dialog open={showPresetDialog} onClose={() => setShowPresetDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{editingPreset ? 'Edit LLM Preset' : 'New LLM Preset'}</DialogTitle>
-        <DialogContent sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <TextField fullWidth label="Name" value={presetName} onChange={e => setPresetName(e.target.value)} autoFocus />
-          <TextField fullWidth select label="Provider" value={presetProvider} onChange={e => setPresetProvider(e.target.value)} SelectProps={{ native: true }}>
-            <option value="ollama">Ollama</option>
-            <option value="lmstudio">LM Studio</option>
-            <option value="openai">OpenAI / OpenAI-Compatible</option>
-            <option value="google">Google AI Studio</option>
-          </TextField>
-          <TextField fullWidth label="Base Model" value={presetModel} onChange={e => setPresetModel(e.target.value)} placeholder="e.g., llama3, gpt-4o-mini, gemini-pro" />
-          <TextField fullWidth label="Endpoint URL" value={presetEndpoint} onChange={e => setPresetEndpoint(e.target.value)} placeholder={presetProvider === 'ollama' ? 'http://localhost:11434' : presetProvider === 'lmstudio' ? 'http://localhost:1234' : 'https://api.openai.com/v1'} />
-          <TextField fullWidth label="API Key" type="password" value={presetApiKey} onChange={e => setPresetApiKey(e.target.value)} placeholder="Leave blank to keep existing key" />
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField fullWidth label="Temperature" type="number" value={presetTemp} onChange={e => setPresetTemp(parseFloat(e.target.value) || 0)} inputProps={{ step: 0.1, min: 0, max: 2 }} />
-            <TextField fullWidth label="Max Tokens" type="number" value={presetMaxTokens} onChange={e => setPresetMaxTokens(parseInt(e.target.value) || 2048)} />
-            <TextField fullWidth label="Top P" type="number" value={presetTopP} onChange={e => setPresetTopP(parseFloat(e.target.value) || 0.9)} inputProps={{ step: 0.1, min: 0, max: 1 }} />
-          </Box>
-          <TextField fullWidth label="Embedding Model (optional)" value={presetEmbedModel} onChange={e => setPresetEmbedModel(e.target.value)} placeholder="e.g., nomic-embed-text, text-embedding-3-small" />
-          {presetTestResult && (
-            <Alert severity={presetTestResult.success ? 'success' : 'error'}>{presetTestResult.message}</Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowPresetDialog(false)}>Cancel</Button>
-          {editingPreset && (
-            <Button variant="outlined" onClick={() => handleTestPreset(editingPreset.id)} disabled={presetTestLoading}>
-              {presetTestLoading ? 'Testing...' : 'Test Connection'}
-            </Button>
-          )}
-          <Button onClick={handleSavePreset} variant="contained" disabled={!presetName.trim() || !presetModel.trim()}>
-            {editingPreset ? 'Save' : 'Create'}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* LLM Log Detail Dialog */}
       <Dialog open={showLogDetail} onClose={() => setShowLogDetail(false)} maxWidth="md" fullWidth>
@@ -1089,207 +893,6 @@ function GameStateTab({ game, gameStatus, gameStateJson, setGameStateJson, plotS
           )}
         </Box>
       </Box>
-    </Paper>
-  );
-}
-
-// ==================== Systems Tab ====================
-
-function SystemsTab({ systems, showRegistry, customSystemName, setCustomSystemName, customSystemJson, setCustomSystemJson, onToggleRegistry, onCreateSystem }: any) {
-  const [showCreate, setShowCreate] = useState(false);
-
-  const builtinSystems = [
-    { id: 'dnd5e', name: 'D&D 5th Edition', version: '5.4' },
-    { id: 'pf2e', name: 'Pathfinder 2nd Edition', version: '2.3' },
-    { id: 'coc7e', name: 'Call of Cthulhu 7th Edition', version: '7.1' },
-  ];
-
-  return (
-    <Paper>
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">RPG Systems</Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" onClick={onToggleRegistry}>
-            {showRegistry ? 'Hide Registry' : 'Show Registry'}
-          </Button>
-          <Button variant="outlined" onClick={() => setShowCreate(!showCreate)}>
-            Add Custom System
-          </Button>
-        </Box>
-      </Box>
-      <Divider />
-      <Box sx={{ p: 2 }}>
-        <Typography variant="subtitle1" color="primary">Built-in Systems</Typography>
-        <List>
-          {builtinSystems.map((sys: any, i: number) => (
-            <ListItem key={i} sx={{ px: 0 }}>
-              <ListItemAvatar>
-                <Avatar sx={{ bgcolor: 'primary.main' }}>🎲</Avatar>
-              </ListItemAvatar>
-              <ListItemText
-                primary={sys.name}
-                secondary={`ID: ${sys.id} · Version: ${sys.version}`}
-              />
-              <Chip label="Built-in" size="small" color="default" variant="outlined" />
-            </ListItem>
-          ))}
-        </List>
-
-        {showRegistry && (
-          <Box sx={{ mt: 3 }}>
-            <Typography variant="subtitle1" color="primary">Custom Systems ({systems.length})</Typography>
-            {systems.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ p: 1 }}>No custom systems yet.</Typography>
-            ) : (
-              <List>
-                {systems.map((sys: any, i: number) => (
-                  <ListItem key={i} sx={{ px: 0 }}>
-                    <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: 'secondary.main' }}>⚙️</Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={sys.name}
-                      secondary={`Created: ${new Date(sys.createdAt).toLocaleDateString()}`}
-                    />
-                    <Chip label="Custom" size="small" color="secondary" variant="outlined" />
-                  </ListItem>
-                ))}
-              </List>
-            )}
-
-            {showCreate && (
-              <Paper sx={{ p: 2, mt: 2, bgcolor: 'background.default' }}>
-                <Typography variant="subtitle2" gutterBottom>Create Custom System</Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <TextField
-                    size="small"
-                    label="System Name"
-                    value={customSystemName}
-                    onChange={e => setCustomSystemName(e.target.value)}
-                    placeholder="My Custom RPG"
-                  />
-                  <TextField
-                    size="small"
-                    label="JSON Definition"
-                    multiline
-                    rows={6}
-                    value={customSystemJson}
-                    onChange={e => setCustomSystemJson(e.target.value)}
-                    placeholder='{"name": "...", "attributes": [...], "skills": [...]}'
-                    sx={{ fontFamily: 'monospace' }}
-                  />
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button size="small" variant="contained" onClick={onCreateSystem}>
-                      Create
-                    </Button>
-                    <Button size="small" variant="outlined" onClick={() => setShowCreate(false)}>
-                      Cancel
-                    </Button>
-                  </Box>
-                </Box>
-              </Paper>
-            )}
-          </Box>
-        )}
-      </Box>
-    </Paper>
-  );
-}
-
-// ==================== LLM Presets Tab ====================
-
-function LLMPresetsTab({ presets, isLoading, onOpenDialog, onDelete, onTest, onSetDefault }: any) {
-  const [expanded, setExpanded] = useState(true);
-
-  const getProviderIcon = (provider: string) => {
-    switch (provider) {
-      case 'ollama': return <OllamaIcon fontSize="small" />;
-      case 'lmstudio': return <LMStudioIcon fontSize="small" />;
-      case 'openai': return <OpenAIIcon fontSize="small" sx={{ color: '#10a97f' }} />;
-      case 'google': return <GoogleIcon fontSize="small" />;
-      default: return <ChatIcon fontSize="small" />;
-    }
-  };
-
-  const getProviderLabel = (provider: string) => {
-    switch (provider) {
-      case 'ollama': return 'Ollama';
-      case 'lmstudio': return 'LM Studio';
-      case 'openai': return 'OpenAI';
-      case 'google': return 'Google AI';
-      default: return provider;
-    }
-  };
-
-  return (
-    <Paper>
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">LLM Presets ({presets.length})</Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" size="small" onClick={() => setExpanded(!expanded)}>
-            {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-            {expanded ? 'Collapse' : 'Expand'}
-          </Button>
-          <Button variant="contained" size="small" onClick={() => onOpenDialog()} startIcon={<AddIcon fontSize="small" />}>
-            Add Preset
-          </Button>
-        </Box>
-      </Box>
-      <Collapse in={expanded}>
-        <Divider />
-        {isLoading ? (
-          <Typography sx={{ p: 2 }}>Loading...</Typography>
-        ) : presets.length === 0 ? (
-          <Typography sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
-            No LLM presets configured. Click "Add Preset" to get started.
-          </Typography>
-        ) : (
-          <List>
-            {presets.map((preset: any) => (
-              <ListItem key={preset.id} sx={{ px: 2, alignItems: 'flex-start' }}>
-                <ListItemAvatar>
-                  <Avatar sx={{ width: 32, height: 32 }}>{getProviderIcon(preset.providerType)}</Avatar>
-                </ListItemAvatar>
-                <ListItemText
-                  primary={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="body1">{preset.name}</Typography>
-                      {preset.isDefault && <Chip label="Default" size="small" color="primary" />}
-                      {!preset.isActive && <Chip label="Inactive" size="small" color="default" />}
-                    </Box>
-                  }
-                  secondary={
-                    <Box sx={{ mt: 0.5 }}>
-                      <Typography variant="body2" color="text.secondary">
-                        {getProviderLabel(preset.providerType)} · {preset.baseModel} · Temp: {preset.temperature} · Max: {preset.maxTokens}T
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {preset.endpointUrl || 'Default endpoint'}{preset.hasApiKey ? ' · Has API key' : ' · No API key'}
-                      </Typography>
-                    </Box>
-                  }
-                />
-                <Box sx={{ display: 'flex', gap: 0.5 }}>
-                  <IconButton size="small" onClick={() => onTest(preset.id)} color="info">
-                    <CheckCircleIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton size="small" onClick={() => onOpenDialog(preset)}>
-                    <SettingsIcon fontSize="small" />
-                  </IconButton>
-                  {!preset.isDefault && (
-                    <IconButton size="small" onClick={() => onSetDefault(preset.id)} color="primary">
-                      <ShieldIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                  <IconButton size="small" onClick={() => onDelete(preset.id)} color="error">
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Box>
-              </ListItem>
-            ))}
-          </List>
-        )}
-      </Collapse>
     </Paper>
   );
 }

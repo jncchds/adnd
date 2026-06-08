@@ -114,4 +114,63 @@ public class AuthController : ControllerBase
             user.CreatedAt
         });
     }
+
+    [HttpPost("change-password")]
+    [Authorize]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userId == null || !Guid.TryParse(userId, out var id))
+        {
+            return Unauthorized();
+        }
+
+        if (string.IsNullOrWhiteSpace(request.CurrentPassword) || string.IsNullOrWhiteSpace(request.NewPassword))
+        {
+            return BadRequest(new { error = "Current password and new password are required." });
+        }
+
+        var (success, errorMessage) = await _authService.ChangePasswordAsync(id, request.CurrentPassword, request.NewPassword);
+        if (!success)
+        {
+            return BadRequest(new { error = errorMessage });
+        }
+
+        return Ok(new { message = "Password changed successfully." });
+    }
+
+    [HttpPut("display-name")]
+    [Authorize]
+    public async Task<IActionResult> UpdateDisplayName([FromBody] UpdateDisplayNameRequest request)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userId == null || !Guid.TryParse(userId, out var id))
+        {
+            return Unauthorized();
+        }
+
+        if (string.IsNullOrWhiteSpace(request.DisplayName))
+        {
+            return BadRequest(new { error = "Display name cannot be empty." });
+        }
+
+        var (success, errorMessage) = await _authService.UpdateDisplayNameAsync(id, request.DisplayName);
+        if (!success)
+        {
+            return BadRequest(new { error = errorMessage });
+        }
+
+        return Ok(new { message = "Display name updated successfully." });
+    }
+}
+
+public class ChangePasswordRequest
+{
+    public string CurrentPassword { get; set; } = string.Empty;
+    public string NewPassword { get; set; } = string.Empty;
+}
+
+public class UpdateDisplayNameRequest
+{
+    public string DisplayName { get; set; } = string.Empty;
 }
