@@ -470,6 +470,24 @@ public class AdminController : ControllerBase
         return Ok(statuses);
     }
 
+    [HttpGet("llm-presets/models")]
+    public async Task<IActionResult> GetProviderModels([FromQuery] string providerType, [FromQuery] string? endpointUrl, [FromQuery] string? apiKey)
+    {
+        try
+        {
+            var models = await _presetService.GetAvailableModelsAsync(providerType, endpointUrl, apiKey);
+            return Ok(models);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return Ok(new { models = Array.Empty<string>(), error = ex.Message });
+        }
+    }
+
     [HttpGet("games/{gameId}/plot-context")]
     public async Task<IActionResult> GetPlotContext(Guid gameId, [FromQuery] int maxMessages = 20)
     {

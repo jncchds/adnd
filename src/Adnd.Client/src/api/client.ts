@@ -424,6 +424,13 @@ class APIClient {
     });
   }
 
+  async getProviderModels(providerType: string, endpointUrl?: string, apiKey?: string) {
+    const params = new URLSearchParams({ providerType });
+    if (endpointUrl) params.set('endpointUrl', endpointUrl);
+    if (apiKey) params.set('apiKey', apiKey);
+    return this.request<string[]>(`/admin/llm-presets/models?${params}`);
+  }
+
   // ==================== LLM Interaction Logs ====================
   async getLLMInteractions(params?: {
     presetId?: string;
@@ -857,6 +864,11 @@ export interface UpdateLLMPresetRequest {
 export interface TestConnectionResponse {
   success: boolean;
   message?: string;
+}
+
+export interface ProviderModelsResponse {
+  models: string[];
+  error?: string;
 }
 
 // ==================== LLM Interaction Log Types ====================

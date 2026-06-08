@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+using System.Net.Http;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 
@@ -15,6 +16,7 @@ public interface ILLMPresetService
     Task<LLMPreset?> GetDefaultPresetAsync(Guid userId);
     Task SetDefaultPresetAsync(Guid userId, Guid presetId);
     Task<bool> TestConnectionAsync(Guid userId, Guid presetId);
+    Task<List<string>> GetAvailableModelsAsync(string providerType, string? endpointUrl = null, string? apiKey = null);
 }
 
 public class LLMPresetService : ILLMPresetService
@@ -188,6 +190,68 @@ public class LLMPresetService : ILLMPresetService
         return await provider.IsAvailableAsync();
     }
 
+    public async Task<List<string>> GetAvailableModelsAsync(string providerType, string? endpointUrl = null, string? apiKey = null)
+    {
+        return providerType.ToLowerInvariant() switch
+        {
+            "ollama" => await GetOllamaModelsAsync(endpointUrl),
+            "lmstudio" => await GetOpenAICompatibleModelsAsync(endpointUrl, apiKey),
+            "openai" => await GetOpenAIModelsAsync(endpointUrl, apiKey),
+            "google" => await GetGoogleModelsAsync(apiKey),
+            _ => throw new InvalidOperationException($"Provider type '{providerType}' does not support model listing."),
+        };
+    }
+
+    private static async Task<List<string>> GetOllamaModelsAsync(string? baseUrl)
+    {
+        var url = (baseUrl ?? "http://localhost:11434").TrimEnd('/') + "/api/tags";
+        using var http = new HttpClient();
+        http.Timeout = TimeSpan.FromSeconds(10);
+        var response = await http.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+        var doc = await response.Content.ReadFromJsonAsync<OllamaTagsResponse>();
+        return doc?.Models?.Select(m => m.Name).ToList() ?? new List<string>();
+    }
+
+    private static async Task<List<string>> GetOpenAICompatibleModelsAsync(string? baseUrl, string? apiKey)
+    {
+        var url = (baseUrl ?? "http://localhost:1234").TrimEnd('/') + "/v1/models";
+        using var http = new HttpClient();
+        http.Timeout = TimeSpan.FromSeconds(10);
+        if (!string.IsNullOrEmpty(apiKey))
+            http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+        var response = await http.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+        var doc = await response.Content.ReadFromJsonAsync<OpenAIModelsResponse>();
+        return doc?.Data?.Select(m => m.Id).ToList() ?? new List<string>();
+    }
+
+    private static async Task<List<string>> GetOpenAIModelsAsync(string? baseUrl, string? apiKey)
+    {
+        var url = (baseUrl ?? "https://api.openai.com/v1").TrimEnd('/') + "/models";
+        using var http = new HttpClient();
+        http.Timeout = TimeSpan.FromSeconds(10);
+        if (!string.IsNullOrEmpty(apiKey))
+            http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+        var response = await http.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+        var doc = await response.Content.ReadFromJsonAsync<OpenAIModelsResponse>();
+        return doc?.Data?.Select(m => m.Id).ToList() ?? new List<string>();
+    }
+
+    private static async Task<List<string>> GetGoogleModelsAsync(string? apiKey)
+    {
+        if (string.IsNullOrEmpty(apiKey))
+            throw new InvalidOperationException("API key is required for Google AI Studio.");
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models?key={apiKey}";
+        using var http = new HttpClient();
+        http.Timeout = TimeSpan.FromSeconds(10);
+        var response = await http.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+        var doc = await response.Content.ReadFromJsonAsync<GoogleModelsResponse>();
+        return doc?.Models?.Select(m => m.Name.Replace("models/", "")).ToList() ?? new List<string>();
+    }
+
     private ILLMProvider CreateProviderFromPreset(LLMPreset preset)
     {
         return preset.ProviderType switch
@@ -247,4 +311,36 @@ public class TestConnectionResponse
     public bool Success { get; set; }
     public string? ErrorMessage { get; set; }
     public string? StatusMessage { get; set; }
+}
+
+// ==================== Model listing response types ====================
+
+public class OllamaTagsResponse
+{
+    public List<OllamaModelInfo>? Models { get; set; }
+}
+
+public class OllamaModelInfo
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public class OpenAIModelsResponse
+{
+    public List<OpenAIModelInfo>? Data { get; set; }
+}
+
+public class OpenAIModelInfo
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+public class GoogleModelsResponse
+{
+    public List<GoogleModelInfo>? Models { get; set; }
+}
+
+public class GoogleModelInfo
+{
+    public string Name { get; set; } = string.Empty;
 }

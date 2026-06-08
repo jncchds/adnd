@@ -374,6 +374,28 @@ export function useLLMPresets() {
   };
 }
 
+export function useProviderModels() {
+  const [models, setModels] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchModels = useCallback(async (providerType: string, endpointUrl?: string, apiKey?: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getProviderModels(providerType, endpointUrl, apiKey);
+      setModels(data);
+    } catch (e: any) {
+      setError(e.message);
+      setModels([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  return { models, isLoading, error, fetchModels };
+}
+
 // ==================== LLM Interaction Log Hooks ====================
 
 export function useLLMInteractions(gameId?: string) {

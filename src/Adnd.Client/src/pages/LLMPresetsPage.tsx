@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useLLMPresets } from '../api/gameHooks';
+import { useState, useCallback } from 'react';
+import { useLLMPresets, useProviderModels } from '../api/gameHooks';
 import {
   Box,
   Typography,
@@ -24,6 +24,8 @@ import {
   MenuItem,
   ListItemButton,
   ListItemIcon,
+  Autocomplete,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -35,6 +37,7 @@ import {
   WifiOff as WifiOffIcon,
   Visibility as EyeIcon,
   VisibilityOff as EyeOffIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 
 export default function LLMPresetsPage() {
@@ -48,6 +51,9 @@ export default function LLMPresetsPage() {
     testConnection,
     setDefault,
   } = useLLMPresets();
+
+  // Model listing hook
+  const { models: providerModels, isLoading: loadingModels, error: modelError, fetchModels } = useProviderModels();
 
   const [openDialog, setOpenDialog] = useState(false);
   const [editingPreset, setEditingPreset] = useState<any>(null);
@@ -75,6 +81,21 @@ export default function LLMPresetsPage() {
 
   const getProviderInfo = (provider: string) =>
     defaultProviders.find(p => p.value === provider) || defaultProviders[0];
+
+  const supportsModelListing = (provider: string) =>
+    ['ollama', 'lmstudio', 'openai', 'google'].includes(provider.toLowerCase());
+
+  const getProviderEndpoint = (provider: string) => {
+    const info = getProviderInfo(provider);
+    return presetEndpoint || info.placeholder;
+  };
+
+  const handleLoadModels = useCallback(async () => {
+    const endpoint = getProviderEndpoint(presetProvider);
+    await fetchModels(presetProvider, endpoint, presetApiKey || undefined);
+  }, [presetProvider, presetEndpoint, presetApiKey, fetchModels]);
+
+
 
   const handleOpenCreate = () => {
     setEditingPreset(null);
@@ -398,13 +419,72 @@ export default function LLMPresetsPage() {
               </MenuItem>
             ))}
           </TextField>
-          <TextField
-            fullWidth
-            label="Base Model"
-            value={presetModel}
-            onChange={e => setPresetModel(e.target.value)}
-            placeholder="e.g., llama3, gpt-4o-mini, gemini-pro"
-          />
+
+          {/* Base Model with model listing support */}
+          {supportsModelListing(presetProvider) ? (
+            <Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                  Base Model
+                </Typography>
+                <Button
+                  size="small"
+                  startIcon={loadingModels ? <CircularProgress size={14} /> : <RefreshIcon />}
+                  onClick={handleLoadModels}
+                  disabled={loadingModels}
+                  sx={{ textTransform: 'none', minWidth: 0, px: 1 }}
+                >
+                  Refresh
+                </Button>
+              </Box>
+              <Autocomplete
+                freeSolo
+                options={providerModels}
+                value={presetModel || null}
+                onChange={(_event, newValue) => setPresetModel(newValue || '')}
+                renderInput={params => (
+                  <TextField
+                    {...params}
+                    placeholder="e.g., llama3, gpt-4o-mini, gemini-pro"
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: params.InputProps?.endAdornment,
+                    }}
+                  />
+                )}
+                isOptionEqualToValue={(option, value) => option === value}
+                ListboxComponent={props => (
+                  <Box {...props} sx={{ maxHeight: 200, overflow: 'auto' }}>
+                    {props.children}
+                  </Box>
+                )}
+              />
+              {loadingModels && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  Loading available models from provider...
+                </Typography>
+              )}
+              {modelError && (
+                <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                  {modelError}
+                </Typography>
+              )}
+              {!loadingModels && providerModels.length > 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  {providerModels.length} models available — type to filter
+                </Typography>
+              )}
+            </Box>
+          ) : (
+            <TextField
+              fullWidth
+              label="Base Model"
+              value={presetModel}
+              onChange={e => setPresetModel(e.target.value)}
+              placeholder="e.g., llama3, gpt-4o-mini, gemini-pro"
+            />
+          )}
+
           <TextField
             fullWidth
             label="Endpoint URL"
@@ -458,13 +538,51 @@ export default function LLMPresetsPage() {
               size="small"
             />
           </Box>
-          <TextField
-            fullWidth
-            label="Embedding Model (optional)"
-            value={presetEmbedModel}
-            onChange={e => setPresetEmbedModel(e.target.value)}
-            placeholder="e.g., nomic-embed-text, text-embedding-3-small"
-          />
+
+          {/* Embedding Model with model listing support */}
+          {supportsModelListing(presetProvider) ? (
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                Embedding Model (optional)
+              </Typography>
+              <Autocomplete
+                freeSolo
+                options={providerModels}
+                value={presetEmbedModel || null}
+                onChange={(_event, newValue) => setPresetEmbedModel(newValue || '')}
+                renderInput={params => (
+                  <TextField
+                    {...params}
+                    placeholder="e.g., nomic-embed-text, text-embedding-3-small"
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: params.InputProps?.endAdornment,
+                    }}
+                  />
+                )}
+                isOptionEqualToValue={(option, value) => option === value}
+                ListboxComponent={props => (
+                  <Box {...props} sx={{ maxHeight: 200, overflow: 'auto' }}>
+                    {props.children}
+                  </Box>
+                )}
+              />
+              {!loadingModels && providerModels.length > 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  {providerModels.length} models available — type to filter
+                </Typography>
+              )}
+            </Box>
+          ) : (
+            <TextField
+              fullWidth
+              label="Embedding Model (optional)"
+              value={presetEmbedModel}
+              onChange={e => setPresetEmbedModel(e.target.value)}
+              placeholder="e.g., nomic-embed-text, text-embedding-3-small"
+            />
+          )}
+
           {testResult && (
             <Collapse in={!!testResult}>
               <Alert
