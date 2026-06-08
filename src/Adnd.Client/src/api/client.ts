@@ -738,6 +738,8 @@ export interface CharacterListItem {
   conditions: JsonElement;
   updatedAt: string;
   playerName: string;
+  playerUserId?: string;
+  playerEmail?: string;
 }
 
 export interface CharacterDetail {

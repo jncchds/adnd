@@ -285,6 +285,11 @@ export default function DashboardPage() {
                           LLM: {game.llmPresetName}
                         </Typography>
                       )}
+                      {game.status === 'Active' && game.inviteCode && (
+                        <Typography variant="caption" color="text.secondary">
+                          Code: <strong>{game.inviteCode}</strong>
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Chip label={game.systemId} size="small" variant="outlined" />
@@ -303,7 +308,14 @@ export default function DashboardPage() {
                           <PlayIcon />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Invite Code">
+                      {game.status === 'Active' && game.inviteCode && (
+                        <Tooltip title={game.inviteCode}>
+                          <span>
+                            <Chip label={game.inviteCode} size="small" variant="outlined" sx={{ mr: 0.5 }} />
+                          </span>
+                        </Tooltip>
+                      )}
+                      <Tooltip title="Copy Invite Code">
                         <IconButton onClick={() => handleCopyInvite(game.id)} size="small">
                           <ShareIcon />
                         </IconButton>

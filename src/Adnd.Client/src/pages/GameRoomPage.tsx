@@ -553,6 +553,16 @@ export default function GameRoomPage() {
     setErrorState(null);
     setSuccessState(null);
     try {
+      // Check if the current user is the game creator
+      if (game?.creatorId === user.id) {
+        // Creator can create a character directly without being a player
+        await invoke('CreateCharacterAsCreator', id, user.id, JSON.stringify(characterData));
+        setSuccessState(`Character '${characterData.name}' created!`);
+        setTimeout(() => setSuccessState(null), 2000);
+        setShowCharacterWizard(false);
+        return;
+      }
+
       // Find the current user's player ID
       const playersList = await api.getPlayers(id);
       const myPlayer = playersList.find((p: any) => p.userEmail === user.email || p.userName === user.displayName);
@@ -681,7 +691,7 @@ export default function GameRoomPage() {
   }
 
   const activeSession = sessions?.find((s: any) => !s.endedAt);
-  const isCreator = players.some((p: any) => p.role === 'Creator');
+  const isCreator = game?.creatorId === user?.id || players.some((p: any) => p.role === 'Creator');
 
   // Tabs: Chat is always first, then other panels
   const tabs = [
@@ -704,6 +714,9 @@ export default function GameRoomPage() {
             <Chip label={game.systemId} size="small" />
             <Chip label={game.status} size="small" color={game.status === 'Active' ? 'success' : 'default'} />
             {game.llmPresetName && <Chip label={game.llmPresetName} size="small" variant="outlined" />}
+            {game.inviteCode && (
+              <Chip label={`Code: ${game.inviteCode}`} size="small" variant="outlined" color="primary" />
+            )}
             {gmStatus && (
               <Chip
                 label={`AI-GM: ${gmStatus.status}`}
@@ -830,7 +843,7 @@ export default function GameRoomPage() {
           )}
 
           {activeTab === 3 && (
-            <CharactersTab characters={characters} currentUserName={user?.displayName} onCreateCharacter={() => setShowCharacterWizard(true)} />
+            <CharactersTab characters={characters} currentUserName={user?.displayName} currentUserId={user?.id} currentEmail={user?.email} onCreateCharacter={() => setShowCharacterWizard(true)} />
           )}
 
           {activeTab === 4 && (
@@ -845,7 +858,7 @@ export default function GameRoomPage() {
           )}
 
           {activeTab === 6 && (
-            <SettingsTab game={game} sessions={sessions} onNewSession={() => setCreateSessionOpen(true)} />
+            <SettingsTab game={game} sessions={sessions} onNewSession={() => setCreateSessionOpen(true)} isCreator={isCreator} gameId={id} />
           )}
         </Box>
       </Box>
@@ -1312,33 +1325,44 @@ function MessageBubble({ msg }: { msg: UnifiedMessage }) {
 
 function PlayersTab({ players, currentUserId }: { players: any[]; currentUserId?: string }) {
   const filteredPlayers = players.filter(p => p.id !== currentUserId);
+  const isCreator = players.some(p => p.role === 'Creator');
   return (
     <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>Other Players ({filteredPlayers.length})</Typography>
-      <List>
-        {filteredPlayers.map((p: any) => (
-          <ListItem key={p.id} sx={{ px: 0 }}>
-            <ListItemAvatar>
-              <Avatar sx={{ bgcolor: p.role === 'Creator' ? 'warning.main' : p.role === 'Spectator' ? 'info.main' : 'primary.main' }}>
-                {p.role === 'Creator' ? '🎬' : p.role === 'Spectator' ? '👁️' : '👤'}
-              </Avatar>
-            </ListItemAvatar>
-            <ListItemText
-              primary={p.userName || p.characterName}
-              secondary={p.characterName}
-            />
-            <Chip label={p.role} size="small" color={p.role === 'Creator' ? 'warning' : p.role === 'Spectator' ? 'info' : 'default'} variant="outlined" />
-            <Chip label={p.status} size="small" color={p.status === 'Active' ? 'success' : 'default'} />
-          </ListItem>
-        ))}
-      </List>
+      <Typography variant="h6" gutterBottom>{isCreator ? 'Players' : 'Other Players'} ({filteredPlayers.length})</Typography>
+      {filteredPlayers.length === 0 ? (
+        <Typography color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+          {isCreator ? 'No other players yet. Share your invite code to get players!' : 'No other players yet.'}
+        </Typography>
+      ) : (
+        <List>
+          {filteredPlayers.map((p: any) => (
+            <ListItem key={p.id} sx={{ px: 0 }}>
+              <ListItemAvatar>
+                <Avatar sx={{ bgcolor: p.role === 'Creator' ? 'warning.main' : p.role === 'Spectator' ? 'info.main' : 'primary.main' }}>
+                  {p.role === 'Creator' ? '🎬' : p.role === 'Spectator' ? '👁️' : '👤'}
+                </Avatar>
+              </ListItemAvatar>
+              <ListItemText
+                primary={p.userName || p.characterName}
+                secondary={p.characterName}
+              />
+              <Chip label={p.role} size="small" color={p.role === 'Creator' ? 'warning' : p.role === 'Spectator' ? 'info' : 'default'} variant="outlined" />
+              <Chip label={p.status} size="small" color={p.status === 'Active' ? 'success' : 'default'} />
+            </ListItem>
+          ))}
+        </List>
+      )}
     </Paper>
   );
 }
 
-function CharactersTab({ characters, currentUserName, onCreateCharacter }: { characters: any[]; currentUserName?: string; onCreateCharacter?: () => void }) {
+function CharactersTab({ characters, currentUserName, currentUserId, currentEmail, onCreateCharacter }: { characters: any[]; currentUserName?: string; currentUserId?: string; currentEmail?: string; onCreateCharacter?: () => void }) {
   const navigate = useNavigate();
-  const myCharacter = characters.find(c => c.playerName === currentUserName);
+  const myCharacter = characters.find(c =>
+    c.playerName === currentUserName ||
+    c.playerUserId === currentUserId ||
+    c.playerEmail === currentEmail
+  );
   return (
     <Paper sx={{ p: 2 }}>
       <Typography variant="h6" gutterBottom>My Character</Typography>
@@ -1415,7 +1439,8 @@ function ActionsTab({ onSkillCheck, onAttack, onDiceRoll }: any) {
   );
 }
 
-function SettingsTab({ game, sessions, onNewSession }: any) {
+function SettingsTab({ game, sessions, onNewSession, isCreator, gameId }: any) {
+  const navigate = useNavigate();
   return (
     <Paper sx={{ p: 2 }}>
       <Typography variant="h6" gutterBottom>Game Settings</Typography>
@@ -1427,6 +1452,23 @@ function SettingsTab({ game, sessions, onNewSession }: any) {
         <Typography variant="body2">Status: {game.status}</Typography>
         <Typography variant="body2">Created: {new Date(game.createdAt).toLocaleDateString()}</Typography>
       </Box>
+
+      {isCreator && (
+        <>
+          <Divider sx={{ my: 2 }} />
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
+            <Typography variant="subtitle1">Admin Panel</Typography>
+            <Button
+              size="small"
+              variant="contained"
+              color="secondary"
+              onClick={() => navigate(`/admin/${gameId}`)}
+            >
+              Open Admin
+            </Button>
+          </Box>
+        </>
+      )}
 
       <Divider sx={{ my: 2 }} />
 

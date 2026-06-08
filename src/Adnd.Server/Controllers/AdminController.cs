@@ -269,7 +269,9 @@ public class AdminController : ControllerBase
                 c.Conditions,
                 c.CustomFields,
                 c.UpdatedAt,
-                PlayerName = c.Player!.User != null ? (c.Player.User!.DisplayName ?? c.Player.CharacterName) : c.Player.CharacterName
+                PlayerName = c.Player!.User != null ? (c.Player.User!.DisplayName ?? c.Player.CharacterName) : c.Player.CharacterName,
+                PlayerUserId = c.Player!.UserId.ToString(),
+                PlayerEmail = c.Player!.User != null ? c.Player.User.Email : null
             })
             .ToListAsync();
 
