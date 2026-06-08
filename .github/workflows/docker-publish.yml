@@ -36,6 +36,10 @@ jobs:
             -H "Content-Type: application/json" \
             || echo "Repository already exists or creation skipped"
 
+      - name: Set short commit SHA
+        id: short-sha
+        run: echo "short_sha=$(git rev-parse --short=7 HEAD)" >> $GITHUB_OUTPUT
+
       - name: Build and push multi-platform image
         uses: docker/build-push-action@v6
         with:
@@ -45,3 +49,4 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ steps.short-sha.outputs.short_sha }}
