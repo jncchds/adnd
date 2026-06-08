@@ -4,8 +4,7 @@ import { useAuth } from '../api/authHook';
 import { useGame, useSessions, usePlayers, useCharacters, useGMStatus, useSway } from '../api/gameHooks';
 import { useGameHub } from '../api/hubHook';
 import { api } from '../api/client';
-import { WhisperType, AgentType, AgentAction, AgentCallStatus, MessageType } from '../types';
-import { WhisperResponse } from '../api/hubHook';
+import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
 import CombatTab from './CombatTab';
 import {
   Container, Box, Typography, Paper, TextField, Button, Tabs, Tab,
@@ -13,13 +12,80 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   IconButton, Divider, Alert, AlertTitle, Collapse,
   InputAdornment, MenuItem, Select, FormControl,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  InputLabel
 } from '@mui/material';
 import { Send as SendIcon, DirectionsRun as ActionIcon, SportsEsports as DiceIcon,
   People as PeopleIcon, Settings as SettingsIcon,
   Replay as ReplayIcon, ExitToApp as LeaveIcon,
-  Chat as ChatBubbleIcon, Mic as MicIcon, Article as SheetIcon,
+  Chat as ChatBubbleIcon, Article as SheetIcon,
   DirectionsRun as CombatIcon } from '@mui/icons-material';
+
+// ==================== Unified Message Types ====================
+
+type UnifiedMessageType =
+  | 'inGamePublic'   // In-game public (narrative)
+  | 'inGameWhisper'  // In-game whisper (GM knowledge / divination)
+  | 'oocPublic'      // OOC public
+  | 'oocWhisper'     // OOC whisper
+  | 'dice'           // Dice roll
+  | 'skillCheck'     // Skill check result
+  | 'attack'         // Attack result
+  | 'system'         // System notification (join/leave, etc.)
+  | 'agentCall'      // Agent call log
+  | 'agentResponse'; // Agent response
+
+interface UnifiedMessage {
+  id: string | number;
+  type: UnifiedMessageType;
+  content: string;
+  senderName: string;
+  senderRole: string;
+  timestamp: string;
+  isSystem?: boolean;
+  isWhisper?: boolean;
+  whisperTo?: string;
+  diceFormula?: string;
+  diceTotal?: number;
+  diceRolls?: number[];
+  skill?: string;
+  skillDC?: number;
+  skillResult?: string;
+  attackWeapon?: string;
+  attackTarget?: string;
+  attackHit?: boolean;
+  attackDamage?: number;
+  agentFrom?: string;
+  agentAction?: string;
+  agentStatus?: string;
+  extra?: React.ReactNode;
+}
+
+// ==================== Message Color Config ====================
+
+const MESSAGE_STYLES: Record<UnifiedMessageType, {
+  bg: string;
+  border: string;
+  chipColor: 'primary' | 'info' | 'warning' | 'success' | 'error' | 'default';
+  chipLabel: string;
+  chipIcon: string;
+}> = {
+  inGamePublic:   { bg: 'rgba(103, 194, 58, 0.06)',   border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: 'In-Game', chipIcon: '🎮' },
+  inGameWhisper:  { bg: 'rgba(255, 193, 7, 0.08)',    border: 'rgba(255, 193, 7, 0.35)',  chipColor: 'warning', chipLabel: 'Whisper', chipIcon: '🤫' },
+  oocPublic:      { bg: 'rgba(33, 150, 243, 0.06)',   border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info',    chipLabel: 'OOC', chipIcon: '📢' },
+  oocWhisper:     { bg: 'rgba(156, 39, 176, 0.06)',   border: 'rgba(156, 39, 176, 0.25)',  chipColor: 'info', chipLabel: 'OOC Whisper', chipIcon: '🤫' },
+  dice:           { bg: 'rgba(255, 152, 0, 0.05)',    border: 'rgba(255, 152, 0, 0.20)',  chipColor: 'default', chipLabel: '🎲 Dice', chipIcon: '🎲' },
+  skillCheck:     { bg: 'rgba(156, 39, 176, 0.05)',   border: 'rgba(156, 39, 176, 0.20)',  chipColor: 'info', chipLabel: '📋 Check', chipIcon: '📋' },
+  attack:         { bg: 'rgba(244, 67, 54, 0.05)',    border: 'rgba(244, 67, 54, 0.20)',  chipColor: 'error', chipLabel: '⚔️ Attack', chipIcon: '⚔️' },
+  system:         { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: 'System', chipIcon: '⚙️' },
+  agentCall:      { bg: 'rgba(121, 85, 72, 0.05)',    border: 'rgba(121, 85, 72, 0.20)',  chipColor: 'default', chipLabel: '🤖 Agent', chipIcon: '🤖' },
+  agentResponse:  { bg: 'rgba(76, 175, 80, 0.05)',    border: 'rgba(76, 175, 80, 0.20)',  chipColor: 'success', chipLabel: '🤖 Reply', chipIcon: '🤖' },
+};
+
+// ==================== Message Input Types ====================
+
+type MessageInputType = 'inGame' | 'ooc';
+type MessageTarget = 'all' | 'gm' | 'player';
 
 export default function GameRoomPage() {
   const { id } = useParams<{ id: string }>();
@@ -34,26 +100,24 @@ export default function GameRoomPage() {
   const { isConnected, connect, on, invoke, disconnect } = useGameHub();
 
   const [activeTab, setActiveTab] = useState(0);
-  const [message, setMessage] = useState('');           // In-game public chat
-  const [inGameMessages, setInGameMessages] = useState<any[]>([]);
-  const [oocMessages, setOOCMessages] = useState<any[]>([]);
-  const [whispers, setWhispers] = useState<any[]>([]);
-  const [oocWhispers, setOOCWhispers] = useState<any[]>([]);
-  const [agentCalls, setAgentCalls] = useState<any[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [openDiceDialog, setOpenDiceDialog] = useState(false);
   const [diceFormula, setDiceFormula] = useState('1d20');
-  const [diceResults, setDiceResults] = useState<any[]>([]);
   const [showDiceHistory, setShowDiceHistory] = useState(false);
   const [createSessionOpen, setCreateSessionOpen] = useState(false);
   const [sessionTitle, setSessionTitle] = useState('');
   const [errorState, setErrorState] = useState<string | null>(null);
   const [successState, setSuccessState] = useState<string | null>(null);
   const [activeCombats, setActiveCombats] = useState<any[]>([]);
-  const [whisperContent, setWhisperContent] = useState('');
-  const [oocMessage, setOocMessage] = useState('');
-  const [oocWhisperContent, setOocWhisperContent] = useState('');
+
+  // Unified chat state
+  const [messages, setMessages] = useState<UnifiedMessage[]>([]);
+  const [inputType, setInputType] = useState<MessageInputType>('inGame');
+  const [inputTarget, setInputTarget] = useState<MessageTarget>('all');
+  const [whisperTargetPlayer, setWhisperTargetPlayer] = useState<string | null>(null);
+  const [whisperInput, setWhisperInput] = useState('');
   const [swayInput, setSwayInput] = useState('');
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Connect to SignalR hub
@@ -73,32 +137,73 @@ export default function GameRoomPage() {
     }
   }, [sessions, selectedSession]);
 
-  // Listen for incoming messages
+  // Listen for incoming messages — all funnel into unified chat
   useEffect(() => {
     if (!isConnected) return;
 
     on('NewMessage', (msg: any) => {
-      // In-game public message - part of narrative
-      setInGameMessages(prev => [...prev, msg]);
+      setMessages(prev => [...prev, {
+        id: msg.Id,
+        type: 'inGamePublic',
+        content: msg.Content,
+        senderName: msg.PlayerId ? 'Player' : 'AI-GM',
+        senderRole: msg.PlayerId ? 'Player' : 'GM',
+        timestamp: msg.CreatedAt,
+      }]);
     });
 
     on('NewOOCMessage', (msg: any) => {
-      // OOC public message - separate channel
-      setOOCMessages(prev => [...prev, msg]);
+      setMessages(prev => [...prev, {
+        id: `ooc-${msg.Id}`,
+        type: 'oocPublic',
+        content: msg.Content,
+        senderName: msg.PlayerId ? 'Player' : 'AI-GM',
+        senderRole: msg.PlayerId ? 'Player' : 'GM',
+        timestamp: msg.CreatedAt,
+      }]);
     });
 
     on('NewWhisper', (whisper: any) => {
-      // In-game whisper (to GM or from GM)
-      setWhispers(prev => [...prev, whisper]);
+      const isInGame = whisper.Type === WhisperType.InGamePlayerToGM ||
+                       whisper.Type === WhisperType.InGameGMToPlayer;
+      setMessages(prev => [...prev, {
+        id: `whisper-${whisper.Id}`,
+        type: isInGame ? 'inGameWhisper' : 'oocWhisper',
+        content: whisper.Content,
+        senderName: whisper.FromCharacter,
+        senderRole: whisper.FromRole,
+        timestamp: whisper.CreatedAt,
+        isWhisper: true,
+        whisperTo: whisper.Targets === 'gm' ? 'GM' : whisper.Targets,
+      }]);
     });
 
     on('NewOOCWhisper', (whisper: any) => {
-      // OOC whisper (player↔GM clarification)
-      setOOCWhispers(prev => [...prev, whisper]);
+      setMessages(prev => [...prev, {
+        id: `ooc-whisper-${whisper.Id}`,
+        type: 'oocWhisper',
+        content: whisper.Content,
+        senderName: whisper.FromCharacter,
+        senderRole: whisper.FromRole,
+        timestamp: whisper.CreatedAt,
+        isWhisper: true,
+        whisperTo: whisper.Targets === 'gm' ? 'GM' : whisper.Targets,
+      }]);
     });
 
     on('DiceRollResult', (result: any) => {
-      setDiceResults(prev => [result, ...prev]);
+      setMessages(prev => [...prev, {
+        id: `dice-${Date.now()}`,
+        type: 'dice',
+        content: `${result.Formula} → ${result.Total}`,
+        senderName: result.PlayerId ? 'Player' : 'System',
+        senderRole: result.PlayerId ? 'Player' : 'System',
+        timestamp: result.Timestamp,
+        isSystem: true,
+        diceFormula: result.Formula,
+        diceTotal: result.Total,
+        diceRolls: result.Rolls,
+      }]);
       setShowDiceHistory(true);
     });
 
@@ -111,22 +216,33 @@ export default function GameRoomPage() {
     });
 
     on('SkillCheckResult', (result: any) => {
-      setInGameMessages(prev => [...prev, {
-        id: Date.now(),
-        type: 'SkillCheck',
-        content: `${result.Skill}: d20(${result.DiceRoll})+${result.Modifier}=${result.Total} vs DC ${result.DC} -> ${result.Success ? 'SUCCESS' : 'FAILURE'}`,
+      setMessages(prev => [...prev, {
+        id: `skill-${Date.now()}`,
+        type: 'skillCheck',
+        content: `${result.Skill}: d20(${result.DiceRoll})+${result.Modifier}=${result.Total} vs DC ${result.DC} → ${result.Success ? '✓ SUCCESS' : '✗ FAILURE'}`,
+        senderName: 'System',
+        senderRole: 'System',
         timestamp: result.RolledAt,
-        isSystem: true
+        isSystem: true,
+        skill: result.Skill,
+        skillDC: result.DC,
+        skillResult: result.Success ? 'success' : 'failure',
       }]);
     });
 
     on('AttackResult', (result: any) => {
-      setInGameMessages(prev => [...prev, {
-        id: Date.now(),
-        type: 'Attack',
+      setMessages(prev => [...prev, {
+        id: `attack-${Date.now()}`,
+        type: 'attack',
         content: `${result.Weapon} vs ${result.Target}: ${result.Hit ? `HIT! ${result.DamageTotal} damage` : 'MISS'}`,
+        senderName: 'System',
+        senderRole: 'System',
         timestamp: result.RolledAt,
-        isSystem: true
+        isSystem: true,
+        attackWeapon: result.Weapon,
+        attackTarget: result.Target,
+        attackHit: result.Hit,
+        attackDamage: result.DamageTotal,
       }]);
     });
 
@@ -134,22 +250,41 @@ export default function GameRoomPage() {
       setErrorState(err.message);
     });
 
-    on('NewWhisper', (whisper: any) => {
-      setWhispers(prev => [...prev, whisper]);
-    });
-
     on('AgentCallStarted', (call: any) => {
-      setAgentCalls(prev => [...prev, { ...call, status: AgentCallStatus.Running }]);
+      setMessages(prev => [...prev, {
+        id: `agent-start-${call.Id}`,
+        type: 'agentCall',
+        content: `${getAgentLabel(call.FromAgent)} → ${getAgentLabel(call.ToAgent)}: ${getActionLabel(call.Action)}`,
+        senderName: 'Agent Framework',
+        senderRole: 'System',
+        timestamp: call.CreatedAt,
+        isSystem: true,
+        agentFrom: getAgentLabel(call.FromAgent),
+        agentAction: getActionLabel(call.Action),
+        agentStatus: 'Running',
+      }]);
     });
 
     on('AgentCallCompleted', (call: any) => {
-      setAgentCalls(prev => {
-        const existing = prev.find((c: any) => c.id === call.id);
-        if (existing) {
-          return prev.map((c: any) => c.id === call.id ? { ...c, ...call } : c);
-        }
-        return [...prev, call];
-      });
+      // Update the running agent call message
+      setMessages(prev => prev.map(m =>
+        m.id === `agent-start-${call.Id}`
+          ? { ...m, agentStatus: call.Status, content: `${m.content} → ${call.Status}` }
+          : m
+      ));
+      // Also add a completion message
+      setMessages(prev => [...prev, {
+        id: `agent-end-${call.Id}`,
+        type: 'agentResponse',
+        content: call.OutputMessage || call.Output || call.Status,
+        senderName: getAgentLabel(call.ToAgent),
+        senderRole: 'System',
+        timestamp: call.CompletedAt || call.CreatedAt,
+        isSystem: true,
+        agentFrom: getAgentLabel(call.ToAgent),
+        agentAction: getActionLabel(call.Action),
+        agentStatus: call.Status,
+      }]);
     });
 
     return () => {
@@ -160,7 +295,7 @@ export default function GameRoomPage() {
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [inGameMessages, oocMessages]);
+  }, [messages]);
 
   // Load active combats
   useEffect(() => {
@@ -172,66 +307,38 @@ export default function GameRoomPage() {
     }
   }, [id, isConnected]);
 
-  // In-game public message (narrative)
-  const handleSendMessage = async () => {
-    if (!message.trim() || !selectedSession) return;
+  // ==================== Unified Send Handler ====================
 
-    try {
-      await invoke('SendMessage', selectedSession, message);
-      setMessage('');
-    } catch (e: any) {
-      setErrorState(e.message);
+  const handleUnifiedSend = async () => {
+    if (!selectedSession) return;
+
+    // Handle whisper input (GM whispering to player)
+    if (inputTarget === 'player' && whisperTargetPlayer) {
+      if (inputType === 'inGame') {
+        await invoke('SendInGameWhisperToPlayer', whisperTargetPlayer, whisperInput);
+      } else {
+        await invoke('SendOOCWhisperToPlayer', whisperTargetPlayer, whisperInput);
+      }
+      setWhisperInput('');
+      setWhisperTargetPlayer(null);
+      return;
     }
-  };
 
-  // In-game whisper to GM (adds to GM knowledge) - GM sends via Whispers tab
-  // Players whisper to GM via the Whisper button in Chat tab
-
-  // OOC public message
-  const handleSendOOCMessage = async () => {
-    if (!oocMessage.trim() || !selectedSession) return;
-
-    try {
-      await invoke('SendOOCMessage', selectedSession, oocMessage);
-      setOocMessage('');
-    } catch (e: any) {
-      setErrorState(e.message);
-    }
-  };
-
-  // OOC whisper from player to GM
-  const handleSendOOCWhisper = async () => {
-    if (!oocWhisperContent.trim() || !selectedSession) return;
-
-    try {
-      await invoke('SendOOCWhisper', selectedSession, oocWhisperContent);
-      setOocWhisperContent('');
-    } catch (e: any) {
-      setErrorState(e.message);
-    }
-  };
-
-  // GM sends OOC whisper to player
-  const handleSendOOCWhisperToPlayer = async (targetPlayerId: string) => {
-    if (!oocWhisperContent.trim()) return;
-
-    try {
-      await invoke('SendOOCWhisperToPlayer', targetPlayerId, oocWhisperContent);
-      setOocWhisperContent('');
-    } catch (e: any) {
-      setErrorState(e.message);
-    }
-  };
-
-  // GM sends in-game whisper to player (e.g., divination result)
-  const handleSendInGameWhisperToPlayer = async (targetPlayerId: string) => {
-    if (!whisperContent.trim()) return;
-
-    try {
-      await invoke('SendInGameWhisperToPlayer', targetPlayerId, whisperContent);
-      setWhisperContent('');
-    } catch (e: any) {
-      setErrorState(e.message);
+    // Handle regular message send
+    if (inputType === 'inGame') {
+      if (inputTarget === 'gm') {
+        // In-game whisper to GM
+        await invoke('SendInGameWhisper', selectedSession, whisperInput);
+        setWhisperInput('');
+        return;
+      }
+      // In-game public
+      await invoke('SendMessage', selectedSession, whisperInput);
+      setWhisperInput('');
+    } else {
+      // OOC public
+      await invoke('SendOOCMessage', selectedSession, whisperInput);
+      setWhisperInput('');
     }
   };
 
@@ -239,7 +346,22 @@ export default function GameRoomPage() {
     if (!id) return;
     try {
       const calls = await invoke('GetAgentCallHistory', id);
-      if (calls) setAgentCalls(calls);
+      if (calls) {
+        // Add agent calls as messages
+        const agentMsgs: UnifiedMessage[] = calls.map((call: any) => ({
+          id: `agent-${call.Id}`,
+          type: call.Status === 'Running' ? 'agentCall' : 'agentResponse',
+          content: `${getAgentLabel(call.FromAgent)} → ${getAgentLabel(call.ToAgent)}: ${getActionLabel(call.Action)} → ${call.Status}`,
+          senderName: 'Agent Framework',
+          senderRole: 'System',
+          timestamp: call.CreatedAt,
+          isSystem: true,
+          agentFrom: getAgentLabel(call.FromAgent),
+          agentAction: getActionLabel(call.Action),
+          agentStatus: call.Status,
+        }));
+        setMessages(prev => [...prev, ...agentMsgs]);
+      }
     } catch (e) {
       // ignore
     }
@@ -247,10 +369,20 @@ export default function GameRoomPage() {
 
   const handleDiceRoll = async () => {
     if (!selectedSession) return;
-
     try {
       const result = await invoke('RollDice', selectedSession, diceFormula, user?.id);
-      setDiceResults(prev => [result, ...prev]);
+      setMessages(prev => [...prev, {
+        id: `dice-${Date.now()}`,
+        type: 'dice',
+        content: `${result.Formula} → ${result.Total}`,
+        senderName: 'Player',
+        senderRole: 'Player',
+        timestamp: result.Timestamp,
+        isSystem: true,
+        diceFormula: result.Formula,
+        diceTotal: result.Total,
+        diceRolls: result.Rolls,
+      }]);
       setShowDiceHistory(true);
       setOpenDiceDialog(false);
     } catch (e: any) {
@@ -260,7 +392,6 @@ export default function GameRoomPage() {
 
   const handleSkillCheck = async (skill: string, dc: number) => {
     if (!selectedSession) return;
-
     try {
       await invoke('SkillCheck', selectedSession, skill, user?.id, dc);
     } catch (e: any) {
@@ -270,7 +401,6 @@ export default function GameRoomPage() {
 
   const handleAttack = async (weapon: string, target: string) => {
     if (!selectedSession) return;
-
     try {
       await invoke('Attack', selectedSession, weapon, target, user?.id);
     } catch (e: any) {
@@ -345,15 +475,16 @@ export default function GameRoomPage() {
     </Box>;
   }
 
+  const activeSession = sessions?.find((s: any) => !s.endedAt);
+
+  // Tabs: Chat is always first, then other panels
   const tabs = [
-    { label: 'Chat', icon: <SendIcon />, count: inGameMessages.length },
-    { label: 'OOC', icon: <ChatBubbleIcon />, count: oocMessages.length },
+    { label: 'Chat', icon: <ChatBubbleIcon /> },
     { label: 'Combat', icon: <CombatIcon />, count: activeCombats.length > 0 ? activeCombats.length : undefined },
-    { label: 'Whispers', icon: <MicIcon />, count: whispers.length + oocWhispers.length },
     { label: 'Players', icon: <PeopleIcon />, count: players.length },
     { label: 'Characters', icon: <SheetIcon />, count: characters.length },
     { label: 'Actions', icon: <ActionIcon /> },
-    { label: 'Agent Calls', icon: <MicIcon /> },
+    { label: 'Agent Calls', icon: <DiceIcon /> },
     { label: 'Settings', icon: <SettingsIcon /> },
   ];
 
@@ -375,7 +506,9 @@ export default function GameRoomPage() {
               />
             )}
             {isConnected && <Chip label="Connected" size="small" color="success" icon={<ReplayIcon fontSize="small" />}></Chip>}
-            {!isConnected && <Chip label="Disconnected" size="small" color="error" />}</Box>
+            {!isConnected && <Chip label="Disconnected" size="small" color="error" />}
+            {activeSession && <Chip label={`Session: ${activeSession.title}`} size="small" variant="outlined" />}
+          </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           {game.status === 'Active' && gmStatus?.status === 'running' && (
@@ -447,86 +580,55 @@ export default function GameRoomPage() {
 
       {/* Tab Content */}
       <Box sx={{ display: 'flex', gap: 2 }}>
-        {/* Main Content */}
         <Box sx={{ flex: 1 }}>
           {activeTab === 0 && (
-            <ChatTab
-              messages={inGameMessages}
-              message={message}
-              setMessage={setMessage}
-              onSend={handleSendMessage}
+            <UnifiedChatPanel
+              messages={messages}
+              inputType={inputType}
+              setInputType={setInputType}
+              inputTarget={inputTarget}
+              setInputTarget={setInputTarget}
+              whisperTargetPlayer={whisperTargetPlayer}
+              setWhisperTargetPlayer={setWhisperTargetPlayer}
+              whisperInput={whisperInput}
+              setWhisperInput={setWhisperInput}
+              onSend={handleUnifiedSend}
               onDiceRoll={() => setOpenDiceDialog(true)}
               onSkillCheck={handleSkillCheck}
-              diceResults={diceResults}
               showDiceHistory={showDiceHistory}
               setShowDiceHistory={setShowDiceHistory}
               messagesEndRef={messagesEndRef}
-              selectedSession={selectedSession}
-              sessions={sessions}
-              isCreator={players.some((p: any) => p.role === 'Creator')}
-              whisperContent={whisperContent}
-              setWhisperContent={setWhisperContent}
               players={players}
-              onInGameWhisperToPlayer={handleSendInGameWhisperToPlayer}
+              isConnected={isConnected}
+              activeSession={activeSession}
+              isCreator={players.some((p: any) => p.role === 'Creator')}
             />
           )}
 
           {activeTab === 1 && (
-            <OOCTab
-              messages={oocMessages}
-              oocMessage={oocMessage}
-              setOocMessage={setOocMessage}
-              onSendOOC={handleSendOOCMessage}
-              oocWhisperContent={oocWhisperContent}
-              setOocWhisperContent={setOocWhisperContent}
-              onSendOOCWhisper={handleSendOOCWhisper}
-              oocWhispers={oocWhispers}
-              messagesEndRef={messagesEndRef}
-              selectedSession={selectedSession}
-              sessions={sessions}
-              isCreator={players.some((p: any) => p.role === 'Creator')}
-              players={players}
-              onOOCWhisperToPlayer={handleSendOOCWhisperToPlayer}
-            />
-          )}
-
-          {activeTab === 3 && (
             <CombatTab gameId={id || ''} />
           )}
 
-          {activeTab === 4 && (
-            <WhispersTab
-              whispers={[...whispers, ...oocWhispers]}
-              whisperContent={whisperContent}
-              setWhisperContent={setWhisperContent}
-              players={players}
-              messagesEndRef={messagesEndRef}
-              isCreator={players.some((p: any) => p.role === 'Creator')}
-              onInGameWhisperToPlayer={handleSendInGameWhisperToPlayer}
-              onOOCWhisperToPlayer={handleSendOOCWhisperToPlayer}
-            />
-          )}
-
-          {activeTab === 5 && (
+          {activeTab === 2 && (
             <PlayersTab players={players} />
           )}
 
-          {activeTab === 6 && (
+          {activeTab === 3 && (
             <CharactersTab characters={characters} />
           )}
 
-          {activeTab === 7 && (
+          {activeTab === 4 && (
             <ActionsTab onSkillCheck={handleSkillCheck} onAttack={handleAttack} onDiceRoll={() => setOpenDiceDialog(true)} />
           )}
 
-          {activeTab === 8 && (
+          {activeTab === 5 && (
             <AgentCallsTab
-              calls={agentCalls}
+              calls={[]}
               onRefresh={handleRefreshAgentCalls}
             />
           )}
 
-          {activeTab === 9 && (
+          {activeTab === 6 && (
             <SettingsTab game={game} sessions={sessions} onNewSession={() => setCreateSessionOpen(true)} />
           )}
         </Box>
@@ -581,59 +683,201 @@ export default function GameRoomPage() {
   );
 }
 
-// ==================== Sub-Components ====================
+// ==================== Helper Functions ====================
 
-function ChatTab({ messages, message, setMessage, onSend, onDiceRoll, onSkillCheck, diceResults, showDiceHistory, setShowDiceHistory, messagesEndRef, selectedSession, sessions, isCreator, whisperContent, players, onInGameWhisperToPlayer }: any) {
-  const filteredMessages = selectedSession
-    ? messages.filter((m: any) => m.sessionId === selectedSession)
-    : messages;
-  const activeSession = sessions?.find((s: any) => !s.endedAt);
-  const [showWhisperInput, setShowWhisperInput] = useState(false);
-  const [whisperTarget, setWhisperTarget] = useState('');
+function getAgentLabel(agent: number): string {
+  switch (agent) {
+    case AgentType.Creator: return '🎬 Creator';
+    case AgentType.GM: return '🤖 AI-GM';
+    case AgentType.LLM: return '🤖 LLM';
+    case AgentType.Dice: return '🎲 Dice';
+    case AgentType.RAG: return '📚 RAG';
+    case AgentType.NPC: return '🧙 NPC';
+    case AgentType.Player: return '👤 Player';
+    case AgentType.System: return '⚙️ System';
+    default: return '❓ Unknown';
+  }
+}
 
-  const isWhisper = (msg: any) => msg.type === MessageType.InGameWhisper;
+function getActionLabel(action: number): string {
+  switch (action) {
+    case AgentAction.Query: return 'Query';
+    case AgentAction.Generate: return 'Generate';
+    case AgentAction.Roll: return 'Roll';
+    case AgentAction.Check: return 'Check';
+    case AgentAction.Narrate: return 'Narrate';
+    case AgentAction.Suggest: return 'Suggest';
+    case AgentAction.Execute: return 'Execute';
+    case AgentAction.Notify: return 'Notify';
+    case AgentAction.Recall: return 'Recall';
+    case AgentAction.ManageState: return 'State';
+    case AgentAction.Nudge: return 'Nudge';
+    default: return 'Unknown';
+  }
+}
+
+// ==================== Unified Chat Panel ====================
+
+interface UnifiedChatPanelProps {
+  messages: UnifiedMessage[];
+  inputType: MessageInputType;
+  setInputType: (t: MessageInputType) => void;
+  inputTarget: MessageTarget;
+  setInputTarget: (t: MessageTarget) => void;
+  whisperTargetPlayer: string | null;
+  setWhisperTargetPlayer: (t: string | null) => void;
+  whisperInput: string;
+  setWhisperInput: (t: string) => void;
+  onSend: () => Promise<void>;
+  onDiceRoll: () => void;
+  onSkillCheck: (skill: string, dc: number) => void;
+  showDiceHistory: boolean;
+  setShowDiceHistory: (v: boolean) => void;
+  messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  players: any[];
+  isConnected: boolean;
+  activeSession: any;
+  isCreator: boolean;
+}
+
+function UnifiedChatPanel({
+  messages, inputType, setInputType, inputTarget, setInputTarget,
+  whisperTargetPlayer, setWhisperTargetPlayer, whisperInput, setWhisperInput,
+  onSend, onDiceRoll, onSkillCheck, showDiceHistory, setShowDiceHistory: _setShowDiceHistory,
+  messagesEndRef, players, isConnected: _isConnected, activeSession, isCreator
+}: UnifiedChatPanelProps) {
+  const [quickSkill, setQuickSkill] = useState('Perception');
+  const [quickDC, setQuickDC] = useState(15);
+
+  const handleSend = () => {
+    onSend();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
 
   return (
-    <Paper sx={{ height: '70vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Toolbar */}
-      <Box sx={{ p: 1, display: 'flex', gap: 1, borderBottom: 1, borderColor: 'divider', flexWrap: 'wrap' }}>
-        <Chip label="🎮 In-Game" size="small" color="primary" variant="outlined" />
-        <Button size="small" onClick={() => setShowDiceHistory(!showDiceHistory)}>
-          🎲 Dice History ({diceResults.length})
-        </Button>
-        <FormControl size="small" sx={{ minWidth: 120 }}>
-          <Select value="15" label="DC" onChange={e => {
-            const dc = e.target.value;
-            onSkillCheck('Perception', parseInt(dc));
-          }}>
-            <MenuItem value="10">DC 10</MenuItem>
-            <MenuItem value="15">DC 15</MenuItem>
-            <MenuItem value="20">DC 20</MenuItem>
-            <MenuItem value="25">DC 25</MenuItem>
-            <MenuItem value="30">DC 30</MenuItem>
+    <Paper sx={{ height: '75vh', display: 'flex', flexDirection: 'column' }}>
+      {/* ===== Message Type & Receiver Selector ===== */}
+      <Box sx={{
+        p: 1.5,
+        borderBottom: 1,
+        borderColor: 'divider',
+        display: 'flex',
+        gap: 1.5,
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        bgcolor: 'background.paper'
+      }}>
+        {/* Message Type Toggle */}
+        <Box sx={{ display: 'flex', bgcolor: 'background.default', borderRadius: 1, overflow: 'hidden' }}>
+          <Button
+            size="small"
+            onClick={() => setInputType('inGame')}
+            sx={{
+              bgcolor: inputType === 'inGame' ? 'success.lighter' : 'transparent',
+              color: inputType === 'inGame' ? 'success.dark' : 'text.secondary',
+              minWidth: 90,
+              px: 2,
+              fontSize: 12,
+              fontWeight: inputType === 'inGame' ? 600 : 400,
+              '&:hover': { bgcolor: inputType === 'inGame' ? 'success.lighter' : 'action.hover' }
+            }}
+          >
+            🎮 In-Game
+          </Button>
+          <Button
+            size="small"
+            onClick={() => setInputType('ooc')}
+            sx={{
+              bgcolor: inputType === 'ooc' ? 'info.lighter' : 'transparent',
+              color: inputType === 'ooc' ? 'info.dark' : 'text.secondary',
+              minWidth: 90,
+              px: 2,
+              fontSize: 12,
+              fontWeight: inputType === 'ooc' ? 600 : 400,
+              '&:hover': { bgcolor: inputType === 'ooc' ? 'info.lighter' : 'action.hover' }
+            }}
+          >
+            📢 OOC
+          </Button>
+        </Box>
+
+        {/* Receiver Selector */}
+        <FormControl size="small" sx={{ minWidth: 140 }}>
+          <InputLabel sx={{ fontSize: 11 }}>Receiver</InputLabel>
+          <Select
+            value={inputTarget}
+            label="Receiver"
+            onChange={e => setInputTarget(e.target.value as MessageTarget)}
+            sx={{ fontSize: 12, height: 32 }}
+          >
+            <MenuItem value="all">🌐 All (Public)</MenuItem>
+            <MenuItem value="gm">🤫 To GM (Whisper)</MenuItem>
+            {isCreator && (
+              <MenuItem value="player">📩 To Player...</MenuItem>
+            )}
           </Select>
         </FormControl>
-        <Button size="small" onClick={() => onSkillCheck('Perception', 15)}>Quick Perception</Button>
-        <Button size="small" onClick={onDiceRoll}>🎲 Roll</Button>
-        <Button size="small" variant="outlined" onClick={() => setShowWhisperInput(!showWhisperInput)}>
-          🤫 Whisper to GM
-        </Button>
+
+        {/* Quick Actions */}
+        <Chip label="🎲 Dice" size="small" clickable onClick={onDiceRoll} sx={{ fontSize: 11 }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <TextField
+            size="small"
+            value={quickSkill}
+            onChange={e => setQuickSkill(e.target.value)}
+            sx={{ width: 100, '& .MuiInputBase-root': { height: 32, fontSize: 12 } }}
+            placeholder="Skill"
+          />
+          <TextField
+            size="small"
+            type="number"
+            value={quickDC}
+            onChange={e => setQuickDC(parseInt(e.target.value) || 0)}
+            sx={{ width: 60, '& .MuiInputBase-root': { height: 32, fontSize: 12 } }}
+            placeholder="DC"
+          />
+          <Chip
+            label="📋 Check"
+            size="small"
+            clickable
+            onClick={() => onSkillCheck(quickSkill, quickDC)}
+            sx={{ fontSize: 11 }}
+          />
+        </Box>
+
         {activeSession && (
-          <Chip label={`Session: ${activeSession.title}`} size="small" color="primary" variant="outlined" />
+          <Chip label={`📋 ${activeSession.title}`} size="small" variant="outlined" sx={{ fontSize: 11 }} />
         )}
       </Box>
 
-      {/* Whisper input (GM only) */}
-      {showWhisperInput && (
-        <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider', display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Typography variant="caption" color="text.secondary">Whisper to player:</Typography>
+      {/* Player Whisper Target Selector (GM only) */}
+      {isCreator && inputTarget === 'player' && (
+        <Box sx={{
+          p: 1,
+          borderBottom: 1,
+          borderColor: 'divider',
+          display: 'flex',
+          gap: 1,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          bgcolor: 'background.default'
+        }}>
+          <Typography variant="caption" color="text.secondary">
+            {inputType === 'inGame' ? 'In-game whisper to:' : 'OOC whisper to:'}
+          </Typography>
           {players.filter((p: any) => p.status === 'Active').map((p: any) => (
             <Chip
               key={p.id}
               label={p.characterName}
               size="small"
               clickable
-              onClick={() => { setWhisperTarget(p.id); setShowWhisperInput(false); }}
+              onClick={() => setWhisperTargetPlayer(p.id)}
               sx={{ m: 0.25 }}
             />
           ))}
@@ -642,90 +886,193 @@ function ChatTab({ messages, message, setMessage, onSend, onDiceRoll, onSkillChe
 
       {/* Dice History */}
       <Collapse in={showDiceHistory}>
-        <Box sx={{ p: 1, maxHeight: 150, overflow: 'auto', bgcolor: 'background.default', borderBottom: 1, borderColor: 'divider' }}>
+        <Box sx={{
+          p: 1,
+          maxHeight: 120,
+          overflow: 'auto',
+          bgcolor: 'background.default',
+          borderBottom: 1,
+          borderColor: 'divider'
+        }}>
           <Typography variant="caption" color="text.secondary">Recent Rolls:</Typography>
-          {diceResults.map((r: any, i: number) => (
-            <Typography key={i} variant="caption" sx={{ display: 'block' }}>
-              {r.Formula}: {r.Total} [{r.Rolls?.join(',')}] 
-            </Typography>
-          ))}
+          {messages
+            .filter(m => m.type === 'dice')
+            .slice(-10)
+            .reverse()
+            .map((m, i) => (
+              <Typography key={i} variant="caption" sx={{ display: 'block' }}>
+                {m.diceFormula}: {m.diceTotal} [{m.diceRolls?.join(',')}]{m.diceRolls ? '' : ''} — {m.senderName}
+              </Typography>
+            ))}
         </Box>
       </Collapse>
 
-      {/* Messages */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-        {filteredMessages.length === 0 ? (
+      {/* ===== Unified Messages ===== */}
+      <Box sx={{ flex: 1, overflow: 'auto', p: 1.5 }}>
+        {messages.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 8 }}>
             No messages yet. Start the conversation!
           </Typography>
         ) : (
-          filteredMessages.map((msg: any, i: number) => (
-            <Box key={i} sx={{ mb: 1 }}>
-              {msg.type === MessageType.Dice && (
-                <Chip label={`🎲 ${msg.content}`} size="small" sx={{ mb: 0.5 }} color="primary" variant="outlined" />
-              )}
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                <Avatar sx={{ width: 24, height: 24, fontSize: 12, bgcolor: isWhisper(msg) ? 'warning.main' : 'primary.main' }}>
-                  {isWhisper(msg) ? '🤫' : (msg.playerId ? 'P' : 'G')}
-                </Avatar>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {msg.playerId ? 'Player' : 'AI-GM'} · {new Date(msg.createdAt).toLocaleTimeString()}
-                    {isWhisper(msg) && <Chip label="Whisper" size="small" sx={{ ml: 1, height: 16, fontSize: 9 }} color="warning" />}
-                  </Typography>
-                  <Typography variant="body2" sx={{ fontStyle: isWhisper(msg) ? 'italic' : 'normal' }}>
-                    {msg.content}
-                  </Typography>
-                </Box>
-              </Box>
-              <Divider sx={{ my: 1 }} />
-            </Box>
+          messages.map((msg, i) => (
+            <MessageBubble key={i} msg={msg} />
           ))
         )}
         <div ref={messagesEndRef} />
       </Box>
 
-      {/* Input */}
-      <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider' }}>
+      {/* ===== Input Area ===== */}
+      <Box sx={{
+        p: 1.5,
+        borderTop: 1,
+        borderColor: 'divider',
+        bgcolor: 'background.paper'
+      }}>
+        {/* Player whisper confirmation */}
+        {whisperTargetPlayer && (
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              📩 Whispering to player: {players.find(p => p.id === whisperTargetPlayer)?.characterName}
+            </Typography>
+            <Button size="small" onClick={() => setWhisperTargetPlayer(null)}>Clear</Button>
+          </Box>
+        )}
+
         <Box sx={{ display: 'flex', gap: 1 }}>
           <TextField
             fullWidth
             size="small"
-            placeholder="In-game public message (visible to all)..."
-            value={message}
-            onChange={e => setMessage(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && onSend()}
+            placeholder={
+              inputTarget === 'gm'
+                ? `${inputType === 'inGame' ? 'In-game' : 'OOC'} whisper to GM...`
+                : inputTarget === 'player'
+                  ? 'Type your whisper...'
+                  : inputType === 'inGame'
+                    ? 'Speak in-character (visible to all)...'
+                    : 'Speak out-of-character (never influences narrative)...'
+            }
+            value={whisperInput}
+            onChange={e => setWhisperInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            multiline
+            maxRows={4}
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">
-                  <IconButton onClick={onSend} size="small">
+                  <IconButton onClick={handleSend} size="small" disabled={!whisperInput.trim()}>
                     <SendIcon />
                   </IconButton>
                 </InputAdornment>
               ),
             }}
           />
-          {isCreator && whisperTarget && (
-            <Button
-              variant="contained"
-              onClick={() => { onInGameWhisperToPlayer(whisperTarget); setWhisperTarget(''); }}
-              disabled={!whisperContent.trim()}
-              startIcon={<MicIcon fontSize="small" />}
-              sx={{ minWidth: 120 }}
-            >
-              Whisper
-            </Button>
-          )}
+          <Button
+            variant="contained"
+            onClick={handleSend}
+            disabled={!whisperInput.trim()}
+            sx={{ minWidth: 80 }}
+          >
+            Send
+          </Button>
         </Box>
-        {isCreator && whisperContent && !whisperTarget && (
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            Select a player above to whisper to, or type a public message.
-          </Typography>
-        )}
       </Box>
     </Paper>
   );
 }
+
+// ==================== Individual Message Bubble ====================
+
+function MessageBubble({ msg }: { msg: UnifiedMessage }) {
+  const style = MESSAGE_STYLES[msg.type];
+  const isWhisper = msg.isWhisper || msg.type === 'inGameWhisper' || msg.type === 'oocWhisper';
+  const isSystem = msg.isSystem || msg.type === 'dice' || msg.type === 'skillCheck' || msg.type === 'attack';
+
+  return (
+    <Box sx={{
+      mb: 1,
+      p: 1.5,
+      borderRadius: 2,
+      bgcolor: style.bg,
+      borderLeft: `3px solid ${style.border}`,
+    }}>
+      {/* Header: Type chip + sender + time */}
+      <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
+        <Chip
+          label={`${style.chipIcon} ${style.chipLabel}`}
+          size="small"
+          color={style.chipColor}
+          sx={{ height: 18, fontSize: 10, fontWeight: 600 }}
+        />
+        {isWhisper && (
+          <Chip
+            label={`🤫 → ${msg.whisperTo || 'Unknown'}`}
+            size="small"
+            color="warning"
+            sx={{ height: 18, fontSize: 9 }}
+          />
+        )}
+        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.primary' }}>
+          {msg.senderName}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {new Date(msg.timestamp).toLocaleTimeString()}
+        </Typography>
+      </Box>
+
+      {/* Content */}
+      <Typography variant="body2" sx={{
+        color: isSystem ? 'text.secondary' : 'text.primary',
+        fontStyle: isWhisper ? 'italic' : 'normal',
+        wordBreak: 'break-word',
+      }}>
+        {msg.content}
+      </Typography>
+
+      {/* Extra info for dice/skill/attack */}
+      {msg.type === 'dice' && msg.diceRolls && (
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+          Rolls: [{msg.diceRolls.join(', ')}]
+        </Typography>
+      )}
+      {msg.type === 'skillCheck' && msg.skillResult && (
+        <Chip
+          label={msg.skillResult === 'success' ? '✓ Success' : '✗ Failure'}
+          size="small"
+          color={msg.skillResult === 'success' ? 'success' : 'error'}
+          sx={{ mt: 0.5, height: 20, fontSize: 10 }}
+        />
+      )}
+      {msg.type === 'attack' && (
+        <Box sx={{ mt: 0.5 }}>
+          <Chip
+            label={msg.attackHit ? '✓ Hit' : '✗ Miss'}
+            size="small"
+            color={msg.attackHit ? 'success' : 'error'}
+            sx={{ height: 20, fontSize: 10, mr: 0.5 }}
+          />
+          {msg.attackDamage && (
+            <Chip
+              label={`${msg.attackDamage} damage`}
+              size="small"
+              color="warning"
+              sx={{ height: 20, fontSize: 10 }}
+            />
+          )}
+        </Box>
+      )}
+      {msg.type === 'agentCall' && msg.agentStatus && (
+        <Chip
+          label={msg.agentStatus}
+          size="small"
+          color={msg.agentStatus === 'Completed' ? 'success' : msg.agentStatus === 'Running' ? 'warning' : 'error'}
+          sx={{ mt: 0.5, height: 20, fontSize: 10 }}
+        />
+      )}
+    </Box>
+  );
+}
+
+// ==================== Sub-Components ====================
 
 function PlayersTab({ players }: { players: any[] }) {
   return (
@@ -868,322 +1215,6 @@ function SettingsTab({ game, sessions, onNewSession }: any) {
   );
 }
 
-// ==================== Whispers Tab ====================
-
-function WhispersTab({ whispers, whisperContent, setWhisperContent, players, messagesEndRef, isCreator, onInGameWhisperToPlayer, onOOCWhisperToPlayer }: any) {
-  const [activeWhisperTab, setActiveWhisperTab] = useState(0); // 0 = In-game, 1 = OOC
-  const [whisperTarget, setWhisperTarget] = useState('');
-
-  const isIngameWhisper = (w: WhisperResponse) => {
-    return w.type === WhisperType.InGamePlayerToGM || w.type === WhisperType.InGameGMToPlayer;
-  };
-
-  const isOOCWhisper = (w: WhisperResponse) => {
-    return w.type === WhisperType.OOCPlayerToGM || w.type === WhisperType.OOCGMToPlayer;
-  };
-
-  const getWhisperTypeLabel = (type: number) => {
-    switch (type) {
-      case WhisperType.InGamePlayerToGM: return '🤫 Player→GM (In-Game)';
-      case WhisperType.InGameGMToPlayer: return '🤫 GM→Player (In-Game)';
-      case WhisperType.OOCPlayerToGM: return '🤫 Player→GM (OOC)';
-      case WhisperType.OOCGMToPlayer: return '🤫 GM→Player (OOC)';
-      case WhisperType.PlayerToPlayer: return '🤫 Player→Player';
-      case WhisperType.GMToGroup: return '🤫 GM→Group';
-      case WhisperType.GMToAll: return '🤫 GM→All';
-      default: return '🤫 Whisper';
-    }
-  };
-
-  const getWhisperChipColor = (type: number) => {
-    switch (type) {
-      case WhisperType.InGamePlayerToGM:
-      case WhisperType.InGameGMToPlayer: return 'primary';
-      case WhisperType.OOCPlayerToGM:
-      case WhisperType.OOCGMToPlayer: return 'info';
-      default: return 'default';
-    }
-  };
-
-  return (
-    <Paper sx={{ height: '70vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Whisper type tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs value={activeWhisperTab} onChange={(_, v) => setActiveWhisperTab(v)}>
-          <Tab label={`🎮 In-Game Whispers (${whispers.filter(isIngameWhisper).length})`} />
-          <Tab label={`📢 OOC Whispers (${whispers.filter(isOOCWhisper).length})`} />
-        </Tabs>
-      </Box>
-
-      {/* GM whisper target selector */}
-      {isCreator && (
-        <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider', display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Typography variant="caption" color="text.secondary">
-            {activeWhisperTab === 0 ? 'In-game whisper to:' : 'OOC whisper to:'}
-          </Typography>
-          {players.filter((p: any) => p.status === 'Active').map((p: any) => (
-            <Chip
-              key={p.id}
-              label={p.characterName}
-              size="small"
-              clickable
-              onClick={() => setWhisperTarget(p.id)}
-              sx={{ m: 0.25 }}
-            />
-          ))}
-        </Box>
-      )}
-
-      {/* Whispers */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-        {whispers.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 8 }}>
-            No whispers yet. Whispers are private messages visible only to the sender and recipients.
-          </Typography>
-        ) : (
-          whispers
-            .filter((w: WhisperResponse) => activeWhisperTab === 0 ? isIngameWhisper(w) : isOOCWhisper(w))
-            .map((w: any, i: number) => (
-              <Box key={i} sx={{ mb: 1 }}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                  <Avatar sx={{ width: 24, height: 24, fontSize: 12, bgcolor: w.isSent ? 'success.main' : 'warning.main' }}>
-                    {w.isSent ? '📤' : '📥'}
-                  </Avatar>
-                  <Box sx={{ flex: 1 }}>
-                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <Typography variant="caption" color="text.secondary">
-                        {w.fromCharacter}
-                      </Typography>
-                      <Chip
-                        label={getWhisperTypeLabel(w.type)}
-                        size="small"
-                        sx={{ height: 16, fontSize: 9 }}
-                        color={getWhisperChipColor(w.type) as any}
-                      />
-                      <Typography variant="caption" color="text.secondary">
-                        {new Date(w.createdAt).toLocaleTimeString()}
-                      </Typography>
-                    </Box>
-                    <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.primary' }}>
-                      {w.content}
-                    </Typography>
-                  </Box>
-                </Box>
-                <Divider sx={{ my: 1 }} />
-              </Box>
-            ))
-        )}
-        <div ref={messagesEndRef as any} />
-      </Box>
-
-      {/* Input */}
-      <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField
-            fullWidth
-            size="small"
-            placeholder={
-              activeWhisperTab === 0
-                ? whisperTarget ? 'In-game whisper content...' : 'Type a whisper...'
-                : whisperTarget ? 'OOC whisper content...' : 'Type an OOC whisper...'
-            }
-            value={whisperContent}
-            onChange={e => setWhisperContent(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && whisperTarget && (
-              activeWhisperTab === 0
-                ? onInGameWhisperToPlayer?.(whisperTarget)
-                : onOOCWhisperToPlayer?.(whisperTarget)
-            )}
-          />
-          {isCreator && whisperTarget && (
-            <Button
-              variant="contained"
-              onClick={() => {
-                if (activeWhisperTab === 0) {
-                  onInGameWhisperToPlayer?.(whisperTarget);
-                } else {
-                  onOOCWhisperToPlayer?.(whisperTarget);
-                }
-                setWhisperTarget('');
-              }}
-              disabled={!whisperContent.trim()}
-              startIcon={<MicIcon fontSize="small" />}
-              sx={{ minWidth: 120 }}
-            >
-              {activeWhisperTab === 0 ? 'In-Game Whisper' : 'OOC Whisper'}
-            </Button>
-          )}
-        </Box>
-        {isCreator && !whisperTarget && (
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            Select a player above to whisper to.
-          </Typography>
-        )}
-      </Box>
-    </Paper>
-  );
-}
-
-// ==================== OOC Chat Tab ====================
-
-function OOCTab({ messages, oocMessage, setOocMessage, onSendOOC, oocWhisperContent, setOocWhisperContent, onSendOOCWhisper, oocWhispers, messagesEndRef, sessions, isCreator, players, onOOCWhisperToPlayer }: any) {
-  const [showOOCWhisperTarget, setShowOOCWhisperTarget] = useState(false);
-  const [oocWhisperTarget, setOocWhisperTarget] = useState('');
-  const [showOOCWhisperHistory, setShowOOCWhisperHistory] = useState(false);
-
-  const activeSession = sessions?.find((s: any) => !s.endedAt);
-
-  return (
-    <Paper sx={{ height: '70vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Toolbar */}
-      <Box sx={{ p: 1, display: 'flex', gap: 1, borderBottom: 1, borderColor: 'divider', flexWrap: 'wrap' }}>
-        <Chip label="📢 OOC" size="small" color="info" variant="outlined" />
-        <Button size="small" onClick={() => setShowOOCWhisperHistory(!showOOCWhisperHistory)}>
-          🤫 OOC Whispers ({oocWhispers.length})
-        </Button>
-        {isCreator && (
-          <Button size="small" variant="outlined" onClick={() => setShowOOCWhisperTarget(!showOOCWhisperTarget)}>
-            🤫 OOC to Player
-          </Button>
-        )}
-        {activeSession && (
-          <Chip label={`Session: ${activeSession.title}`} size="small" color="info" variant="outlined" />
-        )}
-      </Box>
-
-      {/* OOC Whisper target selector */}
-      {showOOCWhisperTarget && (
-        <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider', display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Typography variant="caption" color="text.secondary">OOC whisper to player:</Typography>
-          {players.filter((p: any) => p.status === 'Active').map((p: any) => (
-            <Chip
-              key={p.id}
-              label={p.characterName}
-              size="small"
-              clickable
-              onClick={() => { setOocWhisperTarget(p.id); setShowOOCWhisperTarget(false); }}
-              sx={{ m: 0.25 }}
-            />
-          ))}
-        </Box>
-      )}
-
-      {/* OOC Whisper history */}
-      <Collapse in={showOOCWhisperHistory}>
-        <Box sx={{ p: 1, maxHeight: 200, overflow: 'auto', bgcolor: 'background.default', borderBottom: 1, borderColor: 'divider' }}>
-          <Typography variant="caption" color="text.secondary">OOC Whisper History:</Typography>
-          {oocWhispers.length === 0 ? (
-            <Typography variant="caption" color="text.secondary">No OOC whispers yet.</Typography>
-          ) : (
-            oocWhispers.map((w: any, i: number) => (
-              <Box key={i} sx={{ mb: 0.5 }}>
-                <Typography variant="caption" sx={{ display: 'block' }}>
-                  <strong>{w.fromCharacter}</strong> → {w.targets === 'gm' ? 'GM' : `player:${w.targets}`}
-                  {' '}{new Date(w.createdAt).toLocaleTimeString()}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontStyle: 'italic' }}>
-                  {w.content}
-                </Typography>
-              </Box>
-            ))
-          )}
-        </Box>
-      </Collapse>
-
-      {/* OOC Messages */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-        {messages.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 8 }}>
-            No OOC messages yet. This channel is for out-of-character discussion.
-          </Typography>
-        ) : (
-          messages.map((msg: any, i: number) => (
-            <Box key={i} sx={{ mb: 1 }}>
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                <Avatar sx={{ width: 24, height: 24, fontSize: 12, bgcolor: 'info.main' }}>
-                  📢
-                </Avatar>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {msg.playerId ? 'Player' : 'AI-GM'} · {new Date(msg.createdAt).toLocaleTimeString()}
-                    <Chip label="OOC" size="small" sx={{ ml: 1, height: 16, fontSize: 9 }} color="info" />
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: 'info.main' }}>
-                    {msg.content}
-                  </Typography>
-                </Box>
-              </Box>
-              <Divider sx={{ my: 1 }} />
-            </Box>
-          ))
-        )}
-        <div ref={messagesEndRef} />
-      </Box>
-
-      {/* Input */}
-      <Box sx={{ p: 1, borderTop: 1, borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="OOC message (out of character, never influences narrative)..."
-            value={oocMessage}
-            onChange={e => setOocMessage(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && onSendOOC()}
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton onClick={onSendOOC} size="small">
-                    <SendIcon />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
-          />
-          {/* OOC Whisper to player (GM only) */}
-          {isCreator && oocWhisperTarget && (
-            <Button
-              variant="contained"
-              color="info"
-              onClick={() => { onOOCWhisperToPlayer(oocWhisperTarget); setOocWhisperTarget(''); }}
-              disabled={!oocWhisperContent.trim()}
-              startIcon={<MicIcon fontSize="small" />}
-              sx={{ minWidth: 120 }}
-            >
-              OOC Whisper
-            </Button>
-          )}
-        </Box>
-        {/* OOC Whisper input */}
-        <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
-          <TextField
-            size="small"
-            placeholder="OOC whisper to GM (private)..."
-            value={oocWhisperContent}
-            onChange={e => setOocWhisperContent(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && onSendOOCWhisper()}
-            fullWidth
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton onClick={onSendOOCWhisper} size="small">
-                    <MicIcon fontSize="small" />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Box>
-        {isCreator && oocWhisperContent && !oocWhisperTarget && (
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            Select a player above to OOC whisper to, or type a public OOC message.
-          </Typography>
-        )}
-      </Box>
-    </Paper>
-  );
-}
-
 // ==================== Agent Calls Tab ====================
 
 function AgentCallsTab({ calls, onRefresh }: any) {
@@ -1199,6 +1230,7 @@ function AgentCallsTab({ calls, onRefresh }: any) {
 
   const getAgentLabel = (agent: number) => {
     switch (agent) {
+      case AgentType.Creator: return '🎬 Creator';
       case AgentType.GM: return '🤖 AI-GM';
       case AgentType.LLM: return '🤖 LLM';
       case AgentType.Dice: return '🎲 Dice';
@@ -1222,6 +1254,7 @@ function AgentCallsTab({ calls, onRefresh }: any) {
       case AgentAction.Notify: return 'Notify';
       case AgentAction.Recall: return 'Recall';
       case AgentAction.ManageState: return 'State';
+      case AgentAction.Nudge: return 'Nudge';
       default: return 'Unknown';
     }
   };
@@ -1270,8 +1303,9 @@ function AgentCallsTab({ calls, onRefresh }: any) {
                     </TableCell>
                     <TableCell>{call.durationMs}ms</TableCell>
                     <TableCell>{new Date(call.createdAt).toLocaleTimeString()}</TableCell>
-                    <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {call.outputMessage || call.output?.substring(0, 50) || '-'}
+
+                    <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {call.outputMessage || call.output || '-'}
                     </TableCell>
                   </TableRow>
                 ))}
