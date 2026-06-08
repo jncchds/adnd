@@ -219,6 +219,9 @@ export default function DashboardPage() {
             disabled={!presets}
           >
             <option value="">None</option>
+            {presets?.map(preset => (
+              <option key={preset.id} value={preset.id}>{preset.name}</option>
+            ))}
           </TextField>
           <TextField
             fullWidth
