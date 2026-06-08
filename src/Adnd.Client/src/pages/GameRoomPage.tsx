@@ -3,10 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
 import { useGame, useSessions, usePlayers, useCharacters, useGMStatus, useSway } from '../api/gameHooks';
 import { useGameHub } from '../api/hubHook';
+import { useToolCalls } from '../api/toolCallsHook';
 import { api } from '../api/client';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
 import CombatTab from './CombatTab';
 import CharacterCreateWizard from './CharacterCreateWizard';
+import ToolCallBanner from '../components/ToolCallBanner';
+import PlayerRollDialog from '../components/PlayerRollDialog';
 import {
   Container, Box, Typography, Paper, TextField, Button, Tabs, Tab,
   List, ListItem, ListItemText, ListItemAvatar, Avatar, Chip,
@@ -111,6 +114,15 @@ export default function GameRoomPage() {
   const [successState, setSuccessState] = useState<string | null>(null);
   const [activeCombats, setActiveCombats] = useState<any[]>([]);
   const [showCharacterWizard, setShowCharacterWizard] = useState(false);
+
+  // ==================== Tool Call State ====================
+  const { pendingCalls, refetch: refetchToolCalls, confirmToolCall, confirmPlayerRoll, declinePlayerRoll } = useToolCalls(id);
+  const [showRollDialog, setShowRollDialog] = useState(false);
+  const [rollSkill, setRollSkill] = useState('');
+  const [rollFormula, setRollFormula] = useState('1d20');
+  const [rollDC, setRollDC] = useState(15);
+  const [rollContext, setRollContext] = useState('');
+  const [rollOptional, setRollOptional] = useState(false);
 
   // Unified chat state
   const [messages, setMessages] = useState<UnifiedMessage[]>([]);
@@ -289,6 +301,109 @@ export default function GameRoomPage() {
       }]);
     });
 
+    // ==================== Tool Call Events ====================
+
+    on('ToolCallNotification', (event: any) => {
+      setMessages(prev => [...prev, {
+        id: `tool-notif-${event.toolCallId}`,
+        type: 'agentCall',
+        content: `🔧 ${event.toolName}: ${event.outputMessage}`,
+        senderName: '🤖 AI-GM',
+        senderRole: 'GM',
+        timestamp: event.timestamp,
+        isSystem: true,
+        agentFrom: '🤖 AI-GM',
+        agentAction: event.toolName,
+        agentStatus: event.requiresConfirmation ? 'Waiting' : 'Running',
+      }]);
+      refetchToolCalls();
+    });
+
+    on('ToolCallConfirmed', async (event: any) => {
+      if (event.approved) {
+        // Tool was approved — add result as narrative message
+        if (event.outputMessage) {
+          setMessages(prev => [...prev, {
+            id: `tool-confirm-${event.toolCallId}`,
+            type: 'agentResponse',
+            content: `✅ ${event.outputMessage}`,
+            senderName: '🤖 AI-GM',
+            senderRole: 'GM',
+            timestamp: new Date().toISOString(),
+            isSystem: true,
+            agentFrom: '🤖 AI-GM',
+            agentAction: event.toolName,
+            agentStatus: 'Completed',
+          }]);
+        }
+        // If this was a narration, also post narrative to chat
+        if (event.toolName === 'narrate' && event.result) {
+          try {
+            const parsed = JSON.parse(event.result as string);
+            if (parsed.context) {
+              setMessages(prev => [...prev, {
+                id: `narrative-${Date.now()}`,
+                type: 'inGamePublic',
+                content: parsed.context,
+                senderName: '🤖 AI-GM',
+                senderRole: 'GM',
+                timestamp: new Date().toISOString(),
+              }]);
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      } else {
+        setMessages(prev => [...prev, {
+          id: `tool-denied-${event.toolCallId}`,
+          type: 'system',
+          content: `❌ ${event.toolName} denied by GM`,
+          senderName: '⚙️ System',
+          senderRole: 'System',
+          timestamp: new Date().toISOString(),
+          isSystem: true,
+        }]);
+      }
+      refetchToolCalls();
+    });
+
+    on('PlayerRollRequested', (event: any) => {
+      setRollSkill(event.skill || '');
+      setRollFormula(event.formula || '1d20');
+      setRollDC(event.dc || 15);
+      setRollContext(event.context || '');
+      setRollOptional(event.optional === true);
+      
+      setShowRollDialog(true);
+    });
+
+    on('PlayerRollConfirmed', (event: any) => {
+      setMessages(prev => [...prev, {
+        id: `roll-confirm-${event.toolCallId}`,
+        type: 'skillCheck',
+        content: `${event.playerName} confirmed roll: ${event.formula} vs DC ${event.dc} (${event.skill})`,
+        senderName: event.playerName,
+        senderRole: 'Player',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        skill: event.skill,
+        skillDC: event.dc,
+        skillResult: 'pending',
+      }]);
+    });
+
+    on('PlayerRollDeclined', (event: any) => {
+      setMessages(prev => [...prev, {
+        id: `roll-declined-${event.toolCallId}`,
+        type: 'system',
+        content: `${event.playerName} declined to roll ${event.skill}`,
+        senderName: '⚙️ System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+      }]);
+      refetchToolCalls();
+    });
+
     return () => {
       // Cleanup
     };
@@ -457,6 +572,70 @@ export default function GameRoomPage() {
     }
   };
 
+  // ==================== Tool Call Handlers ====================
+
+  const handleConfirmToolCall = async (toolCallId: string, approved: boolean) => {
+    const result = await confirmToolCall(toolCallId, approved);
+    if (result && approved && result.outputMessage) {
+      setMessages(prev => [...prev, {
+        id: `tool-result-${toolCallId}`,
+        type: 'agentResponse',
+        content: `✅ ${result.outputMessage}`,
+        senderName: '🤖 AI-GM',
+        senderRole: 'GM',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        agentFrom: '🤖 AI-GM',
+        agentAction: 'Tool',
+        agentStatus: 'Completed',
+      }]);
+    }
+  };
+
+  const handleDismissToolCall = async (toolCallId: string) => {
+    await confirmToolCall(toolCallId, false);
+  };
+
+  const handleConfirmPlayerRoll = async (toolCallId: string) => {
+    const result = await confirmPlayerRoll(toolCallId);
+    if (result) {
+      setRollSkill(result.skill);
+      setRollFormula(result.formula);
+      setRollDC(result.dc);
+      setRollContext(result.context);
+      setRollOptional(result.optional);
+      
+      setShowRollDialog(true);
+    }
+  };
+
+  const handleDeclinePlayerRoll = async (toolCallId: string) => {
+    await declinePlayerRoll(toolCallId);
+  };
+
+  const handlePlayerRoll = async (formula: string) => {
+    if (!selectedSession) return;
+    try {
+      const result = await invoke('RollDice', selectedSession, formula, user?.id);
+      setMessages(prev => [...prev, {
+        id: `dice-${Date.now()}`,
+        type: 'dice',
+        content: `${result.Formula} → ${result.Total}`,
+        senderName: 'Player',
+        senderRole: 'Player',
+        timestamp: result.Timestamp,
+        isSystem: true,
+        diceFormula: result.Formula,
+        diceTotal: result.Total,
+        diceRolls: result.Rolls,
+      }]);
+      setShowDiceHistory(true);
+      setShowRollDialog(false);
+    } catch (e: any) {
+      setErrorState(e.message);
+    }
+  };
+
   const handleSway = async () => {
     if (!swayInput.trim() || !id) return;
     try {
@@ -502,6 +681,7 @@ export default function GameRoomPage() {
   }
 
   const activeSession = sessions?.find((s: any) => !s.endedAt);
+  const isCreator = players.some((p: any) => p.role === 'Creator');
 
   // Tabs: Chat is always first, then other panels
   const tabs = [
@@ -548,6 +728,16 @@ export default function GameRoomPage() {
           </Button>
         </Box>
       </Box>
+
+      {/* ==================== Tool Call Banner ==================== */}
+      <ToolCallBanner
+        pendingCalls={pendingCalls}
+        onConfirm={handleConfirmToolCall}
+        onRoll={handleConfirmPlayerRoll}
+        onDecline={handleDeclinePlayerRoll}
+        onDismiss={handleDismissToolCall}
+        isCreator={isCreator}
+      />
 
       {/* Sway Input (Creator only) */}
       {game.status === 'Active' && gmStatus?.status === 'running' && (
@@ -705,6 +895,18 @@ export default function GameRoomPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* ==================== Player Roll Dialog ==================== */}
+      <PlayerRollDialog
+        open={showRollDialog}
+        onClose={() => setShowRollDialog(false)}
+        skill={rollSkill}
+        formula={rollFormula}
+        dc={rollDC}
+        context={rollContext}
+        optional={rollOptional}
+        onRoll={handlePlayerRoll}
+      />
 
       {/* Character Creation Dialog */}
       <CharacterCreateWizard

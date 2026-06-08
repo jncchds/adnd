@@ -40,6 +40,13 @@ public interface ILLMProvider
     Task<T> CompleteStructuredAsync<T>(string systemPrompt, string userPrompt, LLMOptions? options = null);
 
     /// <summary>
+    /// Generate text completion with tool/function calling support.
+    /// Returns the full response including tool calls if the model wants to use them.
+    /// </summary>
+    Task<LLMCompletionResult> CompleteWithToolsAsync(
+        string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null);
+
+    /// <summary>
     /// Generate an embedding vector for the given text.
     /// </summary>
     Task<float[]> GetEmbeddingAsync(string text);
@@ -73,6 +80,38 @@ public class ProviderStatus
     public bool IsAvailable { get; set; }
     public string? ErrorMessage { get; set; }
     public DateTime CheckedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Result from a tool-calling LLM completion.
+/// Contains the response text and any tool calls the model requested.
+/// </summary>
+public class LLMCompletionResult
+{
+    public string Content { get; set; } = string.Empty;
+    public List<ToolCall> ToolCalls { get; set; } = new();
+    public (int promptTokens, int completionTokens, int totalTokens)? TokenUsage { get; set; }
+
+    public bool HasToolCalls => ToolCalls.Any();
+}
+
+/// <summary>
+/// A tool call requested by the LLM.
+/// </summary>
+public class ToolCall
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Arguments { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Deserialize the arguments to a specific type.
+    /// </summary>
+    public T? DeserializeArguments<T>() where T : new()
+    {
+        if (string.IsNullOrEmpty(Arguments)) return default;
+        return JsonSerializer.Deserialize<T>(Arguments) ?? new T();
+    }
 }
 
 /// <summary>
@@ -183,6 +222,97 @@ public abstract class BaseLLMProvider : ILLMProvider
     public abstract Task<bool> IsAvailableAsync();
 
     public abstract Task<ProviderStatus> GetStatusAsync();
+
+    /// <summary>
+    /// Default tool-calling implementation that falls back to plain text completion.
+    /// Override in concrete providers that support native tool calling (OpenAI, Ollama with tools, Google AI).
+    /// </summary>
+    public virtual async Task<LLMCompletionResult> CompleteWithToolsAsync(
+        string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
+    {
+        // Fallback: append tool descriptions to system prompt and ask for JSON output
+        var toolDefs = tools.ToList();
+        if (!toolDefs.Any())
+        {
+            var fallbackResult = await CompleteAsync(systemPrompt, userPrompt, options);
+            return new LLMCompletionResult { Content = fallbackResult, TokenUsage = GetTokenUsage(fallbackResult) };
+        }
+
+        var toolDescriptions = string.Join("\n\n", toolDefs.Select(t =>
+            $"Tool: {t.Name}\nDescription: {t.Description}\nParameters schema: {JsonSerializer.Serialize(t.Parameters)}"));
+
+        var enhancedSystemPrompt = $"{systemPrompt}\n\n# Available Tools\n{toolDescriptions}" +
+            "\n\nIf you need to use a tool, respond with a JSON array of tool calls:\n" +
+            "[{\"id\": \"call_1\", \"name\": \"tool_name\", \"arguments\": {}}]\n" +
+            "Otherwise respond with your narrative text.";
+
+        var result = await CompleteAsync(enhancedSystemPrompt, userPrompt, options);
+
+        // Try to parse tool calls from the response
+        var parsed = ParseToolCallsFromResponse(result);
+
+        return new LLMCompletionResult
+        {
+            Content = result,
+            ToolCalls = parsed,
+            TokenUsage = GetTokenUsage(result)
+        };
+    }
+
+    /// <summary>
+    /// Parse tool calls from the LLM response text.
+    /// Looks for JSON arrays of {id, name, arguments} objects.
+    /// </summary>
+    protected List<ToolCall> ParseToolCallsFromResponse(string response)
+    {
+        // Try to find a JSON array in the response
+        var trimmed = response.Trim();
+        if (!trimmed.StartsWith("[")) return new List<ToolCall>();
+
+        try
+        {
+            // Find the first complete JSON array
+            var bracketCount = 0;
+            var arrayEnd = -1;
+            for (var i = 0; i < trimmed.Length; i++)
+            {
+                if (trimmed[i] == '[') bracketCount++;
+                else if (trimmed[i] == ']')
+                {
+                    bracketCount--;
+                    if (bracketCount == 0)
+                    {
+                        arrayEnd = i + 1;
+                        break;
+                    }
+                }
+            }
+
+            if (arrayEnd < 0) return new List<ToolCall>();
+
+            var json = trimmed[..arrayEnd];
+            var calls = JsonSerializer.Deserialize<List<ToolCallRequest>>(json);
+            if (calls == null || !calls.Any()) return new List<ToolCall>();
+
+            return calls.Select(c => new ToolCall
+            {
+                Id = c.id ?? $"call_{Guid.NewGuid():N[..8]}",
+                Name = c.name,
+                Arguments = c.arguments
+            }).ToList();
+        }
+        catch
+        {
+            return new List<ToolCall>();
+        }
+    }
+
+    private class ToolCallRequest
+    {
+        public string? id { get; set; }
+        public string? name { get; set; }
+        public string? arguments { get; set; }
+    }
 }
 
 /// <summary>
@@ -261,6 +391,86 @@ public class OllamaLLMProvider : BaseLLMProvider
         {
             _logger.LogError(ex, "Ollama request failed");
             return "Error: " + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Ollama-native tool calling implementation.
+    /// Uses Ollama's /api/chat endpoint with the tools parameter.
+    /// </summary>
+    public override async Task<LLMCompletionResult> CompleteWithToolsAsync(
+        string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
+    {
+        string modelName = options?.Model ?? _model;
+        float temperature = options?.Temperature > 0 ? options.Temperature : 0.7f;
+        int maxTokens = options?.MaxTokens > 0 ? options.MaxTokens : 2048;
+
+        var toolDefs = tools.ToList();
+        var ollamaTools = toolDefs.Select(t => new
+        {
+            type = "function",
+            function = new
+            {
+                name = t.Name,
+                description = t.Description,
+                parameters = t.Parameters
+            }
+        }).ToList();
+
+        var payload = new
+        {
+            model = modelName,
+            system = systemPrompt,
+            prompt = userPrompt,
+            stream = false,
+            tools = ollamaTools.Any() ? ollamaTools : null,
+            opts = new
+            {
+                temperature,
+                num_predict = maxTokens
+            }
+        };
+
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync(
+                _baseUrl + "/api/chat", payload,
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Ollama tool call API error: {Error}", error);
+                return new LLMCompletionResult { Content = "Error: " + response.StatusCode };
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<OllamaResponse>();
+            var content = result?.Message?.Content ?? "No response";
+
+            // Ollama tool calls come in a separate field
+            var toolCalls = new List<ToolCall>();
+            if (result?.Message?.ToolCalls != null)
+            {
+                toolCalls = result.Message.ToolCalls
+                    .Select(tc => new ToolCall
+                    {
+                        Id = tc.Id ?? $"call_{Guid.NewGuid():N[..8]}",
+                        Name = tc.Function?.Name ?? "unknown",
+                        Arguments = tc.Function?.Arguments ?? "{}"
+                    }).ToList();
+            }
+
+            return new LLMCompletionResult
+            {
+                Content = content,
+                ToolCalls = toolCalls,
+                TokenUsage = GetTokenUsage(content)
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Ollama tool call request failed");
+            return new LLMCompletionResult { Content = "Error: " + ex.Message };
         }
     }
 
@@ -387,13 +597,83 @@ public class LmStudioLLMProvider : BaseLLMProvider
                 return "Error: " + response.StatusCode;
             }
 
-            var result = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
-            return result?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+            var responseResult = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
+            return responseResult?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "LM Studio request failed");
             return "Error: " + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// LM Studio (OpenAI-compatible) tool calling implementation.
+    /// </summary>
+    public override async Task<LLMCompletionResult> CompleteWithToolsAsync(
+        string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
+    {
+        string modelName = options?.Model ?? _model;
+        float temperature = options?.Temperature > 0 ? options.Temperature : 0.7f;
+        int maxTokens = options?.MaxTokens > 0 ? options.MaxTokens : 2048;
+        float topP = options?.TopP > 0 ? options.TopP : 0.9f;
+
+        var toolDefs = tools.ToList();
+        var toolsPayload = toolDefs.Select(t => t.ToOpenAISchema()).ToList();
+
+        var payload = new
+        {
+            model = modelName,
+            messages = new[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userPrompt }
+            },
+            stream = false,
+            temperature,
+            max_tokens = maxTokens,
+            top_p = topP,
+            frequency_penalty = options?.FrequencyPenalty,
+            presence_penalty = options?.PresencePenalty,
+            tools = toolsPayload.Any() ? toolsPayload : null,
+            tool_choice = toolsPayload.Any() ? new { type = "auto" } : null
+        };
+
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync(
+                _baseUrl + "/v1/chat/completions", payload);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                _logger.LogError("LM Studio tool call API error: {Error}", error);
+                return new LLMCompletionResult { Content = "Error: " + response.StatusCode };
+            }
+
+            var responseText = await response.Content.ReadAsStringAsync();
+            var result = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
+
+            var content = result?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+            var toolCalls = result?.Choices?.FirstOrDefault()?.Message?.ToolCalls
+                ?.Select(tc => new ToolCall
+                {
+                    Id = tc.Id ?? $"call_{Guid.NewGuid():N[..8]}",
+                    Name = tc.Function?.Name ?? "unknown",
+                    Arguments = tc.Function?.Arguments ?? "{}"
+                }).ToList() ?? new List<ToolCall>();
+
+            return new LLMCompletionResult
+            {
+                Content = content,
+                ToolCalls = toolCalls,
+                TokenUsage = GetTokenUsage(responseText)
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "LM Studio tool call request failed");
+            return new LLMCompletionResult { Content = "Error: " + ex.Message };
         }
     }
 
@@ -517,13 +797,84 @@ public class OpenAILLMProvider : BaseLLMProvider
                 return "Error: " + response.StatusCode;
             }
 
-            var result = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
-            return result?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+            var responseResult = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
+            return responseResult?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "OpenAI request failed");
             return "Error: " + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// OpenAI-native tool calling implementation.
+    /// Sends tools to the API and parses tool_call responses.
+    /// </summary>
+    public override async Task<LLMCompletionResult> CompleteWithToolsAsync(
+        string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
+    {
+        string modelName = options?.Model ?? _model;
+        float temperature = options?.Temperature > 0 ? options.Temperature : 0.7f;
+        int maxTokens = options?.MaxTokens > 0 ? options.MaxTokens : 2048;
+        float topP = options?.TopP > 0 ? options.TopP : 0.9f;
+
+        var toolDefs = tools.ToList();
+        var toolsPayload = toolDefs.Select(t => t.ToOpenAISchema()).ToList();
+
+        var payload = new
+        {
+            model = modelName,
+            messages = new[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userPrompt }
+            },
+            stream = false,
+            temperature,
+            max_tokens = maxTokens,
+            top_p = topP,
+            frequency_penalty = options?.FrequencyPenalty,
+            presence_penalty = options?.PresencePenalty,
+            tools = toolsPayload.Any() ? toolsPayload : null,
+            tool_choice = toolsPayload.Any() ? new { type = "auto" } : null
+        };
+
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync(
+                _baseUrl + "/chat/completions", payload);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                _logger.LogError("OpenAI API error: {Error}", error);
+                return new LLMCompletionResult { Content = "Error: " + response.StatusCode };
+            }
+
+            var responseText = await response.Content.ReadAsStringAsync();
+            var result = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
+
+            var content = result?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+            var toolCalls = result?.Choices?.FirstOrDefault()?.Message?.ToolCalls
+                ?.Select(tc => new ToolCall
+                {
+                    Id = tc.Id ?? $"call_{Guid.NewGuid():N[..8]}",
+                    Name = tc.Function?.Name ?? "unknown",
+                    Arguments = tc.Function?.Arguments ?? "{}"
+                }).ToList() ?? new List<ToolCall>();
+
+            return new LLMCompletionResult
+            {
+                Content = content,
+                ToolCalls = toolCalls,
+                TokenUsage = GetTokenUsage(responseText)
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "OpenAI tool call request failed");
+            return new LLMCompletionResult { Content = "Error: " + ex.Message };
         }
     }
 
@@ -653,6 +1004,96 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
         {
             _logger.LogError(ex, "Google AI Studio request failed");
             return "Error: " + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Google AI Studio tool calling implementation.
+    /// Uses the Generative AI API's function calling format.
+    /// </summary>
+    public override async Task<LLMCompletionResult> CompleteWithToolsAsync(
+        string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
+    {
+        string modelName = options?.Model ?? _model;
+        float temperature = options?.Temperature > 0 ? options.Temperature : 0.7f;
+        int maxTokens = options?.MaxTokens > 0 ? options.MaxTokens : 2048;
+
+        var toolDefs = tools.ToList();
+        var googleTools = toolDefs.Any() ? new[]
+        {
+            new { functionDeclarations = toolDefs.Select(t => new
+            {
+                name = t.Name,
+                description = t.Description,
+                parameters = t.Parameters
+            })
+        } }
+        : null;
+
+        var payload = new
+        {
+            contents = new[]
+            {
+                new { role = "user", parts = new[] { new { text = userPrompt } } }
+            },
+            system_instruction = new { parts = new[] { new { text = systemPrompt } } },
+            generationConfig = new
+            {
+                temperature,
+                maxOutputTokens = maxTokens,
+                topP = options?.TopP > 0 ? options.TopP : 0.9f
+            },
+            tools = googleTools,
+            tool_config = googleTools != null ? new { function_config = new { call = new { function_names = toolDefs.Select(t => t.Name).ToArray() } } } : null
+        };
+
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync(
+                $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={_apiKey}", payload);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Google AI Studio tool call API error: {Error}", error);
+                return new LLMCompletionResult { Content = "Error: " + response.StatusCode };
+            }
+
+            var responseText = await response.Content.ReadAsStringAsync();
+            var result = await response.Content.ReadFromJsonAsync<GoogleAIResponse>();
+
+            var content = result?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "No response";
+
+            // Check for function calls
+            var toolCalls = new List<ToolCall>();
+            var candidate = result?.Candidates?.FirstOrDefault();
+            if (candidate?.Content?.Parts != null)
+            {
+                foreach (var part in candidate.Content.Parts)
+                {
+                    if (part.FunctionCall != null)
+                    {
+                        toolCalls.Add(new ToolCall
+                        {
+                            Id = $"call_{Guid.NewGuid():N[..8]}",
+                            Name = part.FunctionCall.Name ?? "unknown",
+                            Arguments = JsonSerializer.Serialize(part.FunctionCall.Args ?? new())
+                        });
+                    }
+                }
+            }
+
+            return new LLMCompletionResult
+            {
+                Content = content,
+                ToolCalls = toolCalls,
+                TokenUsage = GetTokenUsage(responseText)
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Google AI Studio tool call request failed");
+            return new LLMCompletionResult { Content = "Error: " + ex.Message };
         }
     }
 
@@ -1067,6 +1508,20 @@ public class OpenAIChatMessage
 {
     public string Role { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    public List<OpenAIToolCall>? ToolCalls { get; set; }
+}
+
+public class OpenAIToolCall
+{
+    public string? Id { get; set; }
+    public string? Type { get; set; }
+    public OpenAIFunctionCall? Function { get; set; }
+}
+
+public class OpenAIFunctionCall
+{
+    public string? Name { get; set; }
+    public string? Arguments { get; set; }
 }
 
 public class OpenAIUsage
@@ -1104,6 +1559,13 @@ public class GoogleAIContent
 public class GoogleAIPart
 {
     public string? Text { get; set; }
+    public GoogleAIFunctionCall? FunctionCall { get; set; }
+}
+
+public class GoogleAIFunctionCall
+{
+    public string? Name { get; set; }
+    public Dictionary<string, object>? Args { get; set; }
 }
 
 public class GoogleAIEmbeddingResponse
@@ -1166,6 +1628,19 @@ public class OllamaMessage
 {
     public string Role { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    public List<OllamaToolCall>? ToolCalls { get; set; }
+}
+
+public class OllamaToolCall
+{
+    public string? Id { get; set; }
+    public OllamaFunctionCall? Function { get; set; }
+}
+
+public class OllamaFunctionCall
+{
+    public string? Name { get; set; }
+    public string? Arguments { get; set; }
 }
 
 public class OllamaEmbeddingResponse

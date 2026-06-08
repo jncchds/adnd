@@ -45,6 +45,50 @@ export interface AgentCallCompletedEvent {
   error?: string;
 }
 
+// ==================== Tool Call Events ====================
+
+export interface ToolCallNotificationEvent {
+  toolCallId: string;
+  toolName: string;
+  outputMessage: string;
+  requiresConfirmation: boolean;
+  timestamp: string;
+}
+
+export interface ToolCallConfirmedEvent {
+  toolCallId: string;
+  toolName: string;
+  approved: boolean;
+  outputMessage?: string;
+  result?: string;
+}
+
+export interface PlayerRollRequestedEvent {
+  toolCallId: string;
+  skill: string;
+  formula: string;
+  dc: number;
+  context: string;
+  optional: boolean;
+  approved: boolean;
+}
+
+export interface PlayerRollConfirmedEvent {
+  toolCallId: string;
+  playerId: string;
+  playerName: string;
+  skill: string;
+  formula: string;
+  dc: number;
+}
+
+export interface PlayerRollDeclinedEvent {
+  toolCallId: string;
+  playerId: string;
+  playerName: string;
+  skill: string;
+}
+
 // Combat events from server
 export interface CombatStartedEvent {
   combatId: string;

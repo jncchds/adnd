@@ -485,6 +485,30 @@ class APIClient {
     if (to) searchParams.set('to', to);
     return this.request<GameProviderUsageSummary[]>(`/admin/games/${gameId}/llm-provider-usage?${searchParams}`);
   }
+
+  // ==================== GM Tool Calls ====================
+  async getPendingToolCalls(gameId: string) {
+    return this.request(`/admin/games/${gameId}/tool-calls/pending`);
+  }
+
+  async confirmToolCall(gameId: string, toolCallId: string, approved: boolean) {
+    return this.request(`/admin/games/${gameId}/tool-calls/${toolCallId}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ approved }),
+    });
+  }
+
+  async confirmPlayerRoll(gameId: string, toolCallId: string) {
+    return this.request(`/admin/games/${gameId}/tool-calls/${toolCallId}/confirm-roll`, {
+      method: 'POST',
+    });
+  }
+
+  async declinePlayerRoll(gameId: string, toolCallId: string) {
+    return this.request(`/admin/games/${gameId}/tool-calls/${toolCallId}/decline`, {
+      method: 'POST',
+    });
+  }
 }
 
 export const api = new APIClient();
@@ -940,3 +964,64 @@ export interface GameProviderUsageSummary {
 }
 
 export type JsonElement = any;
+
+// ==================== GM Tool Call Types ====================
+
+export enum ToolCallStatus {
+  Pending = 0,
+  WaitingConfirmation = 1,
+  Confirmed = 2,
+  Executing = 3,
+  Completed = 4,
+  Failed = 5,
+  Cancelled = 6,
+}
+
+export enum ToolCategory {
+  Auto = 0,
+  PlayerRoll = 1,
+  SystemRoll = 2,
+  Combat = 3,
+  Narrative = 4,
+  Query = 5,
+  StateManagement = 6,
+}
+
+export interface ToolCallInfo {
+  id: string;
+  toolName: string;
+  status: ToolCallStatus;
+  arguments?: string;
+  outputMessage?: string;
+  createdAt: string;
+  requiresConfirmation: boolean;
+}
+
+export interface ToolCallConfirmationResponse {
+  id: string;
+  toolName: string;
+  approved: boolean;
+  outputMessage?: string;
+  status: ToolCallStatus;
+}
+
+export interface PlayerRollConfirmationResponse {
+  toolCallId: string;
+  approved: boolean;
+  skill: string;
+  formula: string;
+  dc: number;
+  context: string;
+  optional: boolean;
+}
+
+export interface ToolCallNotification {
+  toolCallId: string;
+  toolName: string;
+  outputMessage: string;
+  requiresConfirmation: boolean;
+  timestamp: string;
+}
+
+// ==================== GM Tool Call API Methods ====================
+// (Use api.getPendingToolCalls(), api.confirmToolCall(), etc. directly on the api instance)

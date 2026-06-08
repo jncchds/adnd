@@ -88,6 +88,7 @@ public class AgentBus : IAgentBus
     private readonly ISystemRegistry _systemRegistry;
     private readonly ILLMPresetService _presetService;
     private readonly ILLMInteractionLogger _interactionLogger;
+    private readonly IGMToolRegistry _toolRegistry;
     private readonly ILogger<AgentBus> _logger;
 
     public AgentBus(
@@ -99,6 +100,7 @@ public class AgentBus : IAgentBus
         ISystemRegistry systemRegistry,
         ILLMPresetService presetService,
         ILLMInteractionLogger interactionLogger,
+        IGMToolRegistry toolRegistry,
         ILogger<AgentBus> logger)
     {
         _context = context;
@@ -109,6 +111,7 @@ public class AgentBus : IAgentBus
         _systemRegistry = systemRegistry;
         _presetService = presetService;
         _interactionLogger = interactionLogger;
+        _toolRegistry = toolRegistry;
         _logger = logger;
     }
 
@@ -632,7 +635,7 @@ public class AgentBus : IAgentBus
 
         if (call.Action == AgentAction.Narrate || call.Action == AgentAction.Generate)
         {
-            // Use the game's LLM preset to generate narrative
+            // Use the game's LLM preset to generate narrative with tool calling
             if (game.LLMPreset == null)
                 return "No LLM preset configured for this game.";
 
@@ -640,35 +643,78 @@ public class AgentBus : IAgentBus
             if (provider == null)
                 return $"LLM provider '{game.LLMPreset.ProviderType}' not available.";
 
-            var systemPrompt = options.SystemPrompt ?? 
+            var systemPrompt = options.SystemPrompt ??
                 $"You are the Game Master for a TTRPG session. " +
                 $"Game system: {game.SystemId}. " +
                 $"Plot seed: {game.PlotSeed ?? "None"}. " +
                 $"Game parameters: {game.GameParameters ?? "None"}. " +
                 $"Current game state: {game.GameState ?? "None"}. " +
-                $"Narrate the game state, describe scenes, and provide immersive storytelling.";
+                $"You have access to game tools (dice rolls, skill checks, player queries). " +
+                $"Use them when appropriate to enhance the game experience.";
 
             var userPrompt = options.UserPrompt ?? call.Input ?? "Continue the narrative.";
 
+            // Get available tools for this game
+            var tools = _toolRegistry.GetAvailableTools(game.Id);
+
+            // Call LLM with tool calling support
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+            var completion = await provider.CompleteWithToolsAsync(systemPrompt, userPrompt, tools, options.Options);
             sw.Stop();
 
             // Log successful interaction
             var model = options?.Options?.Model ?? game.LLMPreset.BaseModel;
-            var tokenUsage = provider.GetTokenUsage(result);
+            var tokenUsage = completion.TokenUsage ?? provider.GetTokenUsage(completion.Content);
             await _interactionLogger.LogInteractionAsync(
                 game.CreatorId, game.LLMPresetId, provider.ProviderId, model,
                 tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
-                (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, result,
+                (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, completion.Content,
                 null, provider.EndpointUrl, "agent", call.GameId, call.SessionId,
                 "GM", call.Action.ToString());
+
+            // Handle tool calls from the LLM
+            if (completion.HasToolCalls)
+            {
+                var toolResults = new List<(string toolCallId, string result, string message)>();
+
+                foreach (var toolCall in completion.ToolCalls)
+                {
+                    var toolResult = await ExecuteToolCallAsync(game.Id, call.SessionId ?? Guid.Empty, toolCall);
+                    toolResults.Add((toolCall.Id, toolResult.Output ?? "", toolResult.OutputMessage ?? ""));
+
+                    // If tool requires confirmation, save and return early
+                    if (toolResult.RequiresUserInput)
+                    {
+                        game.LastGMAction = $"ToolCall: {toolCall.Name} (waiting confirmation)";
+                        game.LastGMActionAt = DateTime.UtcNow;
+                        await _context.SaveChangesAsync();
+
+                        // Return tool call info for frontend notification
+                        return JsonSerializer.Serialize(new { toolCallId = toolCall.Id, toolName = toolCall.Name, waitingConfirmation = true });
+                    }
+                }
+
+                // Feed tool results back to LLM for final narrative
+                var toolResultsText = string.Join("\n", toolResults.Select(tr =>
+                    $"Tool '{tr.toolCallId}': {tr.message}\nResult: {tr.result}"));
+
+                var followUpPrompt = $"Tool results:\n{toolResultsText}\n\nNow continue the narrative based on these results.";
+
+                var followUpCompletion = await provider.CompleteAsync(
+                    systemPrompt, followUpPrompt, options.Options);
+
+                game.LastGMAction = $"Narrate (with {completion.ToolCalls.Count} tool calls)";
+                game.LastGMActionAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                return followUpCompletion;
+            }
 
             game.LastGMAction = "Narrate";
             game.LastGMActionAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
-            return result;
+            return completion.Content;
         }
 
         if (call.Action == AgentAction.Nudge)
@@ -717,6 +763,58 @@ public class AgentBus : IAgentBus
         }
 
         return "GM agent: action not handled.";
+    }
+
+    /// <summary>
+    /// Execute a single tool call requested by the GM LLM.
+    /// Returns the result, or flags it as requiring user confirmation.
+    /// </summary>
+    private async Task<ToolExecutionResult> ExecuteToolCallAsync(Guid gameId, Guid sessionId, ToolCall toolCall)
+    {
+        var toolName = toolCall.Name;
+        var args = toolCall.Arguments;
+
+        // Log the tool call
+        var toolCallRecord = new GMToolCall
+        {
+            GameId = gameId,
+            SessionId = sessionId,
+            ToolName = toolName,
+            ToolCallId = toolCall.Id,
+            Arguments = args,
+            Status = ToolCallStatus.Executing,
+            CreatedAt = DateTime.UtcNow
+        };
+        _context.GMToolCalls.Add(toolCallRecord);
+        await _context.SaveChangesAsync();
+
+        // Execute the tool
+        var result = await _toolRegistry.ExecuteToolAsync(gameId, sessionId, toolName, args);
+
+        toolCallRecord.Status = result.Success ? ToolCallStatus.Completed : ToolCallStatus.Failed;
+        toolCallRecord.Result = result.Output;
+        toolCallRecord.OutputMessage = result.OutputMessage;
+        toolCallRecord.Error = result.Error;
+        toolCallRecord.CompletedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        // If tool requires user confirmation, flag it
+        if (_toolRegistry.RequiresConfirmation(toolName) && result.Success)
+        {
+            toolCallRecord.Status = ToolCallStatus.WaitingConfirmation;
+            await _context.SaveChangesAsync();
+
+            return new ToolExecutionResult
+            {
+                Success = true,
+                Output = result.Output,
+                OutputMessage = result.OutputMessage,
+                RequiresUserInput = true,
+                UserInputType = result.UserInputType,
+            };
+        }
+
+        return result;
     }
 
     public async Task<AgentCall> ActivateGameAgentAsync(Guid gameId, Guid? creatorId)

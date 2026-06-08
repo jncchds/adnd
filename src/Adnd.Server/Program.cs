@@ -111,6 +111,9 @@ builder.Services.AddScoped<ICombatService, CombatService>();
 // Agent Framework
 builder.Services.AddScoped<IAgentBus, AgentBus>();
 
+// GM Tool Registry — defines and executes tools available to the GM agent
+builder.Services.AddScoped<IGMToolRegistry, GMToolRegistry>();
+
 // Game Agent (per-game, singleton manager)
 builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
 
