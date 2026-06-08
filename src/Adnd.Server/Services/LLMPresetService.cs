@@ -192,7 +192,8 @@ public class LLMPresetService : ILLMPresetService
 
     public async Task<List<string>> GetAvailableModelsAsync(string providerType, string? endpointUrl = null, string? apiKey = null)
     {
-        return providerType.ToLowerInvariant() switch
+        var key = providerType.ToLowerInvariant();
+        return key switch
         {
             "ollama" => await GetOllamaModelsAsync(endpointUrl),
             "lmstudio" => await GetOpenAICompatibleModelsAsync(endpointUrl, apiKey),
@@ -207,10 +208,22 @@ public class LLMPresetService : ILLMPresetService
         var url = (baseUrl ?? "http://localhost:11434").TrimEnd('/') + "/api/tags";
         using var http = new HttpClient();
         http.Timeout = TimeSpan.FromSeconds(10);
-        var response = await http.GetAsync(url);
-        response.EnsureSuccessStatusCode();
-        var doc = await response.Content.ReadFromJsonAsync<OllamaTagsResponse>();
-        return doc?.Models?.Select(m => m.Name).ToList() ?? new List<string>();
+        try
+        {
+            var response = await http.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Ollama returned {response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            var doc = await response.Content.ReadFromJsonAsync<OllamaTagsResponse>();
+            return doc?.Models?.Select(m => m.Name).ToList() ?? new List<string>();
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Cannot reach Ollama at {url}: {ex.Message}");
+        }
     }
 
     private static async Task<List<string>> GetOpenAICompatibleModelsAsync(string? baseUrl, string? apiKey)
@@ -220,10 +233,22 @@ public class LLMPresetService : ILLMPresetService
         http.Timeout = TimeSpan.FromSeconds(10);
         if (!string.IsNullOrEmpty(apiKey))
             http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-        var response = await http.GetAsync(url);
-        response.EnsureSuccessStatusCode();
-        var doc = await response.Content.ReadFromJsonAsync<OpenAIModelsResponse>();
-        return doc?.Data?.Select(m => m.Id).ToList() ?? new List<string>();
+        try
+        {
+            var response = await http.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Endpoint returned {response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            var doc = await response.Content.ReadFromJsonAsync<OpenAIModelsResponse>();
+            return doc?.Data?.Select(m => m.Id).ToList() ?? new List<string>();
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Cannot reach endpoint at {url}: {ex.Message}");
+        }
     }
 
     private static async Task<List<string>> GetOpenAIModelsAsync(string? baseUrl, string? apiKey)
@@ -233,23 +258,47 @@ public class LLMPresetService : ILLMPresetService
         http.Timeout = TimeSpan.FromSeconds(10);
         if (!string.IsNullOrEmpty(apiKey))
             http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-        var response = await http.GetAsync(url);
-        response.EnsureSuccessStatusCode();
-        var doc = await response.Content.ReadFromJsonAsync<OpenAIModelsResponse>();
-        return doc?.Data?.Select(m => m.Id).ToList() ?? new List<string>();
+        try
+        {
+            var response = await http.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"OpenAI returned {response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            var doc = await response.Content.ReadFromJsonAsync<OpenAIModelsResponse>();
+            return doc?.Data?.Select(m => m.Id).ToList() ?? new List<string>();
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Cannot reach OpenAI at {url}: {ex.Message}");
+        }
     }
 
     private static async Task<List<string>> GetGoogleModelsAsync(string? apiKey)
     {
         if (string.IsNullOrEmpty(apiKey))
-            throw new InvalidOperationException("API key is required for Google AI Studio.");
+            throw new InvalidOperationException("API key is required for Google AI Studio model listing.");
         var url = $"https://generativelanguage.googleapis.com/v1beta/models?key={apiKey}";
         using var http = new HttpClient();
         http.Timeout = TimeSpan.FromSeconds(10);
-        var response = await http.GetAsync(url);
-        response.EnsureSuccessStatusCode();
-        var doc = await response.Content.ReadFromJsonAsync<GoogleModelsResponse>();
-        return doc?.Models?.Select(m => m.Name.Replace("models/", "")).ToList() ?? new List<string>();
+        try
+        {
+            var response = await http.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Google AI returned {response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            var doc = await response.Content.ReadFromJsonAsync<GoogleModelsResponse>();
+            return doc?.Models?.Select(m => m.Name.Replace("models/", "")).ToList() ?? new List<string>();
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Cannot reach Google AI at {url}: {ex.Message}");
+        }
     }
 
     private ILLMProvider CreateProviderFromPreset(LLMPreset preset)
