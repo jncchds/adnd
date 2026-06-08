@@ -2,6 +2,7 @@ using MediatR;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
+using Adnd.Server.Data;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
@@ -122,11 +123,13 @@ public class GameActionHandler :
     INotificationHandler<CombatRestEnded>
 {
     private readonly IAgentBus _agentBus;
+    private readonly AppDbContext _context;
     private readonly ILogger<GameActionHandler> _logger;
 
-    public GameActionHandler(IAgentBus agentBus, ILogger<GameActionHandler> logger)
+    public GameActionHandler(IAgentBus agentBus, AppDbContext context, ILogger<GameActionHandler> logger)
     {
         _agentBus = agentBus;
+        _context = context;
         _logger = logger;
     }
 
@@ -206,8 +209,8 @@ public class GameActionHandler :
     /// </summary>
     private async Task QueueGMMaybe(Guid gameId, Guid? sessionId, string context)
     {
-        var game = await _agentBus.GetGMStatusAsync(gameId);
-        if (game.Status != GMStatus.Running)
+        var gameStatus = await _agentBus.GetGMStatusAsync(gameId);
+        if (gameStatus.Status != GMStatus.Running)
             return; // GM is paused or idle — no narrative needed
 
         // Quick debounce: if there's already a pending GM call, don't add another.
@@ -221,7 +224,11 @@ public class GameActionHandler :
             return;
         }
 
-        var gameInfo = await _agentBus.GetGMStatusAsync(gameId);
+        // Load game entity to get the language setting
+        var game = await _context.Games.FindAsync(gameId);
+        var languageSuffix = string.IsNullOrEmpty(game?.Language) || game.Language == "English" ? "" :
+            $"\n\n**Language**: All narrative output must be in **{game.Language}**. Write your response entirely in {game.Language}. Do NOT use English for any narrative content.";
+
         var call = new AgentCall
         {
             GameId = gameId,
@@ -237,8 +244,8 @@ public class GameActionHandler :
                     $"immediate reaction of the environment and NPCs. " +
                     $"Do NOT describe the mechanical result — the players already know the numbers. " +
                     $"Focus on the story moment. Keep it to 1-2 paragraphs. " +
-                    $"Game system: {gameInfo.Status}. " +
-                    $"Current game state: {gameInfo.LastAction ?? "N/A"}.",
+                    $"Game system: {gameStatus.Status}. " +
+                    $"Current game state: {gameStatus.LastAction ?? "N/A"}." + languageSuffix,
                 UserPrompt = context
             }),
             Status = AgentCallStatus.Pending,

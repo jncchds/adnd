@@ -313,6 +313,12 @@ public class AgentBus : IAgentBus
                 var systemPrompt = options.SystemPrompt ?? "You are a TTRPG Game Master assistant.";
                 var userPrompt = options.UserPrompt ?? call.Input ?? "Generate content.";
 
+                // Add language instruction to narration prompts
+                if (game != null && !string.IsNullOrEmpty(game.Language) && game.Language != "English")
+                {
+                    systemPrompt += $"\n\n**Important**: All narrative output must be in **{game.Language}**. Write your response entirely in {game.Language}. Do NOT use English for any narrative content.";
+                }
+
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
                 sw.Stop();
@@ -338,6 +344,12 @@ public class AgentBus : IAgentBus
                 var systemPrompt = "You are a creative TTRPG Game Master assistant. " +
                     "Provide engaging plot suggestions based on the game context. " +
                     "Respond with a JSON array of suggestions.";
+
+                // Add language instruction for plot suggestions
+                if (game != null && !string.IsNullOrEmpty(game.Language) && game.Language != "English")
+                {
+                    systemPrompt += $"\n\nAll suggestions must be in **{game.Language}**. Write plot titles, descriptions, and all narrative content in {game.Language}.";
+                }
 
                 var userPrompt = options.UserPrompt ?? call.Input ?? "Suggest plot continuations.";
 
@@ -663,6 +675,12 @@ public class AgentBus : IAgentBus
                 $"You have access to game tools (dice rolls, skill checks, player queries). " +
                 $"Use them when appropriate to enhance the game experience.";
 
+            // Add language instruction to the default system prompt
+            if (!string.IsNullOrEmpty(game.Language) && game.Language != "English")
+            {
+                systemPrompt += $"\n\n**Language**: All narrative output must be in **{game.Language}**. Write your response entirely in {game.Language}. Do NOT use English for any narrative content. (NPCs speaking in their native unknown language may be described in English for player comprehension.)";
+            }
+
             var userPrompt = options.UserPrompt ?? call.Input ?? "Continue the narrative.";
 
             // Get available tools for this game
@@ -744,6 +762,12 @@ public class AgentBus : IAgentBus
                 $"Game system: {game.SystemId}. " +
                 $"Current game state: {game.GameState ?? "None"}. " +
                 $"Respond with an immersive narrative that follows the creator's direction.";
+
+            // Add language instruction to the nudge prompt
+            if (!string.IsNullOrEmpty(game.Language) && game.Language != "English")
+            {
+                systemPrompt += $"\n\n**Language**: All narrative output must be in **{game.Language}**. Write your response entirely in {game.Language}.";
+            }
 
             var userPrompt = $"Incorporate this narrative direction: {call.Input}";
 
@@ -857,7 +881,9 @@ public class AgentBus : IAgentBus
                     $"Plot seed: {game.PlotSeed ?? "None"}. " +
                     $"Game parameters: {game.GameParameters ?? "None"}. " +
                     $"Create an immersive opening narrative that introduces the world, sets the tone, " +
-                    $"and invites the players into the story. Be vivid and engaging.",
+                    $"and invites the players into the story. Be vivid and engaging." +
+                    (string.IsNullOrEmpty(game.Language) || game.Language == "English" ? "" :
+                        $"\n\n**Language**: All narrative output must be in **{game.Language}**. Write your response entirely in {game.Language}. Do NOT use English for any narrative content."),
                 UserPrompt = "Generate the opening narrative for this game session."
             }),
             Status = AgentCallStatus.Pending,

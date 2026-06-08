@@ -219,6 +219,9 @@ public class GameAgent : IGameAgent
                                 string? userPrompt = null;
                                 string? triggerReason = null;
 
+                                var languageSuffix = string.IsNullOrEmpty(game.Language) || game.Language == "English" ? "" :
+                                    $"\n\n**Language**: All narrative output must be in **{game.Language}**. Write your response entirely in {game.Language}. Do NOT use English for any narrative content.";
+
                                 if (highMomentumThreads.Any())
                                 {
                                     // High-momentum threads need attention — escalate
@@ -228,7 +231,7 @@ public class GameAgent : IGameAgent
                                         $"Current game state: {game.GameState ?? "None"}. " +
                                         $"Game system: {game.SystemId}. " +
                                         $"Introduce a time-sensitive event that brings these threads into focus. " +
-                                        $"Be vivid and immersive. Limit to 2-3 paragraphs.";
+                                        $"Be vivid and immersive. Limit to 2-3 paragraphs." + languageSuffix;
                                     userPrompt = $"Escalate these active plot threads: {threadNames}";
                                     triggerReason = $"High momentum threads: {threadNames}";
                                 }
@@ -241,7 +244,7 @@ public class GameAgent : IGameAgent
                                         $"Current game state: {game.GameState ?? "None"}. " +
                                         $"Game system: {game.SystemId}. " +
                                         $"Introduce an opportunity or revelation that revives these threads. " +
-                                        $"Be vivid and immersive. Limit to 2-3 paragraphs.";
+                                        $"Be vivid and immersive. Limit to 2-3 paragraphs." + languageSuffix;
                                     userPrompt = $"Create a turning point for these stalled threads: {threadNames}";
                                     triggerReason = $"Stalled threads: {threadNames}";
                                 }
@@ -253,7 +256,7 @@ public class GameAgent : IGameAgent
                                         $"a natural development related to the current plot threads. " +
                                         $"Current game state: {game.GameState ?? "None"}. " +
                                         $"Game system: {game.SystemId}. " +
-                                        $"Be vivid and immersive. Limit to 2-3 paragraphs.";
+                                        $"Be vivid and immersive. Limit to 2-3 paragraphs." + languageSuffix;
                                     userPrompt = "Introduce a natural story development during the quiet period.";
                                     triggerReason = "Extended silence, advancing story";
                                 }
@@ -266,7 +269,7 @@ public class GameAgent : IGameAgent
                                         $"been given a clear starting point. If not, create one. " +
                                         $"Current game state: {game.GameState ?? "None"}. " +
                                         $"Game system: {game.SystemId}. " +
-                                        $"Plot seed: {game.PlotSeed ?? "None"}.";
+                                        $"Plot seed: {game.PlotSeed ?? "None"}." + languageSuffix;
                                     userPrompt = "Check if the game has a proper starting point. If not, create one.";
                                     triggerReason = "No active threads, checking setup";
                                 }

@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [llmPresetId, setLLMPresetId] = useState<string | null>(null);
   const [plotSeed, setPlotSeed] = useState('');
   const [gameParameters, setGameParameters] = useState('');
+  const [language, setLanguage] = useState('English');
   const [errorState, setErrorState] = useState<string | null>(null);
   const [successState, setSuccessState] = useState<string | null>(null);
 
@@ -37,6 +38,7 @@ export default function DashboardPage() {
     setLLMPresetId(null);
     setPlotSeed('');
     setGameParameters('');
+    setLanguage('English');
   };
 
 
@@ -66,7 +68,7 @@ export default function DashboardPage() {
     setErrorState(null);
     setSuccessState(null);
     try {
-      const result = await createGame(gameName, systemId, undefined, undefined, llmPresetId || undefined, plotSeed || undefined, gameParameters || undefined);
+      const result = await createGame(gameName, systemId, undefined, undefined, llmPresetId || undefined, plotSeed || undefined, gameParameters || undefined, language);
       handleCloseCreate();
       refetch();
       setSuccessState('Game created! Starting AI-GM...');
@@ -209,6 +211,48 @@ export default function DashboardPage() {
             <option value="pf2e">Pathfinder 2nd Edition</option>
             <option value="coc7e">Call of Cthulhu 7th Edition</option>
           </TextField>
+          <Box sx={{ mb: 2 }}>
+            <TextField
+              fullWidth
+              select
+              label="Narration Language"
+              value={language}
+              onChange={e => setLanguage(e.target.value)}
+              SelectProps={{ native: true }}
+            >
+              <option value="English">English</option>
+              <option value="Spanish">Español (Spanish)</option>
+              <option value="French">Français (French)</option>
+              <option value="German">Deutsch (German)</option>
+              <option value="Italian">Italiano (Italian)</option>
+              <option value="Portuguese">Português (Portuguese)</option>
+              <option value="Japanese">日本語 (Japanese)</option>
+              <option value="Korean">한국어 (Korean)</option>
+              <option value="Chinese">中文 (Chinese)</option>
+              <option value="Ukrainian">Українська (Ukrainian)</option>
+              <option value="Polish">Polski (Polish)</option>
+              <option value="Dutch">Nederlands (Dutch)</option>
+              <option value="Swedish">Svenska (Swedish)</option>
+              <option value="Norwegian">Norsk (Norwegian)</option>
+              <option value="Finnish">Suomi (Finnish)</option>
+              <option value="Danish">Dansk (Danish)</option>
+              <option value="Greek">Ελληνικά (Greek)</option>
+              <option value="Turkish">Türkçe (Turkish)</option>
+              <option value="Arabic">العربية (Arabic)</option>
+              <option value="Hindi">हिन्दी (Hindi)</option>
+            </TextField>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>
+              <Typography variant="caption" color="text.secondary">Or type a custom language:</Typography>
+            </Box>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="e.g., Esperanto, Klingon, etc."
+              value={language}
+              onChange={e => setLanguage(e.target.value)}
+              sx={{ mt: 0.5 }}
+            />
+          </Box>
           <TextField
             fullWidth
             select

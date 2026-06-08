@@ -23,6 +23,9 @@ public class Game
     public DateTime? EndedAt { get; set; }
     public string? InviteCode { get; set; }
 
+    // Game language — narration output language
+    public string Language { get; set; } = "English";
+
     // Plot seed: initial plot setup by Game Creator
     public string? PlotSeed { get; set; } // JSON: initial plot, tone, themes
     public string? GameParameters { get; set; } // JSON: difficulty, tone, pacing

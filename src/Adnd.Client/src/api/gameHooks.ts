@@ -24,8 +24,8 @@ export function useGames() {
     fetchGames();
   }, [fetchGames]);
 
-  const createGame = async (name: string, systemId = 'dnd5e', systemVersion?: string, customSystemJson?: string, llmPresetId?: string, plotSeed?: string, gameParameters?: string) => {
-    const game = await api.createGame(name, systemId, systemVersion, customSystemJson, llmPresetId, plotSeed, gameParameters);
+  const createGame = async (name: string, systemId = 'dnd5e', systemVersion?: string, customSystemJson?: string, llmPresetId?: string, plotSeed?: string, gameParameters?: string, language = 'English') => {
+    const game = await api.createGame(name, systemId, systemVersion, customSystemJson, llmPresetId, plotSeed, gameParameters, language);
     setGames(prev => [...prev, game]);
     return game;
   };

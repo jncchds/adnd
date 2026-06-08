@@ -362,6 +362,11 @@ namespace Adnd.Server.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("invitecode");
 
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasDefaultValue("English");
+
                     b.Property<Guid?>("LLMPresetId")
                         .HasColumnType("uuid");
 
@@ -731,6 +736,77 @@ namespace Adnd.Server.Data.Migrations
                     b.ToTable("Players");
                 });
 
+            modelBuilder.Entity("Adnd.Server.Models.GMToolCall", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Arguments")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConfirmedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("GameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OutputMessage")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ParentToolCallId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("RequiresConfirmation")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Result")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToolCallId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToolName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GameId");
+
+                    b.HasIndex("ParentToolCallId");
+
+                    b.HasIndex("SessionId");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("GMToolCalls");
+                });
+
             modelBuilder.Entity("Adnd.Server.Models.PlotThread", b =>
                 {
                     b.Property<Guid>("Id")
@@ -950,6 +1026,37 @@ namespace Adnd.Server.Data.Migrations
                     b.Navigation("ParentCall");
 
                     b.Navigation("Session");
+                });
+
+            modelBuilder.Entity("Adnd.Server.Models.GMToolCall", b =>
+                {
+                    b.HasOne("Adnd.Server.Models.Game", "Game")
+                        .WithMany("GMToolCalls")
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Adnd.Server.Models.GameSession", "Session")
+                        .WithMany()
+                        .HasForeignKey("SessionId");
+
+                    b.HasOne("Adnd.Server.Models.Player", "ConfirmedBy")
+                        .WithMany()
+                        .HasForeignKey("ConfirmedBy");
+
+                    b.HasOne("Adnd.Server.Models.GMToolCall", "ParentToolCall")
+                        .WithMany("ChildToolCalls")
+                        .HasForeignKey("ParentToolCallId");
+
+                    b.Navigation("Game");
+
+                    b.Navigation("Session");
+
+                    b.Navigation("ConfirmedBy");
+
+                    b.Navigation("ParentToolCall");
+
+                    b.Navigation("ChildToolCalls");
                 });
 
             modelBuilder.Entity("Adnd.Server.Models.Character", b =>
@@ -1217,6 +1324,8 @@ namespace Adnd.Server.Data.Migrations
             modelBuilder.Entity("Adnd.Server.Models.Game", b =>
                 {
                     b.Navigation("AgentCalls");
+
+                    b.Navigation("GMToolCalls");
 
                     b.Navigation("NPCs");
 

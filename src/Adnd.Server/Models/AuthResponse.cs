@@ -35,6 +35,7 @@ public class CreateGameRequest
     public Guid? LLMPresetId { get; set; }      // LLM preset for all agents in this game
     public string? PlotSeed { get; set; }       // Initial plot setup by creator
     public string? GameParameters { get; set; }  // Game tone, difficulty, pacing
+    public string? Language { get; set; }        // Narration language
 }
 
 public class GameResponse
@@ -54,6 +55,7 @@ public class GameResponse
     public string? GameState { get; set; }
     public Guid? LLMPresetId { get; set; }
     public string? LLMPresetName { get; set; }
+    public string? Language { get; set; }
 }
 
 public class InviteResponse

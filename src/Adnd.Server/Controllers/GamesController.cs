@@ -67,7 +67,8 @@ public class GamesController : ControllerBase
                 CreatedAt = g.CreatedAt,
                 InviteCode = g.InviteCode,
                 LLMPresetId = g.LLMPresetId,
-                LLMPresetName = g.LLMPreset != null ? g.LLMPreset.Name : null
+                LLMPresetName = g.LLMPreset != null ? g.LLMPreset.Name : null,
+                Language = g.Language
             })
             .ToListAsync();
 
@@ -114,7 +115,8 @@ public class GamesController : ControllerBase
             GameParameters = game.GameParameters,
             GameState = game.GameState,
             LLMPresetId = game.LLMPresetId,
-            LLMPresetName = game.LLMPreset?.Name
+            LLMPresetName = game.LLMPreset?.Name,
+            Language = game.Language
         });
     }
 
@@ -138,6 +140,7 @@ public class GamesController : ControllerBase
             PlotSeed = request.PlotSeed,
             GameParameters = request.GameParameters,
             LLMPresetId = request.LLMPresetId,
+            Language = request.Language ?? "English",
             GMStatus = GMStatus.Idle,
             Status = GameStatus.Draft,
             CreatedAt = DateTime.UtcNow
@@ -168,7 +171,8 @@ public class GamesController : ControllerBase
             GameParameters = game.GameParameters,
             GameState = game.GameState,
             LLMPresetId = game.LLMPresetId,
-            LLMPresetName = game.LLMPreset?.Name
+            LLMPresetName = game.LLMPreset?.Name,
+            Language = game.Language
         });
     }
 
@@ -196,6 +200,33 @@ public class GamesController : ControllerBase
             InviteCode = game.InviteCode!,
             InviteUrl = $"/join/{game.InviteCode}"
         });
+    }
+
+    [HttpPut("{id}/language")]
+    [Authorize]
+    public async Task<IActionResult> UpdateGameLanguage(Guid id, [FromBody] UpdateGameLanguageRequest request)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userId == null || !Guid.TryParse(userId, out var uid))
+        {
+            return Unauthorized();
+        }
+
+        var game = await _context.Games.FirstOrDefaultAsync(g => g.Id == id);
+        if (game == null)
+        {
+            return NotFound(new { error = "Game not found." });
+        }
+
+        if (game.CreatorId != uid)
+        {
+            return Forbid();
+        }
+
+        game.Language = request.Language ?? "English";
+        await _context.SaveChangesAsync();
+
+        return Ok(new { game.Id, game.Language });
     }
 
     [HttpPost("join-by-code")]
@@ -492,4 +523,9 @@ public class CreateSessionRequest
 public class JoinByCodeRequest
 {
     public string Code { get; set; } = string.Empty;
+}
+
+public class UpdateGameLanguageRequest
+{
+    public string Language { get; set; } = "English";
 }

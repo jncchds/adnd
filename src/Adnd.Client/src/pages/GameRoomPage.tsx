@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
 import { useGame, useSessions, usePlayers, useCharacters, useGMStatus, useSway } from '../api/gameHooks';
@@ -785,6 +785,7 @@ export default function GameRoomPage() {
           <Typography variant="h5">{game.name}</Typography>
           <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
             <Chip label={game.systemId} size="small" />
+            {game.language && <Chip label={`🌐 ${game.language}`} size="small" variant="outlined" color="info" />}
             <Chip label={game.status} size="small" color={game.status === 'Active' ? 'success' : 'default'} />
             {game.llmPresetName && <Chip label={game.llmPresetName} size="small" variant="outlined" />}
             {game.inviteCode && (
@@ -1515,6 +1516,21 @@ function ActionsTab({ onSkillCheck, onAttack, onDiceRoll }: any) {
 
 function SettingsTab({ game, sessions, onNewSession, isCreator, gameId, onTriggerNarrate, onTriggerSuggest, onTriggerConsistency, onTriggerReview }: any) {
   const navigate = useNavigate();
+  const [language, setLanguage] = useState(game.language || 'English');
+  const [saving, setSaving] = useState(false);
+
+  const handleSaveLanguage = async () => {
+    if (!gameId || saving) return;
+    setSaving(true);
+    try {
+      await api.updateGameLanguage(gameId, language);
+    } catch (e) {
+      console.error('Failed to update game language:', e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <Paper sx={{ p: 2 }}>
       <Typography variant="h6" gutterBottom>Game Settings</Typography>
@@ -1526,6 +1542,49 @@ function SettingsTab({ game, sessions, onNewSession, isCreator, gameId, onTrigge
         <Typography variant="body2">Status: {game.status}</Typography>
         <Typography variant="body2">Created: {new Date(game.createdAt).toLocaleDateString()}</Typography>
       </Box>
+
+      {isCreator && (
+        <>
+          <Divider sx={{ my: 2 }} />
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle1">Narration Language</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              The language the AI-GM uses for all narrative output. NPCs speaking in their native unknown language may be described in English for player comprehension.
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+              {['English', 'Spanish', 'French', 'German', 'Italian', 'Portuguese', 'Japanese', 'Korean', 'Chinese', 'Ukrainian', 'Polish', 'Dutch', 'Swedish', 'Norwegian', 'Finnish', 'Danish', 'Greek', 'Turkish', 'Arabic', 'Hindi'].map(lang => (
+                <Chip
+                  key={lang}
+                  label={lang}
+                  size="small"
+                  clickable
+                  onClick={() => setLanguage(lang)}
+                  color={language === lang ? 'primary' : 'default'}
+                  variant={language === lang ? 'filled' : 'outlined'}
+                  sx={{ fontSize: 11 }}
+                />
+              ))}
+            </Box>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Or type a custom language (e.g., Esperanto, Klingon, etc.)"
+              value={language}
+              onChange={e => setLanguage(e.target.value)}
+              sx={{ bgcolor: 'background.paper' }}
+            />
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={handleSaveLanguage}
+              disabled={saving || language === game.language}
+              sx={{ mt: 1 }}
+            >
+              {saving ? 'Saving...' : 'Save Language'}
+            </Button>
+          </Box>
+        </>
+      )}
 
       {isCreator && (
         <>

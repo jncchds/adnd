@@ -151,11 +151,19 @@ class APIClient {
     customSystemJson?: string,
     llmPresetId?: string,
     plotSeed?: string,
-    gameParameters?: string
+    gameParameters?: string,
+    language = 'English'
   ) {
     return this.request<GameDetail>('/games', {
       method: 'POST',
-      body: JSON.stringify({ name, systemId, systemVersion, customSystemJson, llmPresetId, plotSeed, gameParameters }),
+      body: JSON.stringify({ name, systemId, systemVersion, customSystemJson, llmPresetId, plotSeed, gameParameters, language }),
+    });
+  }
+
+  async updateGameLanguage(gameId: string, language: string) {
+    return this.request(`/games/${gameId}/language`, {
+      method: 'PUT',
+      body: JSON.stringify({ language }),
     });
   }
 
@@ -578,6 +586,7 @@ export interface GameListItem {
   inviteCode?: string;
   llmPresetId?: string;
   llmPresetName?: string;
+  language?: string;
 }
 
 export interface GameDetail {
@@ -593,6 +602,7 @@ export interface GameDetail {
   inviteCode?: string;
   llmPresetId?: string;
   llmPresetName?: string;
+  language?: string;
 }
 
 export interface InviteResponse {

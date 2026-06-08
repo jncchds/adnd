@@ -72,6 +72,7 @@ public class RAGService : IRAGService
         contextParts.Add($"System: {game.SystemId ?? "unknown"} v{game.SystemVersion ?? "unknown"}");
         contextParts.Add($"Status: {game.Status}");
         contextParts.Add($"Created: {game.CreatedAt:yyyy-MM-dd}");
+        contextParts.Add($"Language: {game.Language ?? "English"}");
 
         // Active plot threads
         var activeThreads = await _context.PlotThreads

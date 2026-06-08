@@ -151,7 +151,9 @@ public class PlotWeaver : IPlotWeaver
             "    \"foreshadowing\": \"...\"\n" +
             "  },\n" +
             "  ...\n" +
-            "]";
+            "]" +
+            (string.IsNullOrEmpty(game.Language) || game.Language == "English" ? "" :
+                $"\n\n**Language**: All plot thread titles, descriptions, and milestones must be in **{game.Language}**. Write all JSON content in {game.Language}.");
 
         var userPrompt =
             $"Game system: {systemId}\n" +
@@ -269,7 +271,9 @@ Respond with ONLY a JSON array in this exact format (no markdown, no extra text)
   ...
 ]
 
-Only include threads that need changes. Threads not listed keep their current values.";
+Only include threads that need changes. Threads not listed keep their current values." +
+            (string.IsNullOrEmpty(game.Language) || game.Language == "English" ? "" :
+                $"\n\n**Language**: All plot thread descriptions, titles, and milestones in the JSON output must be in **{game.Language}**. Write all JSON content in {game.Language}.");
 
         var threadList = string.Join("\n", threads.Select(t =>
             $"- [{t.Category}] {t.Title} (momentum: {t.Momentum:F1}, relevance: {t.RelevanceScore:F2})\n  {t.Description}\n  Next: {t.NextMilestone}"));
@@ -524,7 +528,9 @@ Respond with ONLY a JSON array in this exact format (no markdown, no extra text)
 ]
 
 Only generate threads that are genuinely new and relevant to the current game state.
-""";
+""" +
+            (string.IsNullOrEmpty(game.Language) || game.Language == "English" ? "" :
+                $"\n\n**Language**: All plot thread titles, descriptions, and milestones must be in **{game.Language}**. Write all JSON content in {game.Language}.");
 
         var userPrompt =
             $"Recent game events:\n{context}\n\n" +
@@ -639,7 +645,9 @@ Respond with ONLY a JSON array in this exact format (no markdown, no extra text)
 ]
 
 The milestone should be a specific event (not a vague suggestion). Example: "The cult leader arrives at the village" not "Something bad happens with the cult."
-""";
+""" +
+            (string.IsNullOrEmpty(game.Language) || game.Language == "English" ? "" :
+                $"\n\n**Language**: All milestone titles and descriptions in the JSON output must be in **{game.Language}**. Write all JSON content in {game.Language}.");
 
         var threadList = string.Join("\n", highMomentumThreads.Select(t =>
             $"- [{t.Category}] {t.Title} (momentum: {t.Momentum:F1})\n  {t.Description}\n  Current milestone: {t.NextMilestone ?? "None"}"));
@@ -753,7 +761,9 @@ Respond with ONLY a JSON array in this exact format (no markdown, no extra text)
 ]
 
 Only include genuine opportunities — not every minor event needs a response.
-""";
+""" +
+            (string.IsNullOrEmpty(game.Language) || game.Language == "English" ? "" :
+                $"\n\n**Language**: All thread titles, descriptions, and milestone text in the JSON output must be in **{game.Language}**. Write all JSON content in {game.Language}.");
 
         var threadSummary = string.Join("\n", threads.Take(10).Select(t =>
             $"- [{t.Category}] {t.Title} (momentum: {t.Momentum:F1}, relevance: {t.RelevanceScore:F2})\n  {t.Description}"));
