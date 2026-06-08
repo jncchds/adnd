@@ -1,7 +1,9 @@
 using MediatR;
 using Adnd.Server.Events;
+using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace Adnd.Server.Handlers;
 
@@ -99,23 +101,16 @@ public class PlayerHandler :
 }
 
 /// <summary>
-/// Handles game action events — each handler logs the event.
-/// Game logic is handled directly by the hub calling services.
-/// Narrative/LLM processing is handled by the GameAgent.
+/// Handles game action events — queues GM narrative calls for events that need
+/// flavor text or story response. Pure mechanics (dice rolls, initiative, grid)
+/// are handled by the Hub directly and do not trigger the GM.
 /// </summary>
 public class GameActionHandler :
-    INotificationHandler<DiceRolled>,
     INotificationHandler<SkillCheckRequested>,
     INotificationHandler<AttackRequested>,
     INotificationHandler<CombatStarted>,
     INotificationHandler<CombatEnded>,
     INotificationHandler<StorySwayed>,
-    INotificationHandler<ParticipantAdded>,
-    INotificationHandler<ParticipantRemoved>,
-    INotificationHandler<InitiativeRolled>,
-    INotificationHandler<InitiativeRolledForAll>,
-    INotificationHandler<TurnAdvanced>,
-    INotificationHandler<TurnRetreated>,
     INotificationHandler<CombatAttackExecuted>,
     INotificationHandler<CombatSaveThrowExecuted>,
     INotificationHandler<CombatSpellCast>,
@@ -124,51 +119,134 @@ public class GameActionHandler :
     INotificationHandler<CombatXPGranted>,
     INotificationHandler<CombatLevelUp>,
     INotificationHandler<CombatRestStarted>,
-    INotificationHandler<CombatRestEnded>,
-    INotificationHandler<CombatGridSet>,
-    INotificationHandler<CombatPositionSet>,
-    INotificationHandler<CombatMove>,
-    INotificationHandler<CombatConditionApplied>,
-    INotificationHandler<CombatConditionRemoved>
+    INotificationHandler<CombatRestEnded>
 {
+    private readonly IAgentBus _agentBus;
     private readonly ILogger<GameActionHandler> _logger;
 
-    public GameActionHandler(ILogger<GameActionHandler> logger)
+    public GameActionHandler(IAgentBus agentBus, ILogger<GameActionHandler> logger)
     {
+        _agentBus = agentBus;
         _logger = logger;
     }
 
-    public Task Handle(DiceRolled n, CancellationToken ct) => Log(n, nameof(DiceRolled));
-    public Task Handle(SkillCheckRequested n, CancellationToken ct) => Log(n, nameof(SkillCheckRequested));
-    public Task Handle(AttackRequested n, CancellationToken ct) => Log(n, nameof(AttackRequested));
-    public Task Handle(CombatStarted n, CancellationToken ct) => Log(n, nameof(CombatStarted));
-    public Task Handle(CombatEnded n, CancellationToken ct) => Log(n, nameof(CombatEnded));
-    public Task Handle(StorySwayed n, CancellationToken ct) => Log(n, nameof(StorySwayed));
-    public Task Handle(ParticipantAdded n, CancellationToken ct) => Log(n, nameof(ParticipantAdded));
-    public Task Handle(ParticipantRemoved n, CancellationToken ct) => Log(n, nameof(ParticipantRemoved));
-    public Task Handle(InitiativeRolled n, CancellationToken ct) => Log(n, nameof(InitiativeRolled));
-    public Task Handle(InitiativeRolledForAll n, CancellationToken ct) => Log(n, nameof(InitiativeRolledForAll));
-    public Task Handle(TurnAdvanced n, CancellationToken ct) => Log(n, nameof(TurnAdvanced));
-    public Task Handle(TurnRetreated n, CancellationToken ct) => Log(n, nameof(TurnRetreated));
-    public Task Handle(CombatAttackExecuted n, CancellationToken ct) => Log(n, nameof(CombatAttackExecuted));
-    public Task Handle(CombatSaveThrowExecuted n, CancellationToken ct) => Log(n, nameof(CombatSaveThrowExecuted));
-    public Task Handle(CombatSpellCast n, CancellationToken ct) => Log(n, nameof(CombatSpellCast));
-    public Task Handle(CombatDamageDealt n, CancellationToken ct) => Log(n, nameof(CombatDamageDealt));
-    public Task Handle(CombatHealed n, CancellationToken ct) => Log(n, nameof(CombatHealed));
-    public Task Handle(CombatXPGranted n, CancellationToken ct) => Log(n, nameof(CombatXPGranted));
-    public Task Handle(CombatLevelUp n, CancellationToken ct) => Log(n, nameof(CombatLevelUp));
-    public Task Handle(CombatRestStarted n, CancellationToken ct) => Log(n, nameof(CombatRestStarted));
-    public Task Handle(CombatRestEnded n, CancellationToken ct) => Log(n, nameof(CombatRestEnded));
-    public Task Handle(CombatGridSet n, CancellationToken ct) => Log(n, nameof(CombatGridSet));
-    public Task Handle(CombatPositionSet n, CancellationToken ct) => Log(n, nameof(CombatPositionSet));
-    public Task Handle(CombatMove n, CancellationToken ct) => Log(n, nameof(CombatMove));
-    public Task Handle(CombatConditionApplied n, CancellationToken ct) => Log(n, nameof(CombatConditionApplied));
-    public Task Handle(CombatConditionRemoved n, CancellationToken ct) => Log(n, nameof(CombatConditionRemoved));
-
-    private Task Log<T>(T notification, string name) where T : INotification
+    public async Task Handle(SkillCheckRequested n, CancellationToken ct)
     {
-        _logger.LogDebug("Game action event: {EventName} for game {GameId}", name, notification.GetType().GetProperty("GameId")?.GetValue(notification));
-        return Task.CompletedTask;
+        await QueueGMMaybe(n.GameId, n.SessionId, $"Skill check: {n.Skill} (DC {n.DC}) by player {n.PlayerId}");
+    }
+
+    public async Task Handle(AttackRequested n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, n.SessionId, $"Attack: {n.Weapon} vs {n.Target} by player {n.PlayerId}");
+    }
+
+    public async Task Handle(CombatStarted n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, n.SessionId, $"Combat started: {n.Name ?? "Unnamed encounter"}");
+    }
+
+    public async Task Handle(CombatEnded n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, $"Combat ended: {n.Result ?? "Unknown outcome"}");
+    }
+
+    public async Task Handle(StorySwayed n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, $"Story sway from creator: {n.Direction}");
+    }
+
+    public async Task Handle(CombatAttackExecuted n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, $"Combat attack: {n.Attacker} uses {n.Weapon} on {n.Target}");
+    }
+
+    public async Task Handle(CombatSaveThrowExecuted n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, $"Save/throw: {n.Participant} rolls {n.SaveType} (DC {n.DC})");
+    }
+
+    public async Task Handle(CombatSpellCast n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, $"Spell cast: {n.Caster} casts {n.SpellName} on {n.Target} (DC {n.SaveDC})");
+    }
+
+    public async Task Handle(CombatDamageDealt n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, $"Damage: {n.ParticipantId} takes {n.Damage} damage from {n.Source}");
+    }
+
+    public async Task Handle(CombatHealed n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, $"Healing: {n.ParticipantId} heals {n.Amount} HP from {n.Source}");
+    }
+
+    public async Task Handle(CombatXPGranted n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, $"XP granted: {n.ParticipantId} gains {n.XP} XP ({n.Reason})");
+    }
+
+    public async Task Handle(CombatLevelUp n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, $"Level up: {n.ParticipantId} reaches level {n.NewLevel} ({n.SystemId})");
+    }
+
+    public async Task Handle(CombatRestStarted n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, $"Rest started: {n.RestType}");
+    }
+
+    public async Task Handle(CombatRestEnded n, CancellationToken ct)
+    {
+        await QueueGMMaybe(n.GameId, null, "Rest ended");
+    }
+
+    /// <summary>
+    /// Queue a GM narrative call only if the game agent is active.
+    /// Uses a short debounce to avoid spamming on rapid-fire actions.
+    /// </summary>
+    private async Task QueueGMMaybe(Guid gameId, Guid? sessionId, string context)
+    {
+        var game = await _agentBus.GetGMStatusAsync(gameId);
+        if (game.Status != GMStatus.Running)
+            return; // GM is paused or idle — no narrative needed
+
+        // Quick debounce: if there's already a pending GM call, don't add another.
+        // This prevents spam during rapid combat actions.
+        var pendingCount = await _agentBus.GetPendingCallsAsync(AgentType.GM, 5);
+        var gmPending = pendingCount.Where(c => c.Action == AgentAction.Narrate).Count();
+        if (gmPending >= 2)
+        {
+            _logger.LogDebug("Skipping GM narrative queue for game {GameId} — already {Count} pending",
+                gameId, gmPending);
+            return;
+        }
+
+        var gameInfo = await _agentBus.GetGMStatusAsync(gameId);
+        var call = new AgentCall
+        {
+            GameId = gameId,
+            SessionId = sessionId,
+            FromAgent = AgentType.System,
+            ToAgent = AgentType.GM,
+            Action = AgentAction.Narrate,
+            Input = JsonSerializer.Serialize(new GMDispatchOptions
+            {
+                SystemPrompt = $"You are the Game Master for a TTRPG session. " +
+                    $"A game action just occurred. Provide vivid, immersive narrative flavor " +
+                    $"for this event. Describe the sensory details, the atmosphere, and the " +
+                    $"immediate reaction of the environment and NPCs. " +
+                    $"Do NOT describe the mechanical result — the players already know the numbers. " +
+                    $"Focus on the story moment. Keep it to 1-2 paragraphs. " +
+                    $"Game system: {gameInfo.Status}. " +
+                    $"Current game state: {gameInfo.LastAction ?? "N/A"}.",
+                UserPrompt = context
+            }),
+            Status = AgentCallStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _agentBus.SendCallAsync(call);
+        _logger.LogDebug("Queued GM narrative for game {GameId}: {Context}", gameId, context);
     }
 }
 

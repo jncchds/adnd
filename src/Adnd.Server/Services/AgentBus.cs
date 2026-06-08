@@ -284,10 +284,21 @@ public class AgentBus : IAgentBus
 
     private async Task<string> HandleLLMCall(AgentCall call)
     {
-        var provider = _llmRegistry.GetProvider("ollama");
+        // Resolve the game's LLM preset to find the correct provider
+        var game = await _context.Games
+            .Include(g => g.LLMPreset)
+            .FirstOrDefaultAsync(g => g.Id == call.GameId);
+
+        string? providerType = null;
+        if (game?.LLMPreset != null)
+        {
+            providerType = game.LLMPreset.ProviderType;
+        }
+
+        var provider = providerType != null ? _llmRegistry.GetProvider(providerType) : null;
         if (provider == null)
         {
-            return "LLM provider not available.";
+            return $"LLM provider not available (tried: {providerType ?? "none"}).";
         }
 
         try

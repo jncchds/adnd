@@ -131,57 +131,59 @@ builder.Services.AddScoped<IWhisperService, WhisperService>();
 
 // LLM Providers
 builder.Services.AddHttpClient();
-builder.Services.AddScoped<ILLMProviderRegistry, LLMProviderRegistry>();
+
+// Register the LLMProviderRegistry and auto-populate it with configured providers
+builder.Services.AddScoped<ILLMProviderRegistry>(sp =>
+{
+    var registry = new LLMProviderRegistry(sp.GetRequiredService<ILogger<LLMProviderRegistry>>());
+    var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+    var config = builder.Configuration;
+    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+
+    var ollamaConfig = config.GetSection("Ollama");
+    if (!string.IsNullOrEmpty(ollamaConfig["BaseUrl"]))
+    {
+        var provider = new OllamaLLMProvider(
+            loggerFactory.CreateLogger<OllamaLLMProvider>(),
+            config, httpClientFactory);
+        registry.RegisterProvider(provider.ProviderId, provider);
+    }
+
+    var lmStudioConfig = config.GetSection("LmStudio");
+    if (!string.IsNullOrEmpty(lmStudioConfig["BaseUrl"]))
+    {
+        var provider = new LmStudioLLMProvider(
+            loggerFactory.CreateLogger<LmStudioLLMProvider>(),
+            config, httpClientFactory);
+        registry.RegisterProvider(provider.ProviderId, provider);
+    }
+
+    var openAIConfig = config.GetSection("OpenAI");
+    if (!string.IsNullOrEmpty(openAIConfig["ApiKey"]))
+    {
+        var provider = new OpenAILLMProvider(
+            loggerFactory.CreateLogger<OpenAILLMProvider>(),
+            config, httpClientFactory);
+        registry.RegisterProvider(provider.ProviderId, provider);
+    }
+
+    var googleConfig = config.GetSection("Google");
+    if (!string.IsNullOrEmpty(googleConfig["ApiKey"]))
+    {
+        var provider = new GoogleAIStudioLLMProvider(
+            loggerFactory.CreateLogger<GoogleAIStudioLLMProvider>(),
+            config, httpClientFactory);
+        registry.RegisterProvider(provider.ProviderId, provider);
+    }
+
+    return registry;
+});
 builder.Services.AddScoped<IRAGService, RAGService>();
 builder.Services.AddScoped<ILLMPresetService, LLMPresetService>();
 builder.Services.AddScoped<ILLMInteractionLogger, LLMInteractionLogger>();
 
 // PlotWeaver — automatic plot thread generation and evolution
 builder.Services.AddScoped<IPlotWeaver, PlotWeaver>();
-
-// Register Ollama provider if configured
-var ollamaConfig = builder.Configuration.GetSection("Ollama");
-if (!string.IsNullOrEmpty(ollamaConfig["BaseUrl"]))
-{
-    builder.Services.AddScoped<ILLMProvider>(sp =>
-        new OllamaLLMProvider(
-            sp.GetRequiredService<ILogger<OllamaLLMProvider>>(),
-            builder.Configuration,
-            sp.GetRequiredService<IHttpClientFactory>()));
-}
-
-// Register LM Studio provider if configured
-var lmStudioConfig = builder.Configuration.GetSection("LmStudio");
-if (!string.IsNullOrEmpty(lmStudioConfig["BaseUrl"]))
-{
-    builder.Services.AddScoped<ILLMProvider>(sp =>
-        new LmStudioLLMProvider(
-            sp.GetRequiredService<ILogger<LmStudioLLMProvider>>(),
-            builder.Configuration,
-            sp.GetRequiredService<IHttpClientFactory>()));
-}
-
-// Register OpenAI provider if configured
-var openAIConfig = builder.Configuration.GetSection("OpenAI");
-if (!string.IsNullOrEmpty(openAIConfig["ApiKey"]))
-{
-    builder.Services.AddScoped<ILLMProvider>(sp =>
-        new OpenAILLMProvider(
-            sp.GetRequiredService<ILogger<OpenAILLMProvider>>(),
-            builder.Configuration,
-            sp.GetRequiredService<IHttpClientFactory>()));
-}
-
-// Register Google AI Studio provider if configured
-var googleConfig = builder.Configuration.GetSection("Google");
-if (!string.IsNullOrEmpty(googleConfig["ApiKey"]))
-{
-    builder.Services.AddScoped<ILLMProvider>(sp =>
-        new GoogleAIStudioLLMProvider(
-            sp.GetRequiredService<ILogger<GoogleAIStudioLLMProvider>>(),
-            builder.Configuration,
-            sp.GetRequiredService<IHttpClientFactory>()));
-}
 
 var app = builder.Build();
 

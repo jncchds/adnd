@@ -183,39 +183,118 @@ public class GameAgent : IGameAgent
                         await ProcessCallAsync(call);
                     }
 
-                    // Auto-narrate: if no pending calls and game has been idle, trigger narrative
+                    // Auto-narrate: only after extended silence (3 min), check if anything meaningful
+                    // should happen based on plot momentum and game state.
                     if (pendingCalls.Count == 0 && !_isPaused)
                     {
-                        var idleThreshold = TimeSpan.FromSeconds(30);
+                        var idleThreshold = TimeSpan.FromMinutes(3);
                         if (game.LastGMActionAt.HasValue &&
                             DateTime.UtcNow - game.LastGMActionAt.Value > idleThreshold)
                         {
-                            var autoNarrateCall = new AgentCall
+                            // Check plot thread momentum to decide what to trigger
+                            var activeThreads = await _context.PlotThreads
+                                .Where(t => t.GameId == _gameId &&
+                                            t.Status == Models.PlotThreadStatus.Active)
+                                .ToListAsync(_cts.Token);
+
+                            var highMomentumThreads = activeThreads
+                                .Where(t => t.Momentum > 3f)
+                                .OrderByDescending(t => t.Momentum)
+                                .Take(3)
+                                .ToList();
+
+                            var failedThreads = activeThreads
+                                .Where(t => t.Momentum < 0f)
+                                .OrderBy(t => t.Momentum)
+                                .Take(3)
+                                .ToList();
+
+                            var pendingCallsCount = await _context.AgentCalls
+                                .CountAsync(c => c.GameId == _gameId && c.Status == AgentCallStatus.Pending, _cts.Token);
+
+                            // Don't create a new call if one is already pending (avoid stacking)
+                            if (pendingCallsCount == 0)
                             {
-                                GameId = _gameId,
-                                FromAgent = AgentType.System,
-                                ToAgent = AgentType.GM,
-                                Action = AgentAction.Narrate,
-                                Input = JsonSerializer.Serialize(new GMDispatchOptions
+                                string? systemPrompt = null;
+                                string? userPrompt = null;
+                                string? triggerReason = null;
+
+                                if (highMomentumThreads.Any())
                                 {
-                                    SystemPrompt = $"You are the Game Master for a TTRPG session. " +
-                                        $"The game has been idle. Generate an engaging narrative continuation " +
-                                        $"that advances the story naturally. Consider plot threads, NPC actions, " +
-                                        $"and player opportunities. Be vivid and immersive. " +
+                                    // High-momentum threads need attention — escalate
+                                    var threadNames = string.Join(", ", highMomentumThreads.Select(t => t.Title));
+                                    systemPrompt = $"You are the Game Master for a TTRPG session. " +
+                                        $"Several plot threads have reached critical momentum and require immediate attention. " +
+                                        $"Current game state: {game.GameState ?? "None"}. " +
                                         $"Game system: {game.SystemId}. " +
-                                        $"Plot seed: {game.PlotSeed ?? "None"}. " +
-                                        $"Current game state: {game.GameState ?? "None"}.",
-                                    UserPrompt = "Generate an engaging narrative continuation for the idle game."
-                                }),
-                                Status = AgentCallStatus.Pending,
-                                CreatedAt = DateTime.UtcNow
-                            };
+                                        $"Introduce a time-sensitive event that brings these threads into focus. " +
+                                        $"Be vivid and immersive. Limit to 2-3 paragraphs.";
+                                    userPrompt = $"Escalate these active plot threads: {threadNames}";
+                                    triggerReason = $"High momentum threads: {threadNames}";
+                                }
+                                else if (failedThreads.Any())
+                                {
+                                    // Failed threads need recovery — introduce a turning point
+                                    var threadNames = string.Join(", ", failedThreads.Select(t => t.Title));
+                                    systemPrompt = $"You are the Game Master for a TTRPG session. " +
+                                        $"Some plot threads have stalled and need a turning point to re-engage players. " +
+                                        $"Current game state: {game.GameState ?? "None"}. " +
+                                        $"Game system: {game.SystemId}. " +
+                                        $"Introduce an opportunity or revelation that revives these threads. " +
+                                        $"Be vivid and immersive. Limit to 2-3 paragraphs.";
+                                    userPrompt = $"Create a turning point for these stalled threads: {threadNames}";
+                                    triggerReason = $"Stalled threads: {threadNames}";
+                                }
+                                else if (activeThreads.Any())
+                                {
+                                    // Normal idle — advance the story naturally
+                                    systemPrompt = $"You are the Game Master for a TTRPG session. " +
+                                        $"The players have been quiet for a while. Advance the story by introducing " +
+                                        $"a natural development related to the current plot threads. " +
+                                        $"Current game state: {game.GameState ?? "None"}. " +
+                                        $"Game system: {game.SystemId}. " +
+                                        $"Be vivid and immersive. Limit to 2-3 paragraphs.";
+                                    userPrompt = "Introduce a natural story development during the quiet period.";
+                                    triggerReason = "Extended silence, advancing story";
+                                }
+                                else
+                                {
+                                    // No active threads — check if initial setup is complete
+                                    systemPrompt = $"You are the Game Master for a TTRPG session. " +
+                                        $"No plot threads are active and the game is idle. " +
+                                        $"Consider whether the opening has been delivered and if the players have " +
+                                        $"been given a clear starting point. If not, create one. " +
+                                        $"Current game state: {game.GameState ?? "None"}. " +
+                                        $"Game system: {game.SystemId}. " +
+                                        $"Plot seed: {game.PlotSeed ?? "None"}.";
+                                    userPrompt = "Check if the game has a proper starting point. If not, create one.";
+                                    triggerReason = "No active threads, checking setup";
+                                }
 
-                            _context.AgentCalls.Add(autoNarrateCall);
-                            await _context.SaveChangesAsync();
+                                if (systemPrompt != null)
+                                {
+                                    var autoNarrateCall = new AgentCall
+                                    {
+                                        GameId = _gameId,
+                                        FromAgent = AgentType.System,
+                                        ToAgent = AgentType.GM,
+                                        Action = AgentAction.Narrate,
+                                        Input = JsonSerializer.Serialize(new GMDispatchOptions
+                                        {
+                                            SystemPrompt = systemPrompt,
+                                            UserPrompt = userPrompt
+                                        }),
+                                        Status = AgentCallStatus.Pending,
+                                        CreatedAt = DateTime.UtcNow
+                                    };
 
-                            _logger.LogInformation("Auto-narrate triggered for game {GameId} after {Seconds}s idle",
-                                _gameId, idleThreshold.TotalSeconds);
+                                    _context.AgentCalls.Add(autoNarrateCall);
+                                    await _context.SaveChangesAsync();
+
+                                    _logger.LogInformation("Auto-narrate triggered for game {GameId}: {Reason} after {Minutes}m idle",
+                                        _gameId, triggerReason, idleThreshold.TotalMinutes);
+                                }
+                            }
                         }
                     }
                 }

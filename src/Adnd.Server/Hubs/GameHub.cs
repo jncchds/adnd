@@ -936,7 +936,8 @@ public class GameHub : Hub
             Subtotal = result.Subtotal,
             Total = result.Total,
             PlayerId = playerId,
-            Timestamp = result.RolledAt
+            Timestamp = result.RolledAt,
+            FlavorText = GenerateFlavorText("dice", result.Formula, result.Total)
         });
     }
 
@@ -964,7 +965,8 @@ public class GameHub : Hub
             Total = result.Total,
             DC = result.DC,
             Success = result.Success,
-            RolledAt = result.RolledAt
+            RolledAt = result.RolledAt,
+            FlavorText = GenerateFlavorText("skillcheck", result.Skill, result.Total, result.DC, result.Success)
         });
     }
 
@@ -993,7 +995,8 @@ public class GameHub : Hub
             AC = result.AC,
             DamageDice = result.DamageDice,
             DamageTotal = result.DamageTotal,
-            RolledAt = result.RolledAt
+            RolledAt = result.RolledAt,
+            FlavorText = GenerateFlavorText("attack", result.Weapon, result.Target, result.Hit, result.DamageTotal)
         });
     }
 
@@ -1021,7 +1024,8 @@ public class GameHub : Hub
             combat.Name,
             combat.CurrentRound,
             Participants = combat.Participants.Select(p => new { p.Id, p.DisplayName, p.ParticipantType, p.CurrentHP, p.MaxHP, p.AC, p.Initiative }).ToList(),
-            combat.StartedAt
+            combat.StartedAt,
+            FlavorText = $"Combat begins: {combat.Name ?? "An unexpected encounter!"}"
         });
 
         return BuildCombatLog(combat);
@@ -1041,7 +1045,8 @@ public class GameHub : Hub
         {
             combatId,
             result,
-            EndedAt = DateTime.UtcNow
+            EndedAt = DateTime.UtcNow,
+            FlavorText = result ?? "The combat ends."
         });
 
         return BuildCombatLog(endedCombat);
@@ -1110,7 +1115,8 @@ public class GameHub : Hub
             participant.Id,
             participant.DisplayName,
             participant.Initiative,
-            rolls
+            rolls,
+            FlavorText = $"{participant.DisplayName} rolls initiative: {participant.Initiative}"
         });
 
         return (BuildParticipantResponse(participant), rolls);
@@ -1135,7 +1141,8 @@ public class GameHub : Hub
                 p.CurrentHP,
                 p.MaxHP,
                 p.AC
-            })
+            }),
+            FlavorText = $"Initiative order: {turnOrder}"
         });
 
         return BuildCombatLog(result);
@@ -1392,7 +1399,8 @@ public class GameHub : Hub
             Amount = amount,
             HP = participant?.CurrentHP,
             MaxHP = participant?.MaxHP,
-            Source = source
+            Source = source,
+            FlavorText = $"{participant?.DisplayName ?? "Someone"} heals {amount} HP from {source ?? "a mysterious source"}"
         });
 
         return BuildCombatLog(result);
@@ -2524,6 +2532,69 @@ public class GameHub : Hub
             OutputMessage = toolCall.OutputMessage,
             Status = toolCall.Status
         };
+    }
+
+    // ==================== Flavor Text Helpers ====================
+    // Short, evocative text for immediate broadcast alongside mechanical results.
+    // The GM agent adds deeper narrative separately via AgentCalls.
+
+    private string GenerateFlavorText(string eventType, params object?[] args)
+    {
+        return eventType switch
+        {
+            "dice" => GenerateDiceFlavor((string?)args[0], (int?)args[1]),
+            "skillcheck" => GenerateSkillCheckFlavor(
+                (string?)args[1], (int?)args[2], (int?)args[3], (bool?)args[4]),
+            "attack" => GenerateAttackFlavor(
+                (string?)args[1], (string?)args[2], (bool?)args[3], (int?)args[4]),
+            _ => ""
+        };
+    }
+
+    private string GenerateDiceFlavor(string? formula, int? total)
+    {
+        if (string.IsNullOrEmpty(formula) || total == null) return "";
+        var rolls = formula.Split('+').Select(f => f.Trim()).ToArray();
+        var lastRoll = rolls.LastOrDefault();
+        return lastRoll?.Contains("d") == true
+            ? $"Rolling {lastRoll}... total: {total}"
+            : $"Roll: {total}";
+    }
+
+    private string GenerateSkillCheckFlavor(string? skill, int? total, int? dc, bool? success)
+    {
+        if (string.IsNullOrEmpty(skill) || total == null) return "";
+        var result = success == true ? "succeeds" : "fails";
+        var dcText = dc != null ? $" (DC {dc})" : "";
+        return $"{skill} check: {total}{dcText} — {result}";
+    }
+
+    private string GenerateAttackFlavor(string? weapon, string? target, bool? hit, int? damage)
+    {
+        if (string.IsNullOrEmpty(weapon)) return "";
+        var targetText = !string.IsNullOrEmpty(target) ? $" vs {target}" : "";
+        return hit == true
+            ? $"{weapon}{targetText} — hit! ({damage} damage)"
+            : $"{weapon}{targetText} — miss!";
+    }
+
+    private string GenerateCombatAttackFlavor(CombatAttackResponse result)
+    {
+        if (string.IsNullOrEmpty(result.Weapon)) return "";
+        var targetText = !string.IsNullOrEmpty(result.Target) ? $" on {result.Target}" : "";
+        if (result.IsCritical == true)
+            return $"{result.Attacker} {result.Weapon}{targetText} — CRITICAL! ({result.DamageTotal} damage)";
+        if (result.IsFumble == true)
+            return $"{result.Attacker} {result.Weapon}{targetText} — fumble!";
+        if (result.Hit == true)
+            return $"{result.Attacker} {result.Weapon}{targetText} — hit! ({result.DamageTotal} damage)";
+        return $"{result.Attacker} {result.Weapon}{targetText} — miss!";
+    }
+
+    private string GenerateSaveThrowFlavor(string participant, string saveType, bool success, int dc)
+    {
+        var result = success ? "succeeds" : "fails";
+        return $"{participant} {saveType} save (DC {dc}): {result}";
     }
 }
 
