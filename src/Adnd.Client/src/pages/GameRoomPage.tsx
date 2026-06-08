@@ -610,11 +610,11 @@ export default function GameRoomPage() {
           )}
 
           {activeTab === 2 && (
-            <PlayersTab players={players} />
+            <PlayersTab players={players} currentUserId={user?.id} />
           )}
 
           {activeTab === 3 && (
-            <CharactersTab characters={characters} />
+            <CharactersTab characters={characters} currentUserName={user?.displayName} />
           )}
 
           {activeTab === 4 && (
@@ -1074,12 +1074,13 @@ function MessageBubble({ msg }: { msg: UnifiedMessage }) {
 
 // ==================== Sub-Components ====================
 
-function PlayersTab({ players }: { players: any[] }) {
+function PlayersTab({ players, currentUserId }: { players: any[]; currentUserId?: string }) {
+  const filteredPlayers = players.filter(p => p.id !== currentUserId);
   return (
     <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>Players ({players.length})</Typography>
+      <Typography variant="h6" gutterBottom>Other Players ({filteredPlayers.length})</Typography>
       <List>
-        {players.map((p: any) => (
+        {filteredPlayers.map((p: any) => (
           <ListItem key={p.id} sx={{ px: 0 }}>
             <ListItemAvatar>
               <Avatar sx={{ bgcolor: p.role === 'Creator' ? 'warning.main' : p.role === 'Spectator' ? 'info.main' : 'primary.main' }}>
@@ -1099,37 +1100,37 @@ function PlayersTab({ players }: { players: any[] }) {
   );
 }
 
-function CharactersTab({ characters }: { characters: any[] }) {
+function CharactersTab({ characters, currentUserName }: { characters: any[]; currentUserName?: string }) {
   const navigate = useNavigate();
+  const myCharacter = characters.find(c => c.playerName === currentUserName);
   return (
     <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>Characters ({characters.length})</Typography>
-      {characters.length === 0 ? (
-        <Typography color="text.secondary">No characters yet. Characters will appear when players create them.</Typography>
-      ) : (
+      <Typography variant="h6" gutterBottom>My Character</Typography>
+      {!currentUserName ? (
+        <Typography color="text.secondary">Unable to identify your character.</Typography>
+      ) : myCharacter ? (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {characters.map((c: any) => (
-            <Paper key={c.id} variant="outlined" sx={{ p: 2 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                <Typography variant="h6">{c.name}</Typography>
-                <Chip label={`${c.class} Lv.${c.level}`} size="small" />
-              </Box>
-              <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                <Chip label={`HP: ${c.currentHP}/${c.maxHP}`} size="small" color={c.currentHP < c.maxHP * 0.3 ? 'error' : 'default'} />
-                <Chip label={c.playerName} size="small" variant="outlined" />
-              </Box>
-              <Typography variant="caption" color="text.secondary">
-                Last updated: {new Date(c.updatedAt).toLocaleString()}
-              </Typography>
-              <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
-                <Button size="small" variant="outlined" startIcon={<SheetIcon />}
-                  onClick={() => navigate(`/character/${c.id}`)}>
-                  View Sheet
-                </Button>
-              </Box>
-            </Paper>
-          ))}
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Typography variant="h6">{myCharacter.name}</Typography>
+              <Chip label={`${myCharacter.class} Lv.${myCharacter.level}`} size="small" />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+              <Chip label={`HP: ${myCharacter.currentHP}/${myCharacter.maxHP}`} size="small" color={myCharacter.currentHP < myCharacter.maxHP * 0.3 ? 'error' : 'default'} />
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              Last updated: {new Date(myCharacter.updatedAt).toLocaleString()}
+            </Typography>
+            <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
+              <Button size="small" variant="outlined" startIcon={<SheetIcon />}
+                onClick={() => navigate(`/character/${myCharacter.id}`)}>
+                View Sheet
+              </Button>
+            </Box>
+          </Paper>
         </Box>
+      ) : (
+        <Typography color="text.secondary">No character found. Create one from the Admin Panel.</Typography>
       )}
     </Paper>
   );

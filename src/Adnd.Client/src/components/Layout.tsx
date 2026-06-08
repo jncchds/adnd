@@ -33,6 +33,7 @@ import {
   Login as LoginIcon,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
+  Shield as ShieldIcon,
 } from '@mui/icons-material';
 import { useGames, useLLMPresets } from '../api/gameHooks';
 import { useAuth } from '../api/authHook';
@@ -462,6 +463,27 @@ export default function Layout() {
                 </ListItemIcon>
                 {drawerOpen && <ListItemText primary="Back to Games" />}
               </ListItemButton>
+              {/* Admin button for game creator */}
+              {(() => {
+                const game = games?.find(g => g.id === currentGameId);
+                const isCreator = user?.id && game && game.creatorId === user.id;
+                if (!isCreator) return null;
+                return (
+                  <ListItemButton
+                    onClick={() => navigate(`/admin/${currentGameId}`)}
+                    sx={{
+                      ...buttonBaseSx,
+                      color: 'warning.light',
+                      '&:hover': { bgcolor: 'rgba(255,193,7,0.1)' },
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}>
+                      <ShieldIcon fontSize="small" color="warning" />
+                    </ListItemIcon>
+                    {drawerOpen && <ListItemText primary="Admin Panel" />}
+                  </ListItemButton>
+                );
+              })()}
             </>
           )}
         </Box>
