@@ -323,6 +323,18 @@ export default function DashboardPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
+                      {game.status === 'Draft' && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          onClick={() => handleStartGame(game.id)}
+                          startIcon={<PlayIcon fontSize="small" />}
+                          sx={{ mr: 1 }}
+                        >
+                          Start Game
+                        </Button>
+                      )}
                       <Tooltip title="Play">
                         <IconButton component="a" href={`/game/${game.id}`} size="small">
                           <PlayIcon />
@@ -340,27 +352,6 @@ export default function DashboardPage() {
                           <ShareIcon />
                         </IconButton>
                       </Tooltip>
-                      {game.status === 'Draft' && (
-                        <>
-                          <Tooltip title="Start Game">
-                            <IconButton size="small" color="success" onClick={() => handleStartGame(game.id)}>
-                              <PlayIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Archive">
-                            <IconButton size="small" color="default" onClick={() => handleArchiveGame(game.id)}>
-                              <ArchiveIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </>
-                      )}
-                      {game.status === 'Active' && (
-                        <Tooltip title="Archive">
-                          <IconButton size="small" color="default" onClick={() => handleArchiveGame(game.id)}>
-                            <ArchiveIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
                       {game.status === 'Active' && (
                         <Tooltip title="Leave">
                           <IconButton onClick={() => leaveGame(game.id)} size="small" color="error">
@@ -368,6 +359,11 @@ export default function DashboardPage() {
                           </IconButton>
                         </Tooltip>
                       )}
+                      <Tooltip title="Archive">
+                        <IconButton size="small" color="default" onClick={() => handleArchiveGame(game.id)}>
+                          <ArchiveIcon />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Delete">
                         <IconButton onClick={() => deleteGame(game.id)} size="small" color="error">
                           <DeleteIcon />

@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useLLMPresets, useProviderModels } from '../api/gameHooks';
 import {
   Box,
@@ -40,6 +41,7 @@ import {
 } from '@mui/icons-material';
 
 export default function LLMPresetsPage() {
+  const location = useLocation();
   const {
     presets,
     isLoading,
@@ -54,7 +56,14 @@ export default function LLMPresetsPage() {
   // Model listing hook
   const { models: providerModels, isLoading: loadingModels, error: modelError, fetchModels } = useProviderModels();
 
-  const [openDialog, setOpenDialog] = useState(false);
+  const [openDialog, setOpenDialog] = useState(location.pathname === '/llm-presets/new');
+
+  // Auto-open create dialog when navigating to /llm-presets/new
+  useEffect(() => {
+    if (location.pathname === '/llm-presets/new') {
+      setOpenDialog(true);
+    }
+  }, [location.pathname]);
   const [editingPreset, setEditingPreset] = useState<any>(null);
   const [presetName, setPresetName] = useState('');
   const [presetProvider, setPresetProvider] = useState('ollama');

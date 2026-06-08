@@ -36,9 +36,11 @@ import {
   AutoFixHigh as ConsistencyIcon,
   ChatBubble as ChatBubbleIcon,
   BarChart as BarChartIcon,
+  Add as AddIcon,
+  PlayArrow as PlayArrowIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../api/authHook';
-import { useGames } from '../api/gameHooks';
+import { useGames, useLLMPresets } from '../api/gameHooks';
 
 const DRAWER_WIDTH = 260;
 const DRAWER_COLLAPSED_WIDTH = 56;
@@ -52,6 +54,10 @@ interface SidePanelProps {
   onNavigate: (view: AppView) => void;
   gameId?: string;
   activeGameTab?: string;
+  onNewGame?: () => void;
+  onJoinGame?: () => void;
+  onAddPreset?: () => void;
+  onNewSystem?: () => void;
 }
 
 // Unified button style
@@ -67,11 +73,12 @@ const buttonBaseSx = {
   '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
 };
 
-export default function SidePanel({ open, onToggle, currentView, onNavigate, gameId, activeGameTab }: SidePanelProps) {
+export default function SidePanel({ open, onToggle, currentView, onNavigate, gameId, activeGameTab, onNewGame, onJoinGame, onAddPreset, onNewSystem }: SidePanelProps) {
   const navigate = useNavigate();
   const theme = useTheme();
   const { user, isAuthenticated, logout } = useAuth();
   const { games } = useGames();
+  const { presets } = useLLMPresets();
 
   const drawerWidth = open ? DRAWER_WIDTH : DRAWER_COLLAPSED_WIDTH;
 
@@ -204,14 +211,62 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
           </>
         )}
 
-        {/* Dashboard: game list */}
+        {/* Dashboard: action buttons + game list */}
         {currentView === 'dashboard' && open && (
-          activeGames.map(game => (
-            <ListItemButton key={game.id} onClick={() => onNavigate('game')} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-              <ListItemIcon sx={{ minWidth: 0, mr: 'auto', justifyContent: 'center' }}><GameIcon fontSize="small" color="action" /></ListItemIcon>
-              <ListItemText primary={game.name} primaryTypographyProps={{ noWrap: true, fontSize: 13, fontWeight: 500 }} />
-            </ListItemButton>
-          ))
+          <>
+            {onNewGame && (
+              <ListItemButton onClick={onNewGame} sx={{ ...buttonBaseSx, color: 'primary.light', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' }, mt: 0.5 }}>
+                <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><AddIcon fontSize="small" color="primary" /></ListItemIcon>
+                <ListItemText primary="New Game" />
+              </ListItemButton>
+            )}
+            {onJoinGame && (
+              <ListItemButton onClick={onJoinGame} sx={{ ...buttonBaseSx, color: 'success.light', '&:hover': { bgcolor: 'rgba(76,175,80,0.1)' } }}>
+                <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><PlayArrowIcon fontSize="small" color="success" /></ListItemIcon>
+                <ListItemText primary="Join by Code" />
+              </ListItemButton>
+            )}
+            {activeGames.map(game => (
+              <ListItemButton key={game.id} onClick={() => navigate(`/game/${game.id}`)} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                <ListItemIcon sx={{ minWidth: 0, mr: 'auto', justifyContent: 'center' }}><GameIcon fontSize="small" color="action" /></ListItemIcon>
+                <ListItemText primary={game.name} primaryTypographyProps={{ noWrap: true, fontSize: 13, fontWeight: 500 }} />
+              </ListItemButton>
+            ))}
+          </>
+        )}
+
+        {/* LLM Presets view */}
+        {currentView === 'llm-presets' && open && (
+          <>
+            {onAddPreset && (
+              <ListItemButton onClick={onAddPreset} sx={{ ...buttonBaseSx, color: 'primary.light', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' }, mt: 0.5 }}>
+                <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><AddIcon fontSize="small" color="primary" /></ListItemIcon>
+                <ListItemText primary="Add Preset" />
+              </ListItemButton>
+            )}
+            {presets.length === 0 ? (
+              <Typography variant="caption" sx={{ px: 2, color: 'text.secondary' }}>No presets yet</Typography>
+            ) : (
+              presets.map(preset => (
+                <ListItemButton key={preset.id} onClick={() => navigate(`/llm-presets/${preset.id}`)} sx={{ ...buttonBaseSx, bgcolor: preset.isDefault ? 'rgba(145,71,255,0.08)' : 'transparent', border: preset.isDefault ? '1px solid' : 'none', borderColor: preset.isDefault ? 'rgba(145,71,255,0.3)' : 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                  <ListItemIcon sx={{ minWidth: 0, mr: 'auto', justifyContent: 'center' }}><LLMIcon fontSize="small" color="action" /></ListItemIcon>
+                  <ListItemText primary={preset.name} primaryTypographyProps={{ noWrap: true, fontSize: 13, fontWeight: 500 }} />
+                </ListItemButton>
+              ))
+            )}
+          </>
+        )}
+
+        {/* Systems view */}
+        {currentView === 'systems' && open && (
+          <>
+            {onNewSystem && (
+              <ListItemButton onClick={onNewSystem} sx={{ ...buttonBaseSx, color: 'primary.light', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' }, mt: 0.5 }}>
+                <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><AddIcon fontSize="small" color="primary" /></ListItemIcon>
+                <ListItemText primary="New System" />
+              </ListItemButton>
+            )}
+          </>
         )}
 
         {/* Game view */}
@@ -230,8 +285,8 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
               <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><BackIcon fontSize="small" /></ListItemIcon>
               {open && <ListItemText primary="Back" />}
             </ListItemButton>
-            {isInGame && (
-              <ListItemButton onClick={() => onNavigate('admin')} sx={{ ...buttonBaseSx, color: 'warning.light', '&:hover': { bgcolor: 'rgba(255,193,7,0.1)' } }}>
+            {isInGame && gameId && (
+              <ListItemButton onClick={() => navigate(`/admin/${gameId}`)} sx={{ ...buttonBaseSx, color: 'warning.light', '&:hover': { bgcolor: 'rgba(255,193,7,0.1)' } }}>
                 <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><ShieldIcon fontSize="small" color="warning" /></ListItemIcon>
                 {open && <ListItemText primary="Admin" />}
               </ListItemButton>

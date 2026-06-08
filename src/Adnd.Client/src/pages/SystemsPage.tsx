@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useGameHub } from '../api/hubHook';
 import {
   Box,
@@ -34,10 +35,18 @@ const BUILTIN_SYSTEMS = [
 ];
 
 export default function SystemsPage() {
+  const location = useLocation();
   const { invoke } = useGameHub();
   const [systems, setSystems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [openDialog, setOpenDialog] = useState(false);
+  const [openDialog, setOpenDialog] = useState(location.pathname === '/systems/new');
+
+  // Auto-open create dialog when navigating to /systems/new
+  useEffect(() => {
+    if (location.pathname === '/systems/new') {
+      setOpenDialog(true);
+    }
+  }, [location.pathname]);
   const [systemName, setSystemName] = useState('');
   const [systemJson, setSystemJson] = useState('{"name": "", "attributes": [], "skills": [], "defaultHP": 10}');
   const [error, setError] = useState<string | null>(null);
