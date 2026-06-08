@@ -9,7 +9,6 @@ services:
       POSTGRES_PASSWORD: adnd_secret
     volumes:
       - adnd-data:/var/lib/postgresql/data
-      - ./docker/init-pgvector.sql:/docker-entrypoint-initdb.d/01-pgvector.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U adnd"]
       interval: 5s
