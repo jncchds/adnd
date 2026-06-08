@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, PlotThreadResponse, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary, GameProviderUsageSummary, GMStatusResponse, SwayResponse, PlotReviewResponse } from './client';
+import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, PlotThreadResponse, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary, GameProviderUsageSummary, GMStatusResponse, SwayResponse, PlotReviewResponse, PendingCallsResponse } from './client';
 import { useEntity } from './useEntity';
 
 export function useGames() {
@@ -488,6 +488,39 @@ export function useLLMInteractions(gameId?: string) {
     fetchLogs,
     deleteLog,
     getUsage,
+  };
+}
+
+// ==================== Pending Agent Calls Hook ====================
+
+export function usePendingCalls(gameId: string | undefined) {
+  const [calls, setCalls] = useState<PendingCallsResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchCalls = useCallback(async () => {
+    if (!gameId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getPendingAgentCalls(gameId);
+      setCalls(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [gameId]);
+
+  useEffect(() => {
+    fetchCalls();
+  }, [fetchCalls]);
+
+  return {
+    calls,
+    isLoading,
+    error,
+    refetch: fetchCalls,
   };
 }
 

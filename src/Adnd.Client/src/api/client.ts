@@ -387,6 +387,29 @@ class APIClient {
     return this.request(`/admin/agent-calls/${callId}`);
   }
 
+  async getPendingAgentCalls(gameId: string) {
+    return this.request<{ pendingCalls: PendingAgentCall[]; pendingCount: number; runningCount: number }>(
+      `/admin/games/${gameId}/agent-calls/pending`
+    );
+  }
+
+  // ==================== Manual LLM Triggers ====================
+  async triggerNarrate(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/narrate`, { method: 'POST' });
+  }
+
+  async triggerSuggest(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/suggest`, { method: 'POST' });
+  }
+
+  async triggerConsistency(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/consistency`, { method: 'POST' });
+  }
+
+  async triggerReview(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/review`, { method: 'POST' });
+  }
+
   async createAgentCall(gameId: string, fromAgent: number, toAgent: number, action: number, input?: string, sessionId?: string) {
     return this.request(`/admin/games/${gameId}/agent-calls`, {
       method: 'POST',
@@ -589,6 +612,12 @@ export interface SwayResponse {
   callId: string;
   status: number;
   createdAt: string;
+}
+
+export interface PendingCallsResponse {
+  pendingCalls: PendingAgentCall[];
+  pendingCount: number;
+  runningCount: number;
 }
 
 export interface GameSessionListItem {
@@ -830,6 +859,18 @@ export interface AgentCallItem {
   error?: string;
   createdAt: string;
   completedAt?: string;
+}
+
+export interface PendingAgentCall {
+  id: string;
+  fromAgent: number;
+  toAgent: number;
+  action: number;
+  status: string; // 'pending' | 'running'
+  input?: string;
+  createdAt: string;
+  startedAt?: string;
+  outputMessage?: string;
 }
 
 // ==================== LLM Preset Types ====================

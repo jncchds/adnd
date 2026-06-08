@@ -16,11 +16,13 @@ public class GameLifecycleHandler :
     INotificationHandler<GameResumed>
 {
     private readonly IGameAgentManager _gameAgentManager;
+    private readonly IAgentBus _agentBus;
     private readonly ILogger<GameLifecycleHandler> _logger;
 
-    public GameLifecycleHandler(IGameAgentManager gameAgentManager, ILogger<GameLifecycleHandler> logger)
+    public GameLifecycleHandler(IGameAgentManager gameAgentManager, IAgentBus agentBus, ILogger<GameLifecycleHandler> logger)
     {
         _gameAgentManager = gameAgentManager;
+        _agentBus = agentBus;
         _logger = logger;
     }
 
@@ -35,6 +37,17 @@ public class GameLifecycleHandler :
         _logger.LogInformation("Game started — activating GameAgent: {GameId}", notification.GameId);
         var agent = _gameAgentManager.GetOrCreate(notification.GameId);
         await agent.StartAsync(notification.GameId, notification.CreatorId);
+
+        // Queue the initial GM narrative call so the processing loop has something to process
+        try
+        {
+            await _agentBus.ActivateGameAgentAsync(notification.GameId, notification.CreatorId);
+            _logger.LogInformation("Queued initial GM narrative for game {GameId}", notification.GameId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to queue initial GM narrative for game {GameId}", notification.GameId);
+        }
     }
 
     public async Task Handle(GameArchived notification, CancellationToken ct)

@@ -705,6 +705,64 @@ export default function GameRoomPage() {
     }
   };
 
+  // ==================== Manual LLM Trigger Handlers ====================
+
+  const handleTriggerNarrate = async () => {
+    if (!id) return;
+    setErrorState(null);
+    setSuccessState(null);
+    try {
+      await api.triggerNarrate(id);
+      setSuccessState('Narrative queued');
+      setTimeout(() => setSuccessState(null), 3000);
+      refetchGMStatus();
+    } catch (e: any) {
+      setErrorState(e.message);
+    }
+  };
+
+  const handleTriggerSuggest = async () => {
+    if (!id) return;
+    setErrorState(null);
+    setSuccessState(null);
+    try {
+      await api.triggerSuggest(id);
+      setSuccessState('Suggestions queued');
+      setTimeout(() => setSuccessState(null), 3000);
+      refetchGMStatus();
+    } catch (e: any) {
+      setErrorState(e.message);
+    }
+  };
+
+  const handleTriggerConsistency = async () => {
+    if (!id) return;
+    setErrorState(null);
+    setSuccessState(null);
+    try {
+      await api.triggerConsistency(id);
+      setSuccessState('Consistency check queued');
+      setTimeout(() => setSuccessState(null), 3000);
+      refetchGMStatus();
+    } catch (e: any) {
+      setErrorState(e.message);
+    }
+  };
+
+  const handleTriggerReview = async () => {
+    if (!id) return;
+    setErrorState(null);
+    setSuccessState(null);
+    try {
+      await api.triggerReview(id);
+      setSuccessState('Plot review triggered');
+      setTimeout(() => setSuccessState(null), 3000);
+      refetchGMStatus();
+    } catch (e: any) {
+      setErrorState(e.message);
+    }
+  };
+
   if (isLoading) {
     return <Box sx={{ textAlign: 'center', mt: 8 }}><Typography>Loading game...</Typography></Box>;
   }
@@ -864,7 +922,17 @@ export default function GameRoomPage() {
           )}
 
           {hash === 'settings' && (
-            <SettingsTab game={game} sessions={sessions} onNewSession={() => setCreateSessionOpen(true)} isCreator={isCreator} gameId={id} />
+            <SettingsTab
+              game={game}
+              sessions={sessions}
+              onNewSession={() => setCreateSessionOpen(true)}
+              isCreator={isCreator}
+              gameId={id}
+              onTriggerNarrate={handleTriggerNarrate}
+              onTriggerSuggest={handleTriggerSuggest}
+              onTriggerConsistency={handleTriggerConsistency}
+              onTriggerReview={handleTriggerReview}
+            />
           )}
         </Box>
       </Box>
@@ -1445,7 +1513,7 @@ function ActionsTab({ onSkillCheck, onAttack, onDiceRoll }: any) {
   );
 }
 
-function SettingsTab({ game, sessions, onNewSession, isCreator, gameId }: any) {
+function SettingsTab({ game, sessions, onNewSession, isCreator, gameId, onTriggerNarrate, onTriggerSuggest, onTriggerConsistency, onTriggerReview }: any) {
   const navigate = useNavigate();
   return (
     <Paper sx={{ p: 2 }}>
@@ -1475,6 +1543,56 @@ function SettingsTab({ game, sessions, onNewSession, isCreator, gameId }: any) {
           </Box>
         </>
       )}
+
+      <Divider sx={{ my: 2 }} />
+
+      {/* ==================== Manual LLM Triggers ==================== */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="subtitle1" gutterBottom>
+          🤖 Manual LLM Triggers
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Use these buttons to force the AI-GM to generate content when it's not doing so automatically.
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={onTriggerNarrate}
+            disabled={game.status !== 'Active'}
+            sx={{ minWidth: 140 }}
+          >
+            🎬 Narrate
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={onTriggerSuggest}
+            disabled={game.status !== 'Active'}
+            sx={{ minWidth: 140 }}
+          >
+            💡 Suggestions
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={onTriggerConsistency}
+            disabled={game.status !== 'Active'}
+            sx={{ minWidth: 140 }}
+          >
+            🔍 Consistency Check
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={onTriggerReview}
+            disabled={game.status !== 'Active'}
+            sx={{ minWidth: 140 }}
+          >
+            📋 Plot Review
+          </Button>
+        </Box>
+      </Box>
 
       <Divider sx={{ my: 2 }} />
 

@@ -20,7 +20,7 @@ import {
 } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
 import { useState } from 'react';
-import { useGameProviderUsage } from '../api/gameHooks';
+import { useGameProviderUsage, usePendingCalls } from '../api/gameHooks';
 import type { GameProviderUsageSummary } from '../types';
 
 // ==================== Summary Card ====================
@@ -82,6 +82,17 @@ function formatDuration(ms: number): string {
   const mins = Math.floor(secs / 60);
   const remSecs = secs % 60;
   return `${mins}m ${remSecs}s`;
+}
+
+function timeAgo(dateStr?: string): string {
+  if (!dateStr) return 'now';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}h ago`;
 }
 
 function ProviderRow({ summary }: ProviderRowProps) {
@@ -247,6 +258,7 @@ interface LLMUsagePanelProps {
 
 export default function LLMUsagePanel({ gameId, compact = false }: LLMUsagePanelProps) {
   const { usage, isLoading, error, refetch } = useGameProviderUsage(gameId);
+  const { calls: pendingCalls } = usePendingCalls(gameId);
   const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d' | '90d'>('all');
 
   // Compute totals across all providers
@@ -375,6 +387,83 @@ export default function LLMUsagePanel({ gameId, compact = false }: LLMUsagePanel
             />
           </Grid>
         </Grid>
+
+        {/* Pending/Running Calls */}
+        {pendingCalls && (pendingCalls.pendingCount > 0 || pendingCalls.runningCount > 0) && (
+          <Card sx={{ mb: 2, bgcolor: 'background.paper', borderRadius: 2 }}>
+            <CardContent sx={{ p: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="subtitle2" fontWeight={600}>
+                  Agent Calls
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  {pendingCalls.pendingCount > 0 && (
+                    <Chip
+                      label={`${pendingCalls.pendingCount} pending`}
+                      size="small"
+                      color="warning"
+                      variant="outlined"
+                    />
+                  )}
+                  {pendingCalls.runningCount > 0 && (
+                    <Chip
+                      label={`${pendingCalls.runningCount} running`}
+                      size="small"
+                      color="info"
+                      sx={{
+                        bgcolor: 'info.light',
+                        color: 'info.contrastText',
+                        '&::before': {
+                          content: '""',
+                          position: 'absolute',
+                          inset: 0,
+                          borderRadius: 'inherit',
+                          border: '2px solid currentColor',
+                          opacity: 0.5,
+                          animation: 'pulse 2s ease-in-out infinite',
+                        },
+                        '@keyframes pulse': {
+                          '0%, 100%': { opacity: 0.5 },
+                          '50%': { opacity: 0.1 },
+                        },
+                      }}
+                    />
+                  )}
+                </Box>
+              </Box>
+              {pendingCalls.pendingCalls.map(call => (
+                <Box key={call.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <Chip
+                    label={call.status === 'running' ? '⏳' : '📋'}
+                    size="small"
+                    variant="outlined"
+                    sx={{ fontSize: '0.75rem', height: 20 }}
+                  />
+                  <Typography variant="body2" fontWeight={500}>
+                    {call.toAgent === 2 ? 'LLM' : call.toAgent === 3 ? 'Dice' : call.toAgent === 4 ? 'RAG' : call.toAgent === 5 ? 'NPC' : call.toAgent === 6 ? 'Player' : call.toAgent === 7 ? 'System' : 'GM'}
+                  </Typography>
+                  <Chip
+                    label={call.action === 0 ? 'Query' : call.action === 1 ? 'Generate' : call.action === 2 ? 'Roll' : call.action === 3 ? 'Check' : call.action === 4 ? 'Narrate' : call.action === 5 ? 'Suggest' : call.action === 6 ? 'Execute' : call.action === 7 ? 'Notify' : call.action === 8 ? 'Recall' : call.action === 9 ? 'ManageState' : call.action === 10 ? 'Nudge' : 'Unknown'}
+                    size="small"
+                    variant="outlined"
+                    sx={{ fontSize: '0.65rem', height: 18 }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    {call.status === 'running'
+                      ? `Started ${timeAgo(call.startedAt)}`
+                      : `Queued ${timeAgo(call.createdAt)}`
+                    }
+                  </Typography>
+                  {call.outputMessage && (
+                    <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                      — {call.outputMessage}
+                    </Typography>
+                  )}
+                </Box>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Date Filter */}
         <Box sx={{ display: 'flex', gap: 0.5, mb: 2 }}>

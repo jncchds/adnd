@@ -4,6 +4,7 @@ using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace Adnd.Server.Agent;
 
@@ -180,6 +181,42 @@ public class GameAgent : IGameAgent
                         if (_cts.Token.IsCancellationRequested || _isPaused) break;
 
                         await ProcessCallAsync(call);
+                    }
+
+                    // Auto-narrate: if no pending calls and game has been idle, trigger narrative
+                    if (pendingCalls.Count == 0 && !_isPaused)
+                    {
+                        var idleThreshold = TimeSpan.FromSeconds(30);
+                        if (game.LastGMActionAt.HasValue &&
+                            DateTime.UtcNow - game.LastGMActionAt.Value > idleThreshold)
+                        {
+                            var autoNarrateCall = new AgentCall
+                            {
+                                GameId = _gameId,
+                                FromAgent = AgentType.System,
+                                ToAgent = AgentType.GM,
+                                Action = AgentAction.Narrate,
+                                Input = JsonSerializer.Serialize(new GMDispatchOptions
+                                {
+                                    SystemPrompt = $"You are the Game Master for a TTRPG session. " +
+                                        $"The game has been idle. Generate an engaging narrative continuation " +
+                                        $"that advances the story naturally. Consider plot threads, NPC actions, " +
+                                        $"and player opportunities. Be vivid and immersive. " +
+                                        $"Game system: {game.SystemId}. " +
+                                        $"Plot seed: {game.PlotSeed ?? "None"}. " +
+                                        $"Current game state: {game.GameState ?? "None"}.",
+                                    UserPrompt = "Generate an engaging narrative continuation for the idle game."
+                                }),
+                                Status = AgentCallStatus.Pending,
+                                CreatedAt = DateTime.UtcNow
+                            };
+
+                            _context.AgentCalls.Add(autoNarrateCall);
+                            await _context.SaveChangesAsync();
+
+                            _logger.LogInformation("Auto-narrate triggered for game {GameId} after {Seconds}s idle",
+                                _gameId, idleThreshold.TotalSeconds);
+                        }
                     }
                 }
                 catch (OperationCanceledException) when (_cts.Token.IsCancellationRequested)
