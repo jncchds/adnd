@@ -30,7 +30,7 @@ export default function AdminPage() {
   const { game, isLoading } = useGame(id);
   const { npcs, isLoading: npcsLoading, createNPC, updateNPC, deleteNPC } = useNPCs(id);
   const { threads, isLoading: threadsLoading, createThread, updateThread } = usePlotThreads(id);
-  const { characters } = useCharacters(id);
+  const { characters, refetch: refetchCharacters } = useCharacters(id);
   const { report, isLoading: consistencyLoading, check } = useConsistency(id);
   const { threads: plotThreads, isLoading: plotThreadsLoading } = usePlotWeaver(id);
 
@@ -548,7 +548,7 @@ export default function AdminPage() {
       <CharacterCreateWizard
         open={showCharCreateWizard}
         onClose={() => setShowCharCreateWizard(false)}
-        gameId={id || ''}
+        onFinish={() => { refetchCharacters(); }}
       />
 
       {/* LLM Preset Dialog */}

@@ -13,9 +13,11 @@ import { Link, useNavigate } from 'react-router-dom';
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { games, isLoading, error, refetch, createGame, deleteGame, leaveGame, generateInvite, startGame, archiveGame } = useGames();
+  const { games, isLoading, error, refetch, createGame, deleteGame, leaveGame, generateInvite, startGame, archiveGame, joinByCode } = useGames();
   const { presets, isLoading: presetsLoading } = useLLMPresets();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showJoinDialog, setShowJoinDialog] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
   const [gameName, setGameName] = useState('');
   const [systemId, setSystemId] = useState('dnd5e');
   const [llmPresetId, setLLMPresetId] = useState<string | null>(null);
@@ -34,6 +36,30 @@ export default function DashboardPage() {
     setLLMPresetId(null);
     setPlotSeed('');
     setGameParameters('');
+  };
+
+  const handleOpenJoin = () => {
+    setShowJoinDialog(true);
+  };
+
+  const handleCloseJoin = () => {
+    setShowJoinDialog(false);
+    setJoinCode('');
+  };
+
+  const handleJoin = async () => {
+    if (!joinCode.trim()) return;
+    setErrorState(null);
+    setSuccessState(null);
+    try {
+      const result: any = await joinByCode(joinCode);
+      setShowJoinDialog(false);
+      setJoinCode('');
+      setSuccessState(`Joined game! Navigating...`);
+      setTimeout(() => navigate(`/game/${result.gameId}`), 500);
+    } catch (e: any) {
+      setErrorState(e.message);
+    }
   };
 
   const handleCreate = async () => {
@@ -110,6 +136,7 @@ export default function DashboardPage() {
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button variant="outlined" size="small" onClick={() => navigate('/llm-presets')}>LLM Presets</Button>
+          <Button variant="outlined" onClick={handleOpenJoin}>Join by Code</Button>
           <Button variant="contained" onClick={handleOpenCreate}>+ New Game</Button>
         </Box>
       </Box>
@@ -193,6 +220,31 @@ export default function DashboardPage() {
           <Button onClick={handleCloseCreate}>Cancel</Button>
           <Button onClick={handleCreate} variant="contained" disabled={!gameName.trim()}>
             Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Join by Code Dialog */}
+      <Dialog open={showJoinDialog} onClose={handleCloseJoin} maxWidth="sm" fullWidth>
+        <DialogTitle>Join a Game</DialogTitle>
+        <DialogContent sx={{ mt: 1 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Enter the invite code shared by the game creator to join their game.
+          </Typography>
+          <TextField
+            fullWidth
+            label="Invite Code"
+            value={joinCode}
+            onChange={e => setJoinCode(e.target.value)}
+            placeholder="e.g., abc12345 or /join/abc12345"
+            autoFocus
+            onKeyDown={e => e.key === 'Enter' && handleJoin()}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseJoin}>Cancel</Button>
+          <Button onClick={handleJoin} variant="contained" disabled={!joinCode.trim()}>
+            Join
           </Button>
         </DialogActions>
       </Dialog>

@@ -157,6 +157,13 @@ class APIClient {
     return this.request('/games/' + id + '/join', { method: 'POST' });
   }
 
+  async joinByCode(code: string) {
+    return this.request('/games/join-by-code', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  }
+
   async leaveGame(id: string) {
     return this.request('/games/' + id + '/leave', { method: 'POST' });
   }

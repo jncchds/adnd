@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useGameHub } from '../api/hubHook';
 import {
   Box, Typography, Paper, Button, Step, StepLabel, StepContent,
   Stepper, TextField, MenuItem, Select,
@@ -249,8 +248,7 @@ const ATTR_NAMES = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
 
 // ==================== Component ====================
 
-export default function CharacterCreateWizard({ open, onClose, gameId: _gameId }: { open: boolean; onClose: () => void; gameId: string }) {
-  const { invoke } = useGameHub();
+export default function CharacterCreateWizard({ open, onClose, onFinish }: { open: boolean; onClose: () => void; onFinish: (data: any) => void }) {
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -282,7 +280,6 @@ export default function CharacterCreateWizard({ open, onClose, gameId: _gameId }
       setAttributes({});
       setStandardArrayIndex(0);
       setStandardArrayOrder([]);
-      // point buy starts at 27
       setStartingEquipment([]);
       setExtraGold(0);
       setError(null);
@@ -318,35 +315,30 @@ export default function CharacterCreateWizard({ open, onClose, gameId: _gameId }
 
   const handleBack = () => setStep(s => Math.max(0, s - 1));
 
-  const handleFinish = async () => {
+  const handleFinish = () => {
     if (!name.trim() || !classId) { setError('Name and class are required'); return; }
     setError(null);
     setSuccess(null);
-    try {
-      const characterData = {
-        name,
-        class: selectedTemplate?.name || classId,
-        level,
-        systemId,
-        attributes: { ...attributes },
-        skills: {},
-        proficiencyBonus: 2,
-        maxHP: selectedTemplate ? selectedTemplate.hitDie + Math.floor((attributes.CON - 10) / 2) : 10,
-        currentHP: selectedTemplate ? selectedTemplate.hitDie + Math.floor((attributes.CON - 10) / 2) : 10,
-        startingEquipment,
-        gold: extraGold,
-      };
 
-      // Use agent framework to create character
-      await invoke('CallAgent', 0, 5, 6, JSON.stringify(characterData));
+    const characterData = {
+      name,
+      class: selectedTemplate?.name || classId,
+      level,
+      systemId,
+      attributes: { ...attributes },
+      skills: {},
+      proficiencyBonus: 2,
+      maxHP: selectedTemplate ? selectedTemplate.hitDie + Math.floor((attributes.CON - 10) / 2) : 10,
+      currentHP: selectedTemplate ? selectedTemplate.hitDie + Math.floor((attributes.CON - 10) / 2) : 10,
+      startingEquipment,
+      gold: extraGold,
+    };
 
-      setSuccess(`Character '${name}' created successfully!`);
-      setTimeout(() => {
-        onClose();
-      }, 1500);
-    } catch (e: any) {
-      setError(e.message || 'Failed to create character');
-    }
+    setSuccess(`Character '${name}' created!`);
+    setTimeout(() => {
+      onFinish(characterData);
+      onClose();
+    }, 800);
   };
 
   // Point buy costs

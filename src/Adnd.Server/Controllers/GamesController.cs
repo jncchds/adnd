@@ -1,11 +1,13 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Adnd.Server.Data;
 using Adnd.Server.Events;
+using Adnd.Server.Hubs;
 using MediatR;
 
 namespace Adnd.Server.Controllers;
@@ -16,18 +18,20 @@ namespace Adnd.Server.Controllers;
 public class GamesController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly IUserIdProvider _userIdProvider;
+    private readonly Adnd.Server.Services.IUserIdProvider _userIdProvider;
     private readonly IGameAuthorizationService _authService;
     private readonly IAgentBus _agentBus;
     private readonly IMediator _mediator;
+    private readonly IHubContext<GameHub> _hubContext;
     private readonly ILogger<GamesController> _logger;
 
     public GamesController(
         AppDbContext context,
-        IUserIdProvider userIdProvider,
+        Adnd.Server.Services.IUserIdProvider userIdProvider,
         IGameAuthorizationService authService,
         IAgentBus agentBus,
         IMediator mediator,
+        IHubContext<GameHub> hubContext,
         ILogger<GamesController> logger)
     {
         _context = context;
@@ -35,6 +39,7 @@ public class GamesController : ControllerBase
         _authService = authService;
         _agentBus = agentBus;
         _mediator = mediator;
+        _hubContext = hubContext;
         _logger = logger;
     }
 
@@ -191,6 +196,69 @@ public class GamesController : ControllerBase
             InviteCode = game.InviteCode!,
             InviteUrl = $"/join/{game.InviteCode}"
         });
+    }
+
+    [HttpPost("join-by-code")]
+    [Authorize]
+    public async Task<IActionResult> JoinByCode([FromBody] JoinByCodeRequest request)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userId == null || !Guid.TryParse(userId, out var uid))
+        {
+            return Unauthorized();
+        }
+
+        // Extract code from URL format ("/join/abc12345" or "abc12345")
+        var code = request.Code.TrimStart('/');
+
+        var game = await _context.Games
+            .Include(g => g.Players)
+            .FirstOrDefaultAsync(g => g.InviteCode != null && g.InviteCode.ToLower() == code.ToLower());
+
+        if (game == null)
+        {
+            return NotFound(new { error = "Game not found with this invite code." });
+        }
+
+        if (game.Status != GameStatus.Active)
+        {
+            return BadRequest(new { error = "This game is not currently active." });
+        }
+
+        // Check if already a player
+        if (game.Players.Any(p => p.UserId == uid))
+        {
+            return BadRequest(new { error = "You are already a player in this game." });
+        }
+
+        var player = new Player
+        {
+            GameId = game.Id,
+            UserId = uid,
+            CharacterName = $"Player {game.Players.Count + 1}",
+            Role = PlayerRole.Player,
+            Status = PlayerStatus.Active,
+            JoinedAt = DateTime.UtcNow
+        };
+
+        game.Players.Add(player);
+        await _context.SaveChangesAsync();
+
+        // Publish player joined event
+        await _mediator.Publish(new PlayerJoined(game.Id, player.Id, uid, player.CharacterName));
+
+        // Broadcast player joined to the game group
+        await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("PlayerJoined", new
+        {
+            ConnectionId = $"join-by-code",
+            UserId = uid,
+            PlayerId = player.Id,
+            CharacterName = player.CharacterName,
+            Role = player.Role.ToString(),
+            Message = $"{player.CharacterName} joined the game"
+        });
+
+        return Ok(new { message = "Joined game successfully.", gameId = game.Id, inviteCode = game.InviteCode });
     }
 
     [HttpPost("{id}/join")]
@@ -419,4 +487,9 @@ public class CreateSessionRequest
 {
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
+}
+
+public class JoinByCodeRequest
+{
+    public string Code { get; set; } = string.Empty;
 }

@@ -69,7 +69,8 @@ public enum AgentAction
     Notify,      // Notify other agents of an event
     Recall,      // Recall relevant context
     ManageState,  // Update game state
-    Nudge         // Creator's narrative direction
+    Nudge,       // Creator's narrative direction
+    CreateCharacter  // Create a new player character
 }
 
 public enum AgentCallStatus

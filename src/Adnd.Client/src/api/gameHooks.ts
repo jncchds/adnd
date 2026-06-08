@@ -40,6 +40,12 @@ export function useGames() {
     await fetchGames();
   };
 
+  const joinByCode = async (code: string) => {
+    const result = await api.joinByCode(code);
+    await fetchGames();
+    return result;
+  };
+
   const leaveGame = async (id: string) => {
     await api.leaveGame(id);
     await fetchGames();
@@ -67,6 +73,7 @@ export function useGames() {
     createGame,
     deleteGame,
     joinGame,
+    joinByCode,
     leaveGame,
     generateInvite,
     startGame,

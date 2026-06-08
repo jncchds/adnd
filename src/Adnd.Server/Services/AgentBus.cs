@@ -271,7 +271,11 @@ public class AgentBus : IAgentBus
             AgentType.Player => await HandlePlayerCall(call),
             AgentType.System => await HandleSystemCall(call),
             AgentType.GM => await HandleGMCall(call),
-            _ => throw new ArgumentException($"Unknown agent type: {call.ToAgent}")
+            _ => call.Action switch
+            {
+                AgentAction.CreateCharacter => await HandleCreateCharacter(call),
+                _ => throw new ArgumentException($"Unknown agent type: {call.ToAgent}")
+            }
         };
     }
 
@@ -518,6 +522,63 @@ public class AgentBus : IAgentBus
         {
             throw new InvalidOperationException($"Player agent call failed: {ex.Message}", ex);
         }
+    }
+
+    private async Task<string> HandleCreateCharacter(AgentCall call)
+    {
+        try
+        {
+            var options = JsonSerializer.Deserialize<CharacterCreateOptions>(call.Input ?? "{}")
+                ?? new CharacterCreateOptions();
+
+            // Find the player by the call's session/game context
+            // The input contains playerId from the hub call
+            var playerId = options.PlayerId;
+            if (playerId == Guid.Empty)
+            {
+                return "Player ID required for character creation.";
+            }
+
+            var player = await _context.Players.FindAsync(playerId);
+            if (player == null)
+                return "Player not found.";
+
+            var character = new Character
+            {
+                PlayerId = player.Id,
+                Name = options.Name,
+                Class = options.Class,
+                Level = options.Level ?? 1,
+                ProficiencyBonus = GetProficiencyBonus(options.Level ?? 1),
+                CurrentHP = options.CurrentHP ?? 10,
+                MaxHP = options.MaxHP ?? 10,
+                Attributes = JsonSerializer.SerializeToElement(options.Attributes),
+                Skills = JsonSerializer.SerializeToElement(options.Skills),
+                Inventory = JsonSerializer.SerializeToElement(options.Inventory),
+                Spells = JsonSerializer.SerializeToElement(new { }),
+                Conditions = JsonSerializer.SerializeToElement(new { }),
+                CustomFields = JsonSerializer.SerializeToElement(new { systemId = options.SystemId }),
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _context.Characters.Add(character);
+            await _context.SaveChangesAsync();
+
+            return $"Character created: {character.Id}";
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Character creation failed: {ex.Message}", ex);
+        }
+    }
+
+    private static int GetProficiencyBonus(int level)
+    {
+        if (level <= 4) return 2;
+        if (level <= 8) return 3;
+        if (level <= 12) return 4;
+        if (level <= 16) return 5;
+        return 6;
     }
 
     private async Task<string> HandleSystemCall(AgentCall call)
@@ -815,4 +876,18 @@ public class GMDispatchOptions
     public string? SystemPrompt { get; set; }
     public string? UserPrompt { get; set; }
     public LLMOptions? Options { get; set; }
+}
+
+public class CharacterCreateOptions
+{
+    public Guid PlayerId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Class { get; set; } = string.Empty;
+    public int? Level { get; set; }
+    public int? CurrentHP { get; set; }
+    public int? MaxHP { get; set; }
+    public object? Attributes { get; set; }
+    public object? Skills { get; set; }
+    public object? Inventory { get; set; }
+    public string? SystemId { get; set; }
 }

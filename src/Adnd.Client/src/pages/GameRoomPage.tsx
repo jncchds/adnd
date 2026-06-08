@@ -6,6 +6,7 @@ import { useGameHub } from '../api/hubHook';
 import { api } from '../api/client';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
 import CombatTab from './CombatTab';
+import CharacterCreateWizard from './CharacterCreateWizard';
 import {
   Container, Box, Typography, Paper, TextField, Button, Tabs, Tab,
   List, ListItem, ListItemText, ListItemAvatar, Avatar, Chip,
@@ -109,6 +110,7 @@ export default function GameRoomPage() {
   const [errorState, setErrorState] = useState<string | null>(null);
   const [successState, setSuccessState] = useState<string | null>(null);
   const [activeCombats, setActiveCombats] = useState<any[]>([]);
+  const [showCharacterWizard, setShowCharacterWizard] = useState(false);
 
   // Unified chat state
   const [messages, setMessages] = useState<UnifiedMessage[]>([]);
@@ -431,6 +433,30 @@ export default function GameRoomPage() {
     }
   };
 
+  const handleCreateCharacter = async (characterData: any) => {
+    if (!id || !user?.id) return;
+    setErrorState(null);
+    setSuccessState(null);
+    try {
+      // Find the current user's player ID
+      const playersList = await api.getPlayers(id);
+      const myPlayer = playersList.find((p: any) => p.userEmail === user.email || p.userName === user.displayName);
+      if (!myPlayer) {
+        setErrorState('Could not find your player record. Are you joined to this game?');
+        return;
+      }
+
+      await invoke('CreateCharacter', id, myPlayer.id, JSON.stringify(characterData));
+      setSuccessState(`Character '${characterData.name}' created!`);
+      setTimeout(() => setSuccessState(null), 2000);
+      setShowCharacterWizard(false);
+      // Refetch characters
+      refetchPlayers();
+    } catch (e: any) {
+      setErrorState(e.message || 'Failed to create character');
+    }
+  };
+
   const handleSway = async () => {
     if (!swayInput.trim() || !id) return;
     try {
@@ -614,7 +640,7 @@ export default function GameRoomPage() {
           )}
 
           {activeTab === 3 && (
-            <CharactersTab characters={characters} currentUserName={user?.displayName} />
+            <CharactersTab characters={characters} currentUserName={user?.displayName} onCreateCharacter={() => setShowCharacterWizard(true)} />
           )}
 
           {activeTab === 4 && (
@@ -679,6 +705,13 @@ export default function GameRoomPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Character Creation Dialog */}
+      <CharacterCreateWizard
+        open={showCharacterWizard}
+        onClose={() => setShowCharacterWizard(false)}
+        onFinish={handleCreateCharacter}
+      />
     </Container>
   );
 }
@@ -712,6 +745,7 @@ function getActionLabel(action: number): string {
     case AgentAction.Recall: return 'Recall';
     case AgentAction.ManageState: return 'State';
     case AgentAction.Nudge: return 'Nudge';
+    case AgentAction.CreateCharacter: return 'CreateChar';
     default: return 'Unknown';
   }
 }
@@ -1100,7 +1134,7 @@ function PlayersTab({ players, currentUserId }: { players: any[]; currentUserId?
   );
 }
 
-function CharactersTab({ characters, currentUserName }: { characters: any[]; currentUserName?: string }) {
+function CharactersTab({ characters, currentUserName, onCreateCharacter }: { characters: any[]; currentUserName?: string; onCreateCharacter?: () => void }) {
   const navigate = useNavigate();
   const myCharacter = characters.find(c => c.playerName === currentUserName);
   return (
@@ -1130,7 +1164,10 @@ function CharactersTab({ characters, currentUserName }: { characters: any[]; cur
           </Paper>
         </Box>
       ) : (
-        <Typography color="text.secondary">No character found. Create one from the Admin Panel.</Typography>
+        <>
+          <Typography color="text.secondary" sx={{ mb: 2 }}>No character found. Create one below.</Typography>
+          <Button variant="contained" startIcon={<PeopleIcon />} onClick={onCreateCharacter}>Create Character</Button>
+        </>
       )}
     </Paper>
   );

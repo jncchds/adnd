@@ -88,6 +88,7 @@ export enum AgentAction {
   Recall = 8,
   ManageState = 9,
   Nudge = 10,
+  CreateCharacter = 11,
 }
 
 export enum AgentCallStatus {

@@ -569,6 +569,11 @@ export function useGameHub() {
       return hubRef.current?.invoke('CombatAutoResolve', combatId, resolutionMode);
     },
 
+    // Character creation
+    createCharacter: async (gameId: string, playerId: string, characterData: any) => {
+      return hubRef.current?.invoke('CreateCharacter', gameId, playerId, JSON.stringify(characterData));
+    },
+
     // SAN (CoC)
     combatApplySANLoss: async (combatId: string, participantId: string, sanLoss: number, reason: string) => {
       return hubRef.current?.invoke('CombatApplySANLoss', combatId, participantId, sanLoss, reason);
