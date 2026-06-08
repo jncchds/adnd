@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 
 import { AuthProvider } from './api/authHook'
+import AppShell from './components/AppShell'
 import HomePage from './pages/HomePage'
 import DashboardPage from './pages/DashboardPage'
 import GameRoomPage from './pages/GameRoomPage'
@@ -8,15 +9,7 @@ import AdminPage from './pages/AdminPage'
 import CharacterSheetPage from './pages/CharacterSheetPage'
 import AuthPage from './pages/AuthPage'
 import LLMPresetsPage from './pages/LLMPresetsPage'
-import Layout from './components/Layout'
-import { api } from './api/client'
-
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  if (!api.isAuthenticated()) {
-    return <Navigate to="/login" />;
-  }
-  return <>{children}</>;
-}
+import SystemsPage from './pages/SystemsPage'
 
 function App() {
   return (
@@ -27,38 +20,21 @@ function App() {
           <Route path="/login" element={<AuthPage />} />
           <Route path="/register" element={<AuthPage />} />
 
-          {/* Layout routes */}
-          <Route element={<Layout />}>
+          {/* Main layout */}
+          <Route element={<AppShell />}>
             <Route path="/" element={<HomePage />} />
-            <Route path="/dashboard" element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/llm-presets" element={
-              <ProtectedRoute>
-                <LLMPresetsPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/game/:id" element={
-              <ProtectedRoute>
-                <GameRoomPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/admin/:id" element={
-              <ProtectedRoute>
-                <AdminPage />
-              </ProtectedRoute>
-            } />
-            <Route path="/character/:id" element={
-              <ProtectedRoute>
-                <CharacterSheetPage />
-              </ProtectedRoute>
-            } />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/llm-presets" element={<LLMPresetsPage />} />
+            <Route path="/llm-presets/new" element={<LLMPresetsPage />} />
+            <Route path="/systems" element={<SystemsPage />} />
+            <Route path="/systems/new" element={<SystemsPage />} />
+            <Route path="/game/:id" element={<GameRoomPage />} />
+            <Route path="/admin/:id" element={<AdminPage />} />
+            <Route path="/character/:id" element={<CharacterSheetPage />} />
           </Route>
 
           {/* Fallback */}
-          <Route path="*" element={<Navigate to="/dashboard" />} />
+          <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

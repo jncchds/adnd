@@ -11,7 +11,7 @@ import CharacterCreateWizard from './CharacterCreateWizard';
 import ToolCallBanner from '../components/ToolCallBanner';
 import PlayerRollDialog from '../components/PlayerRollDialog';
 import {
-  Container, Box, Typography, Paper, TextField, Button, Tabs, Tab,
+  Box, Typography, Paper, TextField, Button,
   List, ListItem, ListItemText, ListItemAvatar, Avatar, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions,
   IconButton, Divider, Alert, AlertTitle, Collapse,
@@ -19,11 +19,9 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   InputLabel
 } from '@mui/material';
-import { Send as SendIcon, DirectionsRun as ActionIcon, SportsEsports as DiceIcon,
-  People as PeopleIcon, Settings as SettingsIcon,
-  Replay as ReplayIcon, ExitToApp as LeaveIcon,
-  Chat as ChatBubbleIcon, Article as SheetIcon,
-  DirectionsRun as CombatIcon } from '@mui/icons-material';
+import { Send as SendIcon, SportsEsports as DiceIcon,
+  People as PeopleIcon, Replay as ReplayIcon, ExitToApp as LeaveIcon,
+  Article as SheetIcon } from '@mui/icons-material';
 
 // ==================== Unified Message Types ====================
 
@@ -103,7 +101,21 @@ export default function GameRoomPage() {
   const { sway, lastSway, isLoading: swayLoading } = useSway(id);
   const { isConnected, connect, on, invoke, disconnect } = useGameHub();
 
-  const [activeTab, setActiveTab] = useState(0);
+  const [_activeTab, setActiveTab] = useState(0);
+  const [hash, setHash] = useState(window.location.hash.replace('#', '') || 'chat');
+
+  useEffect(() => {
+    const handler = () => setHash(window.location.hash.replace('#', '') || 'chat');
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+
+  useEffect(() => {
+    const tabMap: Record<string, number> = { 'chat': 0, 'combat': 1, 'players': 2, 'characters': 3, 'actions': 4, 'agent-calls': 5, 'settings': 6 };
+    setActiveTab(tabMap[hash] ?? 0);
+  }, [hash]);
+
+
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [openDiceDialog, setOpenDiceDialog] = useState(false);
   const [diceFormula, setDiceFormula] = useState('1d20');
@@ -112,7 +124,7 @@ export default function GameRoomPage() {
   const [sessionTitle, setSessionTitle] = useState('');
   const [errorState, setErrorState] = useState<string | null>(null);
   const [successState, setSuccessState] = useState<string | null>(null);
-  const [activeCombats, setActiveCombats] = useState<any[]>([]);
+  const [_activeCombats, _setActiveCombats] = useState<any[]>([]);
   const [showCharacterWizard, setShowCharacterWizard] = useState(false);
 
   // ==================== Tool Call State ====================
@@ -419,7 +431,7 @@ export default function GameRoomPage() {
     if (id && isConnected) {
       api.getActiveCombats(id).then((combats: unknown) => {
         const c = combats as any[];
-        if (c && c.length > 0) setActiveCombats(c);
+        if (c && c.length > 0) _setActiveCombats(c);
       }).catch(() => {});
     }
   }, [id, isConnected]);
@@ -693,20 +705,9 @@ export default function GameRoomPage() {
   const activeSession = sessions?.find((s: any) => !s.endedAt);
   const isCreator = game?.creatorId === user?.id || players.some((p: any) => p.role === 'Creator');
 
-  // Tabs: Chat is always first, then other panels
-  const tabs = [
-    { label: 'Chat', icon: <ChatBubbleIcon /> },
-    { label: 'Combat', icon: <CombatIcon />, count: activeCombats.length > 0 ? activeCombats.length : undefined },
-    { label: 'Players', icon: <PeopleIcon />, count: players.length },
-    { label: 'Characters', icon: <SheetIcon />, count: characters.length },
-    { label: 'Actions', icon: <ActionIcon /> },
-    { label: 'Agent Calls', icon: <DiceIcon /> },
-    { label: 'Settings', icon: <SettingsIcon /> },
-  ];
-
   return (
-    <Container maxWidth="lg" sx={{ mt: 2, mb: 2 }}>
-      {/* Header */}
+    <Box>
+      {/* Game Info Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Box>
           <Typography variant="h5">{game.name}</Typography>
@@ -798,19 +799,10 @@ export default function GameRoomPage() {
         </Alert>
       )}
 
-      {/* Tabs */}
-      <Paper sx={{ mb: 2 }}>
-        <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
-          {tabs.map((tab, i) => (
-            <Tab key={i} label={`${tab.label}${tab.count !== undefined ? ` (${tab.count})` : ''}`} icon={tab.icon} iconPosition="start" />
-          ))}
-        </Tabs>
-      </Paper>
-
-      {/* Tab Content */}
+      {/* Tab Content (tabs are now in the side panel) */}
       <Box sx={{ display: 'flex', gap: 2 }}>
         <Box sx={{ flex: 1 }}>
-          {activeTab === 0 && (
+          {hash === 'chat' && (
             <UnifiedChatPanel
               messages={messages}
               inputType={inputType}
@@ -834,30 +826,30 @@ export default function GameRoomPage() {
             />
           )}
 
-          {activeTab === 1 && (
+          {hash === 'combat' && (
             <CombatTab gameId={id || ''} />
           )}
 
-          {activeTab === 2 && (
+          {hash === 'players' && (
             <PlayersTab players={players} currentUserId={user?.id} />
           )}
 
-          {activeTab === 3 && (
+          {hash === 'characters' && (
             <CharactersTab characters={characters} currentUserName={user?.displayName} currentUserId={user?.id} currentEmail={user?.email} onCreateCharacter={() => setShowCharacterWizard(true)} />
           )}
 
-          {activeTab === 4 && (
+          {hash === 'actions' && (
             <ActionsTab onSkillCheck={handleSkillCheck} onAttack={handleAttack} onDiceRoll={() => setOpenDiceDialog(true)} />
           )}
 
-          {activeTab === 5 && (
+          {hash === 'agent-calls' && (
             <AgentCallsTab
               calls={[]}
               onRefresh={handleRefreshAgentCalls}
             />
           )}
 
-          {activeTab === 6 && (
+          {hash === 'settings' && (
             <SettingsTab game={game} sessions={sessions} onNewSession={() => setCreateSessionOpen(true)} isCreator={isCreator} gameId={id} />
           )}
         </Box>
@@ -927,7 +919,7 @@ export default function GameRoomPage() {
         onClose={() => setShowCharacterWizard(false)}
         onFinish={handleCreateCharacter}
       />
-    </Container>
+    </Box>
   );
 }
 

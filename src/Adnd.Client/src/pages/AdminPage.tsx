@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useGame, useNPCs, usePlotThreads, useCharacters, useConsistency, useLLMPresets, usePlotWeaver } from '../api/gameHooks';
 import LLMUsagePanel from './LLMUsagePanel';
@@ -7,7 +7,7 @@ import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
 import CharacterCreateWizard from './CharacterCreateWizard';
 import PlotBoardAdminTab from './PlotBoardAdminTab';
 import {
-  Container, Box, Typography, Paper, Tabs, Tab,
+  Box, Typography, Paper,
   List, ListItem, ListItemText, ListItemAvatar, Avatar,
   Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Button, IconButton, Chip, Alert, AlertTitle,
@@ -16,11 +16,9 @@ import {
 } from '@mui/material';
 import { Delete as DeleteIcon, Add as AddIcon,
   CheckCircle as CheckCircleIcon,
-  MenuBook as BookIcon, People as PeopleIcon, History as HistoryIcon,
-  AutoFixHigh as ConsistencyIcon, Mic as MicIcon, Chat as ChatBubbleIcon,
+  History as HistoryIcon,
   Settings as SettingsIcon, Shield as ShieldIcon, Article as SheetIcon,
-  Lightbulb as BulbIcon,
-  BarChart as BarChartIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon,
+  ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon,
   Chat as ChatIcon, Cloud as OllamaIcon, Home as LMStudioIcon,
   Google as GoogleIcon, Circle as OpenAIIcon } from '@mui/icons-material';
 
@@ -34,7 +32,20 @@ export default function AdminPage() {
   const { report, isLoading: consistencyLoading, check } = useConsistency(id);
   const { threads: plotThreads, isLoading: plotThreadsLoading } = usePlotWeaver(id);
 
-  const [activeTab, setActiveTab] = useState(0);
+  const [_activeTab, setActiveTab] = useState(0);
+  const [hash, setHash] = useState(window.location.hash.replace('#', '') || 'npcs');
+
+  useEffect(() => {
+    const handler = () => setHash(window.location.hash.replace('#', '') || 'npcs');
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+
+  useEffect(() => {
+    const tabMap: Record<string, number> = { 'npcs': 0, 'plot-board': 1, 'plot-threads': 2, 'characters': 3, 'consistency': 4, 'agent-calls': 5, 'llm-presets': 6, 'llm-usage': 7, 'llm-logs': 8, 'whispers': 9, 'game-state': 10, 'systems': 11 };
+    setActiveTab(tabMap[hash] ?? 0);
+  }, [hash]);
+
   const [npcDialogOpen, setNpcDialogOpen] = useState(false);
   const [npcName, setNpcName] = useState('');
   const [npcDesc, setNpcDesc] = useState('');
@@ -317,34 +328,8 @@ export default function AdminPage() {
     </Box>;
   }
 
-  const tabs = [
-    { label: 'NPCs', icon: <PeopleIcon />, count: npcs.length },
-    { label: 'Plot Board', icon: <BulbIcon />, count: plotThreads.length },
-    { label: 'Plot Threads', icon: <BookIcon />, count: threads.length },
-    { label: 'Characters', icon: <HistoryIcon />, count: characters.length },
-    { label: 'Consistency', icon: <ConsistencyIcon /> },
-    { label: 'Agent Calls', icon: <MicIcon />, count: agentCalls.length },
-    { label: 'LLM Presets', icon: <SettingsIcon />, count: presets.length },
-    { label: 'LLM Usage', icon: <BarChartIcon /> },
-    { label: 'LLM Logs', icon: <HistoryIcon />, count: llmLogs.length },
-    { label: 'Whispers', icon: <ChatBubbleIcon />, count: whispers.length },
-    { label: 'Game State', icon: <SettingsIcon /> },
-    { label: 'Systems', icon: <ShieldIcon /> },
-  ];
-
   return (
-    <Container maxWidth="lg" sx={{ mt: 2, mb: 2 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Box>
-          <Typography variant="h5">{game.name}</Typography>
-          <Typography variant="body2" color="text.secondary">Admin Panel</Typography>
-        </Box>
-        <Button variant="outlined" onClick={() => navigate(`/game/${id}`)}>
-          ← Back to Game Room
-        </Button>
-      </Box>
-
+    <Box>
       {/* Error */}
       {errorState && (
         <Alert severity="error" onClose={() => setErrorState(null)} sx={{ mb: 2 }}>
@@ -353,17 +338,8 @@ export default function AdminPage() {
         </Alert>
       )}
 
-      {/* Tabs */}
-      <Paper sx={{ mb: 2 }}>
-        <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
-          {tabs.map((tab, i) => (
-            <Tab key={i} label={`${tab.label}${tab.count !== undefined ? ` (${tab.count})` : ''}`} icon={tab.icon} iconPosition="start" />
-          ))}
-        </Tabs>
-      </Paper>
-
-      {/* Tab Content */}
-      {activeTab === 0 && (
+      {/* Tab Content (tabs are now in the side panel) */}
+      {hash === 'npcs' && (
         <NPCsTab
           npcs={npcs}
           npcsLoading={npcsLoading}
@@ -373,11 +349,11 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 1 && (
+      {hash === 'plot-board' && (
         <PlotBoardAdminTab threads={plotThreads} isLoading={plotThreadsLoading} gameId={id || ''} />
       )}
 
-      {activeTab === 2 && (
+      {hash === 'plot-threads' && (
         <PlotThreadsTab
           threads={threads}
           threadsLoading={threadsLoading}
@@ -386,11 +362,11 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 3 && (
+      {hash === 'characters' && (
         <CharactersTab characters={characters} />
       )}
 
-      {activeTab === 4 && (
+      {hash === 'consistency' && (
         <ConsistencyTab
           report={report}
           isLoading={consistencyLoading}
@@ -398,7 +374,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 5 && (
+      {hash === 'agent-calls' && (
         <AgentCallsTab
           calls={agentCalls}
           isLoading={false}
@@ -410,7 +386,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 6 && (
+      {hash === 'llm-presets' && (
         <LLMPresetsTab
           presets={presets}
           isLoading={presetsLoading}
@@ -421,11 +397,11 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 7 && (
+      {hash === 'llm-usage' && (
         <LLMUsagePanel gameId={id!} />
       )}
 
-      {activeTab === 8 && (
+      {hash === 'llm-logs' && (
         <LLMLogsTab
           logs={llmLogs}
           isLoading={logsLoading}
@@ -441,7 +417,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 9 && (
+      {hash === 'whispers' && (
         <WhispersTabAdmin
           whispers={whispers}
           isLoading={false}
@@ -451,7 +427,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 10 && (
+      {hash === 'game-state' && (
         <GameStateTab
           game={game}
           gameStateJson={gameStateJson}
@@ -465,7 +441,7 @@ export default function AdminPage() {
         />
       )}
 
-      {activeTab === 11 && (
+      {hash === 'systems' && (
         <SystemsTab
           systems={systems}
           showRegistry={showSystemRegistry}
@@ -639,7 +615,7 @@ export default function AdminPage() {
           <Button onClick={() => setShowLogDetail(false)}>Close</Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </Box>
   );
 }
 

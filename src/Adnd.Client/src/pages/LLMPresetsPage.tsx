@@ -23,7 +23,6 @@ import {
   Avatar,
   MenuItem,
   ListItemButton,
-  ListItemIcon,
   Autocomplete,
   CircularProgress,
 } from '@mui/material';
@@ -205,32 +204,10 @@ export default function LLMPresetsPage() {
 
   return (
     <Box>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
-            LLM Presets
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Manage your LLM provider configurations. Use these presets when creating games.
-          </Typography>
-        </Box>
-        <ListItemButton
-          onClick={handleOpenCreate}
-          sx={{
-            borderRadius: 1,
-            justifyContent: 'flex-start',
-            pl: 2,
-            bgcolor: 'rgba(145,71,255,0.1)',
-            '&:hover': { bgcolor: 'rgba(145,71,255,0.15)' },
-          }}
-        >
-          <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}>
-            <AddIcon fontSize="small" color="primary" />
-          </ListItemIcon>
-          <ListItemText primary="Add Preset" sx={{ color: 'primary.light' }} />
-        </ListItemButton>
-      </Box>
+      {/* Title */}
+      <Typography variant="h4" sx={{ fontWeight: 700, mb: 3 }}>
+        LLM Presets
+      </Typography>
 
       {/* Messages */}
       {successMsg && (
@@ -266,11 +243,7 @@ export default function LLMPresetsPage() {
           </Button>
         </Paper>
       ) : (
-        <Box>
-          <Typography variant="caption" sx={{ px: 2, color: 'text.secondary', display: 'block', mb: 0.5 }}>
-            YOUR PRESETS
-          </Typography>
-          <List>
+        <List>
             {presets.map(preset => {
               const providerInfo = getProviderInfo(preset.providerType);
               return (
@@ -389,7 +362,6 @@ export default function LLMPresetsPage() {
               );
             })}
           </List>
-        </Box>
       )}
 
       {/* Create/Edit Dialog */}

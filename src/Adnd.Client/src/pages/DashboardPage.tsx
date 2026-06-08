@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
 import { useGames, useLLMPresets } from '../api/gameHooks';
 import {
@@ -7,14 +8,13 @@ import {
   TextField, Alert, Chip, IconButton, Tooltip, AlertTitle, Button
 } from '@mui/material';
 import { Delete as DeleteIcon, PlayArrow as PlayIcon, Archive as ArchiveIcon,
-  Share as ShareIcon, ExitToApp as LeaveIcon } from '@mui/icons-material';
-import { Link, useNavigate } from 'react-router-dom';
+  Share as ShareIcon, ExitToApp as LeaveIcon, Add as AddIcon } from '@mui/icons-material';
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { } = useAuth();
   const navigate = useNavigate();
   const { games, isLoading, error, refetch, createGame, deleteGame, leaveGame, generateInvite, startGame, archiveGame, joinByCode } = useGames();
-  const { presets, isLoading: presetsLoading } = useLLMPresets();
+  const { presets } = useLLMPresets();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showJoinDialog, setShowJoinDialog] = useState(false);
   const [joinCode, setJoinCode] = useState('');
@@ -38,9 +38,7 @@ export default function DashboardPage() {
     setGameParameters('');
   };
 
-  const handleOpenJoin = () => {
-    setShowJoinDialog(true);
-  };
+
 
   const handleCloseJoin = () => {
     setShowJoinDialog(false);
@@ -122,24 +120,50 @@ export default function DashboardPage() {
     return <Box sx={{ textAlign: 'center', mt: 8 }}><Typography>Loading games...</Typography></Box>;
   }
 
+  const activeGames = games.filter(g => g.status !== 'Archived' && g.status !== 'Finished');
+
   return (
     <Box>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
-            Welcome, {user?.displayName || 'Player'}!
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Manage your games and characters
-          </Typography>
+      {/* Title */}
+      <Typography variant="h4" sx={{ fontWeight: 700, mb: 3 }}>
+        Games
+      </Typography>
+
+      {/* Join Game Panel */}
+      <Paper elevation={1} sx={{ p: 3, mb: 3, borderRadius: 2, bgcolor: 'background.paper' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+          <ShareIcon sx={{ color: 'primary.main' }} />
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>Join a Game</Typography>
         </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Enter the invite code to join an existing game.
+        </Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" size="small" onClick={() => navigate('/llm-presets')}>LLM Presets</Button>
-          <Button variant="outlined" onClick={handleOpenJoin}>Join by Code</Button>
-          <Button variant="contained" onClick={handleOpenCreate}>+ New Game</Button>
+          <TextField
+            fullWidth
+            label="Invite Code"
+            value={joinCode}
+            onChange={e => setJoinCode(e.target.value)}
+            placeholder="e.g., abc12345"
+            sx={{ maxWidth: 300 }}
+            onKeyDown={e => e.key === 'Enter' && handleJoin()}
+          />
+          <Button
+            variant="contained"
+            onClick={handleJoin}
+            disabled={!joinCode.trim()}
+            startIcon={<PlayIcon fontSize="small" />}
+          >
+            Join
+          </Button>
         </Box>
-      </Box>
+        {errorState && (
+          <Alert severity="error" onClose={() => setErrorState(null)} sx={{ mt: 2 }}>
+            <AlertTitle>Error</AlertTitle>
+            {errorState}
+          </Alert>
+        )}
+      </Paper>
 
       {/* Messages */}
       {successState && (
@@ -190,12 +214,9 @@ export default function DashboardPage() {
             value={llmPresetId || ''}
             onChange={e => setLLMPresetId(e.target.value || null)}
             SelectProps={{ native: true }}
-            disabled={presetsLoading}
+            disabled={!presets}
           >
             <option value="">None</option>
-            {presets.map(p => (
-              <option key={p.id} value={p.id}>{p.name} ({p.providerType} / {p.baseModel})</option>
-            ))}
           </TextField>
           <TextField
             fullWidth
@@ -250,30 +271,29 @@ export default function DashboardPage() {
       </Dialog>
 
       {/* Games Table */}
-      <Paper elevation={2}>
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow sx={{ bgcolor: 'background.paper' }}>
-                <TableCell><strong>Game</strong></TableCell>
-                <TableCell><strong>System</strong></TableCell>
-                <TableCell><strong>Status</strong></TableCell>
-                <TableCell><strong>Created</strong></TableCell>
-                <TableCell align="right"><strong>Actions</strong></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {games.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                    <Typography color="text.secondary" sx={{ mb: 2 }}>No games yet</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Use the sidebar to create a new game or join one by code.
-                    </Typography>
-                  </TableCell>
+      {activeGames.length === 0 ? (
+        <Paper elevation={2} sx={{ p: 6, textAlign: 'center', bgcolor: 'background.paper' }}>
+          <Typography color="text.secondary" sx={{ mb: 2 }}>No games yet</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Use the sidebar to create a new game or join one by code.
+          </Typography>
+          <Button variant="contained" onClick={handleOpenCreate} startIcon={<AddIcon />}>New Game</Button>
+        </Paper>
+      ) : (
+        <Paper elevation={2}>
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'background.paper' }}>
+                  <TableCell><strong>Game</strong></TableCell>
+                  <TableCell><strong>System</strong></TableCell>
+                  <TableCell><strong>Status</strong></TableCell>
+                  <TableCell><strong>Created</strong></TableCell>
+                  <TableCell align="right"><strong>Actions</strong></TableCell>
                 </TableRow>
-              ) : (
-                games.map(game => (
+              </TableHead>
+              <TableBody>
+                {activeGames.map(game => (
                   <TableRow key={game.id} hover>
                     <TableCell>
                       <Typography variant="body1">{game.name}</Typography>
@@ -304,7 +324,7 @@ export default function DashboardPage() {
                     </TableCell>
                     <TableCell align="right">
                       <Tooltip title="Play">
-                        <IconButton component={Link} to={`/game/${game.id}`} size="small">
+                        <IconButton component="a" href={`/game/${game.id}`} size="small">
                           <PlayIcon />
                         </IconButton>
                       </Tooltip>
@@ -355,12 +375,12 @@ export default function DashboardPage() {
                       </Tooltip>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
     </Box>
   );
 }
