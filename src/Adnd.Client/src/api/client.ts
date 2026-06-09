@@ -63,8 +63,8 @@ class APIClient {
       credentials: 'include',
     });
 
-    // If unauthorized, try to refresh token
-    if (response.status === 401 && this._refreshToken) {
+    // If unauthorized or rate-limited, try to refresh token
+    if ((response.status === 401 || response.status === 429) && this._refreshToken) {
       const refreshResponse = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -51,9 +51,9 @@ public class RateLimitingOptions
     public int GlobalWindowMinutes { get; set; } = 1;
 
     /// <summary>
-    /// Auth endpoints limit (register/login/refresh).
+    /// Auth endpoints limit (register/login/refresh/logout). /auth/me is excluded from rate limiting.
     /// </summary>
-    public int AuthLimit { get; set; } = 10;
+    public int AuthLimit { get; set; } = 30;
 
     /// <summary>
     /// Auth endpoints window in minutes.
@@ -79,7 +79,8 @@ public class RateLimitingOptions
         "/health/ready",
         "/swagger",
         "/swagger/",
-        "/favicon.ico"
+        "/favicon.ico",
+        "/api/auth/me"       // Auth validation — must never be rate-limited (auth hook calls it on every mount)
     };
 }
 
@@ -217,8 +218,18 @@ public class RateLimitMiddleware
         return IPAddress.TryParse(ip, out _);
     }
 
-    private static bool IsExcluded(string path)
+    private bool IsExcluded(string path)
     {
+        // Check configured exclusion list first
+        foreach (var excluded in _options.ExcludedPaths)
+        {
+            if (path.Equals(excluded, StringComparison.Ordinal) || path.StartsWith(excluded + "/", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        // Built-in exclusions (always excluded)
         return path.StartsWith("/health", StringComparison.Ordinal)
             || path.StartsWith("/swagger", StringComparison.Ordinal)
             || path == "/favicon.ico";

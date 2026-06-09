@@ -42,7 +42,7 @@ services:
       - RateLimiting__TrustAllProxies=${RATE_LIMITING_TRUST_ALL_PROXIES:-true}
       - RateLimiting__GlobalLimit=${RATE_LIMITING_GLOBAL_LIMIT:-100}
       - RateLimiting__GlobalWindowMinutes=${RATE_LIMITING_GLOBAL_WINDOW:-1}
-      - RateLimiting__AuthLimit=${RATE_LIMITING_AUTH_LIMIT:-10}
+      - RateLimiting__AuthLimit=${RATE_LIMITING_AUTH_LIMIT:-30}
       - RateLimiting__AuthWindowMinutes=${RATE_LIMITING_AUTH_WINDOW:-1}
       - RateLimiting__LlmPresetLimit=${RATE_LIMITING_LLM_PRESET_LIMIT:-30}
     depends_on:
