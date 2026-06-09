@@ -6,6 +6,7 @@ import { useGameHub } from '../api/hubHook';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
 import CharacterCreateWizard from './CharacterCreateWizard';
 import PlotBoardAdminTab from './PlotBoardAdminTab';
+import GameStatePage from './GameStatePage';
 import {
   Box, Typography, Paper,
   List, ListItem, ListItemText, ListItemAvatar, Avatar,
@@ -18,7 +19,7 @@ import { Delete as DeleteIcon, Add as AddIcon,
   CheckCircle as CheckCircleIcon,
   History as HistoryIcon,
   Article as SheetIcon,
-  PlayArrow as PlayIcon, ChevronLeft as ChevronLeftIcon } from '@mui/icons-material';
+  PlayArrow as PlayIcon, ChevronLeft as ChevronLeftIcon, Dashboard as DashboardIcon } from '@mui/icons-material';
 
 export default function AdminPage() {
   const { id } = useParams<{ id: string }>();
@@ -44,6 +45,24 @@ export default function AdminPage() {
     const tabMap: Record<string, number> = { 'npcs': 0, 'plot-board': 1, 'plot-threads': 2, 'characters': 3, 'consistency': 4, 'agent-calls': 5, 'llm-usage': 6, 'llm-logs': 7, 'whispers': 8, 'game-state': 9 };
     setActiveTab(tabMap[hash] ?? 0);
   }, [hash]);
+
+  // Show GameStatePage as a full-page view when selected
+  if (hash === 'game-state') {
+    return (
+      <Box>
+        <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Button size="small" variant="outlined" startIcon={<ChevronLeftIcon />}
+            onClick={() => { setHash('npcs'); window.location.hash = 'npcs'; }}>
+            Back to Admin
+          </Button>
+          <Typography variant="h5" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <DashboardIcon color="primary" /> Game State Dashboard
+          </Typography>
+        </Box>
+        <GameStatePage />
+      </Box>
+    );
+  }
 
   const [npcDialogOpen, setNpcDialogOpen] = useState(false);
   const [npcName, setNpcName] = useState('');

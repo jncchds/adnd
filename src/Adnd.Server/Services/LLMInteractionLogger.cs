@@ -59,6 +59,25 @@ public interface ILLMInteractionLogger
     /// Delete a specific log entry.
     /// </summary>
     Task DeleteLogAsync(Guid userId, Guid logId);
+
+    /// <summary>
+    /// Get aggregate LLM stats for a specific game (total calls, tokens, etc.).
+    /// </summary>
+    Task<LLMGameStats> GetGameLLMStatsAsync(Guid gameId);
+}
+
+/// <summary>
+/// Aggregate LLM statistics for a game.
+/// </summary>
+public class LLMGameStats
+{
+    public int TotalCalls { get; set; }
+    public int SuccessfulCalls { get; set; }
+    public int FailedCalls { get; set; }
+    public int TotalTokens { get; set; }
+    public int TotalPromptTokens { get; set; }
+    public int TotalCompletionTokens { get; set; }
+    public double AvgDurationMs { get; set; }
 }
 
 public class LLMInteractionLogger : ILLMInteractionLogger
@@ -286,6 +305,24 @@ public class LLMInteractionLogger : ILLMInteractionLogger
     {
         if (string.IsNullOrEmpty(value)) return value;
         return value.Length > maxLength ? value[..maxLength] : value;
+    }
+
+    public async Task<LLMGameStats> GetGameLLMStatsAsync(Guid gameId)
+    {
+        var logs = await _context.LLMInteractionLogs
+            .Where(l => l.OriginGameId == gameId)
+            .ToListAsync();
+
+        return new LLMGameStats
+        {
+            TotalCalls = logs.Count,
+            SuccessfulCalls = logs.Count(l => l.Success),
+            FailedCalls = logs.Count(l => !l.Success),
+            TotalTokens = logs.Sum(l => l.TotalTokens.GetValueOrDefault(0)),
+            TotalPromptTokens = logs.Sum(l => l.PromptTokens.GetValueOrDefault(0)),
+            TotalCompletionTokens = logs.Sum(l => l.CompletionTokens.GetValueOrDefault(0)),
+            AvgDurationMs = logs.Any() ? logs.Average(l => l.DurationMs) : 0,
+        };
     }
 }
 

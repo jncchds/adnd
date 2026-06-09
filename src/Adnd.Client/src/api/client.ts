@@ -418,6 +418,44 @@ class APIClient {
     return this.request(`/admin/games/${gameId}/trigger/review`, { method: 'POST' });
   }
 
+  async triggerFullReview(gameId: string, context?: string) {
+    return this.request(`/admin/games/${gameId}/trigger/full-review`, {
+      method: 'POST',
+      body: JSON.stringify(context),
+    });
+  }
+
+  async triggerNewScene(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/new-scene`, { method: 'POST' });
+  }
+
+  async triggerGMEvaluate(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/gm-evaluate`, { method: 'POST' });
+  }
+
+  async triggerPlotCheck(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/plot-check`, { method: 'POST' });
+  }
+
+  async triggerDetectOpportunities(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/detect-opportunities`, { method: 'POST' });
+  }
+
+  async triggerGenerateThreads(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/generate-threads`, { method: 'POST' });
+  }
+
+  async triggerSpawnMilestones(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/spawn-milestones`, { method: 'POST' });
+  }
+
+  async triggerSessionSummary(gameId: string, sessionId?: string) {
+    return this.request(`/admin/games/${gameId}/trigger/session-summary`, {
+      method: 'POST',
+      body: JSON.stringify(sessionId),
+    });
+  }
+
   async createAgentCall(gameId: string, fromAgent: number, toAgent: number, action: number, input?: string, sessionId?: string) {
     return this.request(`/admin/games/${gameId}/agent-calls`, {
       method: 'POST',

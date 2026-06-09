@@ -79,18 +79,255 @@ public partial class AdminController : ControllerBase
         _gameTemplateService = gameTemplateService;
     }
 
-    // ==================== Game Templates ====================
+    // ==================== Additional Trigger Endpoints ====================
 
     /// <summary>
-    /// Get all game templates for the current user.
+    /// Manually trigger plot thread generation.
     /// </summary>
-    [HttpGet("game-templates")]
-    public async Task<IActionResult> GetGameTemplates()
+    [HttpPost("games/{gameId}/trigger/generate-threads")]
+    public async Task<IActionResult> TriggerGenerateThreads(Guid gameId)
     {
-        var userId = _userIdProvider.GetCurrentUserId();
-        var templates = await _gameTemplateService.GetTemplatesAsync(userId);
-        return Ok(templates);
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+        if (game.GMStatus != GMStatus.Running)
+            return BadRequest(new { error = "Cannot trigger: GM agent is not running." });
+
+        var recentMessages = await _context.Messages
+            .Where(m => m.Session!.GameId == gameId)
+            .OrderByDescending(m => m.CreatedAt)
+            .Take(20)
+            .ToListAsync();
+
+        var context = string.Join("\n", recentMessages.Select(m =>
+            $"[{m.CreatedAt:HH:mm}] {m.Player?.CharacterName ?? "System"}: {m.Content}"));
+
+        var threads = await _plotWeaver.GenerateNewThreadsAsync(gameId, context, "ManualGenerateThreads");
+
+        return Ok(new { threadCount = threads.Count, threads = threads.Select(t => new { t.Id, t.Title, t.Category, t.Description }) });
     }
+
+    /// <summary>
+    /// Manually trigger milestone spawning.
+    /// </summary>
+    [HttpPost("games/{gameId}/trigger/spawn-milestones")]
+    public async Task<IActionResult> TriggerSpawnMilestones(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+        if (game.GMStatus != GMStatus.Running)
+            return BadRequest(new { error = "Cannot trigger: GM agent is not running." });
+
+        var milestones = await _plotWeaver.SpawnMilestonesAsync(gameId);
+
+        return Ok(new { milestoneCount = milestones.Count, milestones = milestones.Select(m => new { m.Id, m.Title, m.Description, m.Status }) });
+    }
+
+    /// <summary>
+    /// Manually trigger session summary generation via RAG.
+    /// </summary>
+    [HttpPost("games/{gameId}/trigger/session-summary")]
+    public async Task<IActionResult> TriggerSessionSummary(Guid gameId, [FromBody] string? sessionId = null)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+        if (game.GMStatus != GMStatus.Running)
+            return BadRequest(new { error = "Cannot trigger: GM agent is not running." });
+
+        var call = new AgentCall
+        {
+            GameId = gameId,
+            SessionId = string.IsNullOrEmpty(sessionId) ? null : Guid.Parse(sessionId),
+            FromAgent = AgentType.Creator,
+            ToAgent = AgentType.RAG,
+            Action = AgentAction.Generate,
+            Input = JsonSerializer.Serialize(new RAGDispatchOptions { MessageCount = 30 }),
+            Status = AgentCallStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.AgentCalls.Add(call);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { call.Id, call.Status, call.CreatedAt, message = "Session summary queued" });
+    }
+
+    /// <summary>
+    /// Manually trigger plot opportunity detection.
+    /// </summary>
+    [HttpPost("games/{gameId}/trigger/detect-opportunities")]
+    public async Task<IActionResult> TriggerDetectOpportunities(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+        if (game.GMStatus != GMStatus.Running)
+            return BadRequest(new { error = "Cannot trigger: GM agent is not running." });
+
+        var recentMessages = await _context.Messages
+            .Where(m => m.Session!.GameId == gameId)
+            .OrderByDescending(m => m.CreatedAt)
+            .Take(20)
+            .ToListAsync();
+
+        var context = string.Join("\n", recentMessages.Select(m =>
+            $"[{m.CreatedAt:HH:mm}] {m.Player?.CharacterName ?? "System"}: {m.Content}"));
+
+        var opportunities = await _plotWeaver.DetectOpportunitiesAsync(gameId, context);
+
+        // Auto-apply
+        foreach (var opp in opportunities)
+        {
+            try
+            {
+                switch (opp.Type)
+                {
+                    case OpportunityType.NewThread:
+                        await _plotWeaver.GenerateNewThreadsAsync(gameId, context, "ManualDetectOpportunities");
+                        break;
+                    case OpportunityType.SpawnMilestone:
+                        await _plotWeaver.SpawnMilestonesAsync(gameId);
+                        break;
+                    case OpportunityType.EscalateThreat:
+                        if (opp.MomentumDelta.HasValue && opp.ThreadId != null)
+                            await _plotWeaver.UpdateMomentumAsync(gameId, Guid.Parse(opp.ThreadId), opp.MomentumDelta.Value, opp.Title);
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to auto-apply opportunity in game {GameId}", gameId);
+            }
+        }
+
+        return Ok(new { opportunityCount = opportunities.Count, opportunities = opportunities.Select(o => new { o.Type, o.Title, o.Description, o.ThreadId, o.MomentumDelta, o.NewThreadCategory, o.NewThreadTitle }) });
+    }
+
+    /// <summary>
+    /// Manually trigger the GM agent to evaluate the current state (like a heartbeat).
+    /// </summary>
+    [HttpPost("games/{gameId}/trigger/gm-evaluate")]
+    public async Task<IActionResult> TriggerGMEvaluate(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+        if (game.GMStatus != GMStatus.Running)
+            return BadRequest(new { error = "Cannot trigger: GM agent is not running." });
+
+        var call = new AgentCall
+        {
+            GameId = gameId,
+            FromAgent = AgentType.Creator,
+            ToAgent = AgentType.GM,
+            Action = AgentAction.Narrate,
+            Input = JsonSerializer.Serialize(new GMDispatchOptions
+            {
+                SystemPrompt = $"You are the Game Master for a TTRPG session. " +
+                    $"The creator has manually requested a state evaluation. " +
+                    $"Review the current game state, plot threads, and recent events. " +
+                    $"Identify any pending plot threads that need attention, " +
+                    $"any NPCs that should act, and any opportunities for story development. " +
+                    $"Provide a concise evaluation and suggest the next narrative beat. " +
+                    $"Game system: {game.SystemId}. " +
+                    $"Current game state: {game.GameState ?? "None"}.",
+                UserPrompt = "Evaluate the current game state and suggest the next narrative beat."
+            }),
+            Status = AgentCallStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.AgentCalls.Add(call);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { call.Id, call.Status, call.CreatedAt, message = "GM evaluation queued" });
+    }
+
+    /// <summary>
+    /// Manually trigger the GM agent to generate a new scene.
+    /// </summary>
+    [HttpPost("games/{gameId}/trigger/new-scene")]
+    public async Task<IActionResult> TriggerNewScene(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+        if (game.GMStatus != GMStatus.Running)
+            return BadRequest(new { error = "Cannot trigger: GM agent is not running." });
+
+        var call = new AgentCall
+        {
+            GameId = gameId,
+            FromAgent = AgentType.Creator,
+            ToAgent = AgentType.GM,
+            Action = AgentAction.Narrate,
+            Input = JsonSerializer.Serialize(new GMDispatchOptions
+            {
+                SystemPrompt = $"You are the Game Master for a TTRPG session. " +
+                    $"The creator has requested a new scene. " +
+                    $"Create a vivid, immersive scene that advances the story. " +
+                    $"Consider the current plot threads, character motivations, and world state. " +
+                    $"Be creative and engaging. " +
+                    $"Game system: {game.SystemId}.",
+                UserPrompt = "Create a new scene that advances the story."
+            }),
+            Status = AgentCallStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.AgentCalls.Add(call);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { call.Id, call.Status, call.CreatedAt, message = "New scene queued" });
+    }
+
+    /// <summary>
+    /// Manually trigger the GM agent to check for plot opportunities.
+    /// </summary>
+    [HttpPost("games/{gameId}/trigger/plot-check")]
+    public async Task<IActionResult> TriggerPlotCheck(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+        if (game.GMStatus != GMStatus.Running)
+            return BadRequest(new { error = "Cannot trigger: GM agent is not running." });
+
+        var recentMessages = await _context.Messages
+            .Where(m => m.Session!.GameId == gameId)
+            .OrderByDescending(m => m.CreatedAt)
+            .Take(20)
+            .ToListAsync();
+
+        var context = string.Join("\n", recentMessages.Select(m =>
+            $"[{m.CreatedAt:HH:mm}] {m.Player?.CharacterName ?? "System"}: {m.Content}"));
+
+        var opportunities = await _plotWeaver.DetectOpportunitiesAsync(gameId, context);
+
+        return Ok(new { opportunityCount = opportunities.Count, opportunities = opportunities.Select(o => new { o.Type, o.Title, o.Description, o.ThreadId, o.MomentumDelta }) });
+    }
+
+    /// <summary>
+    /// Manually trigger a full plot review.
+    /// </summary>
+    [HttpPost("games/{gameId}/trigger/full-review")]
+    public async Task<IActionResult> TriggerFullReview(Guid gameId, [FromBody] string? context = null)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+        if (game.GMStatus != GMStatus.Running)
+            return BadRequest(new { error = "Cannot trigger: GM agent is not running." });
+
+        var reviewContext = context ?? "Manual full review triggered by creator.";
+        var review = await _plotWeaver.ReviewAndAdaptAsync(gameId, reviewContext, "ManualFullReview");
+
+        return Ok(new { review.Id, review.Trigger, review.Summary, review.Updates, review.ReviewedAt });
+    }
+
+    // ==================== Game Templates ====================
 
     /// <summary>
     /// Create a new game template from the current game configuration.
