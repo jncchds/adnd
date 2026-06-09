@@ -12,6 +12,9 @@ using MediatR;
 
 namespace Adnd.Server.Controllers;
 
+/// <summary>
+/// Game management endpoints — create, join, list, and manage TTRPG games and sessions.
+/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
@@ -49,6 +52,9 @@ public class GamesController : ControllerBase
         _logger = logger;
     }
 
+    /// <summary>
+    /// List all games the current user has access to.
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetGames()
     {
@@ -59,6 +65,10 @@ public class GamesController : ControllerBase
         return Ok(games);
     }
 
+    /// <summary>
+    /// Get details for a specific game.
+    /// </summary>
+    /// <param name="id">Game ID.</param>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetGame(Guid id)
     {
@@ -71,6 +81,11 @@ public class GamesController : ControllerBase
         return Ok(game);
     }
 
+    /// <summary>
+    /// Create a new TTRPG game.
+    /// </summary>
+    /// <param name="request">Game creation parameters (name, system, LLM preset, plot seed).</param>
+    /// <returns>Created game details.</returns>
     [HttpPost]
     [Authorize]
     public async Task<IActionResult> CreateGame([FromBody] CreateGameRequest request)
@@ -87,6 +102,11 @@ public class GamesController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Generate an invite URL/code for the game.
+    /// </summary>
+    /// <param name="id">Game ID.</param>
+    /// <returns>Invite URL and code.</returns>
     [HttpPost("{id}/invite")]
     [Authorize]
     public async Task<IActionResult> GenerateInvite(Guid id)
@@ -106,6 +126,11 @@ public class GamesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Update the narration language for a game.
+    /// </summary>
+    /// <param name="id">Game ID.</param>
+    /// <param name="request">New language setting.</param>
     [HttpPut("{id}/language")]
     [Authorize]
     public async Task<IActionResult> UpdateGameLanguage(Guid id, [FromBody] UpdateGameLanguageRequest request)
@@ -125,6 +150,11 @@ public class GamesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Join a game using an invite code.
+    /// </summary>
+    /// <param name="request">Invite code.</param>
+    /// <returns>Confirmation with gameId.</returns>
     [HttpPost("join-by-code")]
     [Authorize]
     public async Task<IActionResult> JoinByCode([FromBody] JoinByCodeRequest request)
@@ -147,6 +177,10 @@ public class GamesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Join a game by game ID (alternative to invite code).
+    /// </summary>
+    /// <param name="id">Game ID to join.</param>
     [HttpPost("{id}/join")]
     [Authorize]
     public async Task<IActionResult> JoinGame(Guid id)
@@ -172,6 +206,10 @@ public class GamesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Leave a game you are currently a player of.
+    /// </summary>
+    /// <param name="id">Game ID to leave.</param>
     [HttpPost("{id}/leave")]
     [Authorize]
     public async Task<IActionResult> LeaveGame(Guid id)
@@ -194,6 +232,10 @@ public class GamesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Delete a game (creator only).
+    /// </summary>
+    /// <param name="id">Game ID to delete.</param>
     [HttpDelete("{id}")]
     [Authorize]
     public async Task<IActionResult> DeleteGame(Guid id)
@@ -215,6 +257,10 @@ public class GamesController : ControllerBase
 
     // ==================== Session Management ====================
 
+    /// <summary>
+    /// Get all sessions for a game.
+    /// </summary>
+    /// <param name="id">Game ID.</param>
     [HttpGet("{id}/sessions")]
     public async Task<IActionResult> GetSessions(Guid id)
     {
@@ -227,6 +273,11 @@ public class GamesController : ControllerBase
         return Ok(sessions);
     }
 
+    /// <summary>
+    /// Create a new session within a game.
+    /// </summary>
+    /// <param name="id">Game ID.</param>
+    /// <param name="request">Session title and description.</param>
     [HttpPost("{id}/sessions")]
     public async Task<IActionResult> CreateSession(Guid id, [FromBody] CreateSessionRequest request)
     {
@@ -247,6 +298,11 @@ public class GamesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Close (end) a game session.
+    /// </summary>
+    /// <param name="id">Game ID.</param>
+    /// <param name="sessionId">Session ID to close.</param>
     [HttpPost("{id}/sessions/{sessionId}/close")]
     public async Task<IActionResult> CloseSession(Guid id, Guid sessionId)
     {
@@ -265,6 +321,10 @@ public class GamesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Get all players in a game.
+    /// </summary>
+    /// <param name="id">Game ID.</param>
     [HttpGet("{id}/players")]
     public async Task<IActionResult> GetPlayers(Guid id)
     {
@@ -276,6 +336,12 @@ public class GamesController : ControllerBase
         return Ok(players);
     }
 
+    /// <summary>
+    /// Promote a player to a different role (Creator, Player, Spectator, Observer).
+    /// </summary>
+    /// <param name="id">Game ID.</param>
+    /// <param name="playerId">Player ID to promote.</param>
+    /// <param name="role">New role.</param>
     [HttpPost("{id}/players/{playerId}/promote")]
     public async Task<IActionResult> PromotePlayer(Guid id, Guid playerId, [FromBody] string role)
     {
@@ -300,18 +366,31 @@ public class GamesController : ControllerBase
 
 }
 
+/// <summary>
+/// Request to create a new game session.
+/// </summary>
 public class CreateSessionRequest
 {
+    /// <summary>Session title.</summary>
     public string Title { get; set; } = string.Empty;
+    /// <summary>Optional session description.</summary>
     public string? Description { get; set; }
 }
 
+/// <summary>
+/// Request to join a game by invite code.
+/// </summary>
 public class JoinByCodeRequest
 {
+    /// <summary>Invite code (8-character alphanumeric).</summary>
     public string Code { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Request to update a game's narration language.
+/// </summary>
 public class UpdateGameLanguageRequest
 {
+    /// <summary>Narration language (e.g., "English", "Spanish", "Japanese").</summary>
     public string Language { get; set; } = "English";
 }

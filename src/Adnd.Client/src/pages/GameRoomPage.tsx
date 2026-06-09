@@ -20,7 +20,7 @@ import {
   IconButton, Divider, Alert, AlertTitle, Collapse,
   InputAdornment, MenuItem, Select, FormControl,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  InputLabel
+  InputLabel, useMediaQuery, useTheme
 } from '@mui/material';
 import { Send as SendIcon, SportsEsports as DiceIcon,
   People as PeopleIcon, Replay as ReplayIcon, ExitToApp as LeaveIcon,
@@ -96,6 +96,8 @@ export default function GameRoomPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
   const { game, isLoading } = useGame(id);
   const { sessions, refetch: refetchSessions } = useSessions(id);
   const { players, refetch: refetchPlayers } = usePlayers(id);
@@ -783,10 +785,17 @@ export default function GameRoomPage() {
   return (
     <Box>
       {/* Game Info Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Box>
-          <Typography variant="h5">{game.name}</Typography>
-          <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+      <Box sx={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        justifyContent: 'space-between',
+        alignItems: isMobile ? 'flex-start' : 'center',
+        mb: 2,
+        gap: isMobile ? 1 : 2,
+      }}>
+        <Box sx={{ flex: isMobile ? 0 : 1, minWidth: 0 }}>
+          <Typography variant={isMobile ? 'h6' : 'h5'} noWrap>{game.name}</Typography>
+          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
             <Chip label={game.systemId} size="small" />
             {game.language && <Chip label={`🌐 ${game.language}`} size="small" variant="outlined" color="info" />}
             <Chip label={game.status} size="small" color={game.status === 'Active' ? 'success' : 'default'} />
@@ -806,14 +815,14 @@ export default function GameRoomPage() {
             {activeSession && <Chip label={`Session: ${activeSession.title}`} size="small" variant="outlined" />}
           </Box>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
           {game.status === 'Active' && gmStatus?.status === 'running' && (
             <Button size="small" variant="outlined" onClick={handlePauseGM}>Pause GM</Button>
           )}
           {game.status === 'Active' && gmStatus?.status === 'paused' && (
             <Button size="small" variant="outlined" onClick={handleResumeGM}>Resume GM</Button>
           )}
-          <Button variant="outlined" color="error" startIcon={<LeaveIcon />} onClick={handleLeave}>
+          <Button variant="outlined" color="error" size={isMobile ? 'medium' : 'small'} startIcon={<LeaveIcon />} onClick={handleLeave}>
             Leave
           </Button>
         </Box>
@@ -876,8 +885,12 @@ export default function GameRoomPage() {
       )}
 
       {/* Tab Content (tabs are now in the side panel) */}
-      <Box sx={{ display: 'flex', gap: 2 }}>
-        <Box sx={{ flex: 1 }}>
+      <Box sx={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        gap: isMobile ? 1 : 2,
+      }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
           {hash === 'chat' && (
             <UnifiedChatPanel
               messages={messages}
@@ -899,6 +912,7 @@ export default function GameRoomPage() {
               isConnected={isConnected}
               activeSession={activeSession}
               isCreator={players.some((p: any) => p.role === 'Creator')}
+              isMobile={isMobile}
             />
           )}
 
@@ -1077,13 +1091,14 @@ interface UnifiedChatPanelProps {
   isConnected: boolean;
   activeSession: any;
   isCreator: boolean;
+  isMobile: boolean;
 }
 
 function UnifiedChatPanel({
   messages, inputType, setInputType, inputTarget, setInputTarget,
   whisperTargetPlayer, setWhisperTargetPlayer, whisperInput, setWhisperInput,
   onSend, onDiceRoll, onSkillCheck, showDiceHistory, setShowDiceHistory: _setShowDiceHistory,
-  messagesEndRef, players, isConnected: _isConnected, activeSession, isCreator
+  messagesEndRef, players, isConnected: _isConnected, activeSession, isCreator, isMobile
 }: UnifiedChatPanelProps) {
   const [quickSkill, setQuickSkill] = useState('Perception');
   const [quickDC, setQuickDC] = useState(15);
@@ -1100,7 +1115,105 @@ function UnifiedChatPanel({
   };
 
   return (
-    <Paper sx={{ height: '75vh', display: 'flex', flexDirection: 'column' }}>
+    <Paper sx={{
+      height: isMobile ? 'calc(100dvh - 220px)' : '75vh',
+      minHeight: isMobile ? 300 : 400,
+      display: 'flex',
+      flexDirection: 'column',
+    }}>
+      {/* ===== Message Type & Receiver Selector ===== */}
+      <Box sx={{
+        p: isMobile ? 1 : 1.5,
+        borderBottom: 1,
+        borderColor: 'divider',
+        display: 'flex',
+        gap: 1,
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        bgcolor: 'background.paper',
+      }}>
+        {/* Message Type Toggle */}
+        <Box sx={{ display: 'flex', bgcolor: 'background.default', borderRadius: 1, overflow: 'hidden' }}>
+          <Button
+            size="small"
+            onClick={() => setInputType('inGame')}
+            sx={{
+              bgcolor: inputType === 'inGame' ? 'success.lighter' : 'transparent',
+              color: inputType === 'inGame' ? 'success.dark' : 'text.secondary',
+              minWidth: 80,
+              px: isMobile ? 1.5 : 2,
+              fontSize: 11,
+              fontWeight: inputType === 'inGame' ? 600 : 400,
+              '&:hover': { bgcolor: inputType === 'inGame' ? 'success.lighter' : 'action.hover' }
+            }}
+          >
+            🎮 In-Game
+          </Button>
+          <Button
+            size="small"
+            onClick={() => setInputType('ooc')}
+            sx={{
+              bgcolor: inputType === 'ooc' ? 'info.lighter' : 'transparent',
+              color: inputType === 'ooc' ? 'info.dark' : 'text.secondary',
+              minWidth: 80,
+              px: isMobile ? 1.5 : 2,
+              fontSize: 11,
+              fontWeight: inputType === 'ooc' ? 600 : 400,
+              '&:hover': { bgcolor: inputType === 'ooc' ? 'info.lighter' : 'action.hover' }
+            }}
+          >
+            📢 OOC
+          </Button>
+        </Box>
+
+        {/* Receiver Selector */}
+        <FormControl size="small" sx={{ minWidth: isMobile ? 110 : 140 }}>
+          <InputLabel sx={{ fontSize: 11 }}>Receiver</InputLabel>
+          <Select
+            value={inputTarget}
+            label="Receiver"
+            onChange={e => setInputTarget(e.target.value as MessageTarget)}
+            sx={{ fontSize: 12, height: 32 }}
+          >
+            <MenuItem value="all">🌐 All (Public)</MenuItem>
+            <MenuItem value="gm">🤫 To GM (Whisper)</MenuItem>
+            {isCreator && (
+              <MenuItem value="player">📩 To Player...</MenuItem>
+            )}
+          </Select>
+        </FormControl>
+
+        {/* Quick Actions */}
+        <Chip label="🎲 Dice" size="small" clickable onClick={onDiceRoll} sx={{ fontSize: 11 }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <TextField
+            size="small"
+            value={quickSkill}
+            onChange={e => setQuickSkill(e.target.value)}
+            sx={{ width: isMobile ? 80 : 100, '& .MuiInputBase-root': { height: 32, fontSize: 12 } }}
+            placeholder="Skill"
+          />
+          <TextField
+            size="small"
+            type="number"
+            value={quickDC}
+            onChange={e => setQuickDC(parseInt(e.target.value) || 0)}
+            sx={{ width: isMobile ? 50 : 60, '& .MuiInputBase-root': { height: 32, fontSize: 12 } }}
+            placeholder="DC"
+          />
+          <Chip
+            label="📋 Check"
+            size="small"
+            clickable
+            onClick={() => onSkillCheck(quickSkill, quickDC)}
+            sx={{ fontSize: 11 }}
+          />
+        </Box>
+
+        {activeSession && (
+          <Chip label={`📋 ${activeSession.title}`} size="small" variant="outlined" sx={{ fontSize: 11 }} />
+        )}
+      </Box>
       {/* ===== Message Type & Receiver Selector ===== */}
       <Box sx={{
         p: 1.5,
@@ -1247,7 +1360,7 @@ function UnifiedChatPanel({
       </Collapse>
 
       {/* ===== Unified Messages ===== */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 1.5 }}>
+      <Box sx={{ flex: 1, overflow: 'auto', p: isMobile ? 1 : 1.5 }}>
         {messages.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 8 }}>
             No messages yet. Start the conversation!
@@ -1262,22 +1375,22 @@ function UnifiedChatPanel({
 
       {/* ===== Input Area ===== */}
       <Box sx={{
-        p: 1.5,
+        p: isMobile ? 1 : 1.5,
         borderTop: 1,
         borderColor: 'divider',
         bgcolor: 'background.paper'
       }}>
         {/* Player whisper confirmation */}
         {whisperTargetPlayer && (
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-            <Typography variant="caption" color="text.secondary">
-              📩 Whispering to player: {players.find(p => p.id === whisperTargetPlayer)?.characterName}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, gap: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+              📩 Whispering to: {players.find(p => p.id === whisperTargetPlayer)?.characterName}
             </Typography>
             <Button size="small" onClick={() => setWhisperTargetPlayer(null)}>Clear</Button>
           </Box>
         )}
 
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: isMobile ? 0.5 : 1 }}>
           <TextField
             fullWidth
             size="small"
@@ -1309,7 +1422,7 @@ function UnifiedChatPanel({
             variant="contained"
             onClick={handleSend}
             disabled={!whisperInput.trim()}
-            sx={{ minWidth: 80 }}
+            sx={{ minWidth: isMobile ? 60 : 80 }}
           >
             Send
           </Button>

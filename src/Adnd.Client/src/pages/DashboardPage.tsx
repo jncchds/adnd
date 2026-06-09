@@ -6,7 +6,7 @@ import { api } from '../api/client';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Alert, Chip, IconButton, Tooltip, AlertTitle, Button
+  TextField, Alert, Chip, IconButton, Tooltip, AlertTitle, Button, useMediaQuery, useTheme
 } from '@mui/material';
 import { Delete as DeleteIcon, PlayArrow as PlayIcon, Archive as ArchiveIcon,
   Share as ShareIcon, ExitToApp as LeaveIcon, Add as AddIcon } from '@mui/icons-material';
@@ -14,6 +14,8 @@ import { Delete as DeleteIcon, PlayArrow as PlayIcon, Archive as ArchiveIcon,
 export default function DashboardPage() {
   const { } = useAuth();
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
   const { games, isLoading, error, refetch, createGame, deleteGame, leaveGame, generateInvite, archiveGame, joinByCode } = useGames();
   const { presets } = useLLMPresets();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -319,7 +321,7 @@ export default function DashboardPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Games Table */}
+      {/* Games List */}
       {activeGames.length === 0 ? (
         <Paper elevation={2} sx={{ p: 6, textAlign: 'center', bgcolor: 'background.paper' }}>
           <Typography color="text.secondary" sx={{ mb: 2 }}>No games yet</Typography>
@@ -329,90 +331,136 @@ export default function DashboardPage() {
           <Button variant="contained" onClick={handleOpenCreate} startIcon={<AddIcon />}>New Game</Button>
         </Paper>
       ) : (
-        <Paper elevation={2}>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'background.paper' }}>
-                  <TableCell><strong>Game</strong></TableCell>
-                  <TableCell><strong>System</strong></TableCell>
-                  <TableCell><strong>Status</strong></TableCell>
-                  <TableCell><strong>Created</strong></TableCell>
-                  <TableCell align="right"><strong>Actions</strong></TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {activeGames.map(game => (
-                  <TableRow key={game.id} hover>
-                    <TableCell>
-                      <Typography variant="body1">{game.name}</Typography>
+        <>
+          {/* Desktop: Table layout */}
+          {!isMobile && (
+            <Paper elevation={2}>
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'background.paper' }}>
+                      <TableCell><strong>Game</strong></TableCell>
+                      <TableCell><strong>System</strong></TableCell>
+                      <TableCell><strong>Status</strong></TableCell>
+                      <TableCell><strong>Created</strong></TableCell>
+                      <TableCell align="right"><strong>Actions</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {activeGames.map(game => (
+                      <TableRow key={game.id} hover>
+                        <TableCell>
+                          <Typography variant="body1">{game.name}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            by {game.creatorName}
+                          </Typography>
+                          {game.llmPresetName && (
+                            <Typography variant="caption" color="primary">
+                              LLM: {game.llmPresetName}
+                            </Typography>
+                          )}
+                          {game.status === 'Active' && game.inviteCode && (
+                            <Typography variant="caption" color="text.secondary">
+                              Code: <strong>{game.inviteCode}</strong>
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={game.systemId} size="small" variant="outlined" />
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={game.status} size="small" color={statusColor(game.status) as any} />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" color="text.secondary">
+                            {new Date(game.createdAt).toLocaleDateString()}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Tooltip title="Play">
+                            <IconButton component="a" href={`/game/${game.id}`} size="small">
+                              <PlayIcon />
+                            </IconButton>
+                          </Tooltip>
+                          {game.status === 'Active' && game.inviteCode && (
+                            <Tooltip title={game.inviteCode}>
+                              <span>
+                                <Chip label={game.inviteCode} size="small" variant="outlined" sx={{ mr: 0.5 }} />
+                              </span>
+                            </Tooltip>
+                          )}
+                          <Tooltip title="Copy Invite Code">
+                            <IconButton onClick={() => handleCopyInvite(game.id)} size="small">
+                              <ShareIcon />
+                            </IconButton>
+                          </Tooltip>
+                          {game.status === 'Active' && (
+                            <Tooltip title="Leave">
+                              <IconButton onClick={() => leaveGame(game.id)} size="small" color="error">
+                                <LeaveIcon />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                          <Tooltip title="Archive">
+                            <IconButton size="small" color="inherit" onClick={() => handleArchiveGame(game.id)}>
+                              <ArchiveIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton onClick={() => deleteGame(game.id)} size="small" color="error">
+                              <DeleteIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          )}
+
+          {/* Mobile: Card layout */}
+          {isMobile && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              {activeGames.map(game => (
+                <Paper key={game.id} elevation={1} sx={{ p: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="h6" noWrap>{game.name}</Typography>
                       <Typography variant="body2" color="text.secondary">
                         by {game.creatorName}
                       </Typography>
-                      {game.llmPresetName && (
-                        <Typography variant="caption" color="primary">
-                          LLM: {game.llmPresetName}
-                        </Typography>
-                      )}
-                      {game.status === 'Active' && game.inviteCode && (
-                        <Typography variant="caption" color="text.secondary">
-                          Code: <strong>{game.inviteCode}</strong>
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Chip label={game.systemId} size="small" variant="outlined" />
-                    </TableCell>
-                    <TableCell>
-                      <Chip label={game.status} size="small" color={statusColor(game.status) as any} />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {new Date(game.createdAt).toLocaleDateString()}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="Play">
-                        <IconButton component="a" href={`/game/${game.id}`} size="small">
-                          <PlayIcon />
-                        </IconButton>
-                      </Tooltip>
-                      {game.status === 'Active' && game.inviteCode && (
-                        <Tooltip title={game.inviteCode}>
-                          <span>
-                            <Chip label={game.inviteCode} size="small" variant="outlined" sx={{ mr: 0.5 }} />
-                          </span>
-                        </Tooltip>
-                      )}
-                      <Tooltip title="Copy Invite Code">
-                        <IconButton onClick={() => handleCopyInvite(game.id)} size="small">
-                          <ShareIcon />
-                        </IconButton>
-                      </Tooltip>
-                      {game.status === 'Active' && (
-                        <Tooltip title="Leave">
-                          <IconButton onClick={() => leaveGame(game.id)} size="small" color="error">
-                            <LeaveIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      <Tooltip title="Archive">
-                        <IconButton size="small" color="default" onClick={() => handleArchiveGame(game.id)}>
-                          <ArchiveIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete">
-                        <IconButton onClick={() => deleteGame(game.id)} size="small" color="error">
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Paper>
+                    </Box>
+                    <Chip label={game.status} size="small" color={statusColor(game.status) as any} />
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
+                    <Chip label={game.systemId} size="small" variant="outlined" />
+                    {game.language && <Chip label={`🌐 ${game.language}`} size="small" variant="outlined" color="info" />}
+                    {game.llmPresetName && <Chip label={game.llmPresetName} size="small" variant="outlined" />}
+                    {game.status === 'Active' && game.inviteCode && (
+                      <Chip label={game.inviteCode} size="small" variant="outlined" color="primary" />
+                    )}
+                  </Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Created: {new Date(game.createdAt).toLocaleDateString()}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 0.5, mt: 1.5, flexWrap: 'wrap' }}>
+                    <Button size="small" variant="contained" component="a" href={`/game/${game.id}`} startIcon={<PlayIcon />}>Play</Button>
+                    {game.status === 'Active' && game.inviteCode && (
+                      <Button size="small" variant="outlined" onClick={() => handleCopyInvite(game.id)} startIcon={<ShareIcon />}>Copy Code</Button>
+                    )}
+                    {game.status === 'Active' && (
+                      <Button size="small" variant="outlined" color="error" onClick={() => leaveGame(game.id)} startIcon={<LeaveIcon />}>Leave</Button>
+                    )}
+                    <Button size="small" variant="outlined" onClick={() => handleArchiveGame(game.id)} startIcon={<ArchiveIcon />}>Archive</Button>
+                    <Button size="small" variant="outlined" color="error" onClick={() => deleteGame(game.id)} startIcon={<DeleteIcon />}>Delete</Button>
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          )}
+        </>
       )}
     </Box>
   );

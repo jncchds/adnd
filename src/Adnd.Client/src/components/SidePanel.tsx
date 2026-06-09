@@ -11,6 +11,7 @@ import {
   useTheme,
   Avatar,
   Chip,
+  Backdrop,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -63,6 +64,7 @@ interface SidePanelProps {
   onNewSystem?: () => void;
   games?: GameListItem[];
   presets?: LLMPreset[];
+  isMobile?: boolean;
 }
 
 // Unified button style
@@ -78,12 +80,12 @@ const buttonBaseSx = {
   '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
 };
 
-export default function SidePanel({ open, onToggle, currentView, onNavigate, gameId, activeGameTab, onNewGame, onJoinGame, onAddPreset, onNewSystem, games, presets }: SidePanelProps) {
+export default function SidePanel({ open, onToggle, currentView, onNavigate, gameId, activeGameTab, onNewGame, onJoinGame, onAddPreset, onNewSystem, games, presets, isMobile = false }: SidePanelProps) {
   const navigate = useNavigate();
   const theme = useTheme();
   const { user, isAuthenticated, logout } = useAuth();
 
-  const drawerWidth = open ? DRAWER_WIDTH : DRAWER_COLLAPSED_WIDTH;
+  const drawerWidth = isMobile ? '100%' : (open ? DRAWER_WIDTH : DRAWER_COLLAPSED_WIDTH);
 
   const isInGame = gameId !== undefined;
   const activeGames = games?.filter(g => g.status !== 'Archived' && g.status !== 'Finished') || [];
@@ -94,34 +96,49 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
     onNavigate('welcome');
   };
 
+  // On mobile: use temporary drawer (overlay). On desktop: permanent drawer.
+  const drawerVariant = isMobile ? 'temporary' : 'permanent';
+
   return (
-    <Drawer
-      variant="permanent"
-      sx={{
-        width: drawerWidth,
-        flexShrink: 0,
-        whiteSpace: 'nowrap',
-        boxSizing: 'border-box',
-        transition: theme.transitions.create('width', {
-          easing: theme.transitions.easing.sharp,
-          duration: theme.transitions.duration.enteringScreen,
-        }),
-        '& .MuiDrawer-paper': {
+    <>
+      {isMobile && open && (
+        <Backdrop
+          open
+          sx={{ zIndex: (theme) => theme.zIndex.drawer - 1 }}
+          onClick={onToggle}
+        />
+      )}
+      <Drawer
+        variant={drawerVariant}
+        open={isMobile ? open : true}
+        onClose={isMobile ? onToggle : undefined}
+        sx={{
           width: drawerWidth,
-          transition: theme.transitions.create('width', {
-            easing: theme.transitions.easing.sharp,
-            duration: theme.transitions.duration.enteringScreen,
-          }),
-          overflowX: 'hidden',
-          bgcolor: '#121212',
-          borderRight: '1px solid rgba(255,255,255,0.08)',
-          color: 'text.primary',
-          display: 'flex',
-          flexDirection: 'column',
+          flexShrink: 0,
+          whiteSpace: 'nowrap',
           boxSizing: 'border-box',
-        },
-      }}
-    >
+          '& .MuiDrawer-paper': {
+            width: drawerWidth,
+            overflowX: 'hidden',
+            bgcolor: '#121212',
+            borderRight: '1px solid rgba(255,255,255,0.08)',
+            color: 'text.primary',
+            display: 'flex',
+            flexDirection: 'column',
+            boxSizing: 'border-box',
+            ...(isMobile ? {
+              height: '100dvh',
+              maxWidth: '85vw',
+            } : {
+              transition: theme.transitions.create('width', {
+                easing: theme.transitions.easing.sharp,
+                duration: theme.transitions.duration.enteringScreen,
+              }),
+              borderRight: '1px solid rgba(255,255,255,0.08)',
+            }),
+          },
+        }}
+      >
       {/* Header: burger + ADnD */}
       <Box
         sx={{
@@ -360,5 +377,6 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
         </ListItemButton>
       </Box>
     </Drawer>
+    </>
   );
 }

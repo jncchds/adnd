@@ -46,12 +46,12 @@ export default function AuthPage() {
 
   return (
     <Container maxWidth="sm">
-      <Box sx={{ mt: 8, textAlign: 'center' }}>
-        <Typography variant="h4" gutterBottom>
+      <Box sx={{ mt: { xs: 4, sm: 8 }, textAlign: 'center', px: { xs: 1, sm: 0 } }}>
+        <Typography sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' }, mb: 2 }}>
           {tab === 0 ? 'Login' : 'Register'}
         </Typography>
 
-        <Paper elevation={3} sx={{ p: 4, mt: 2 }}>
+        <Paper elevation={3} sx={{ p: { xs: 2, sm: 4 }, mt: 2, borderRadius: 2 }}>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3 }}>
             <Tab label="Login" />
             <Tab label="Register" />
@@ -110,7 +110,7 @@ export default function AuthPage() {
               size="large"
               fullWidth
               disabled={isLoading}
-              sx={{ mt: 2 }}
+              sx={{ mt: 2, py: 1.5 }}
             >
               {tab === 0 ? 'Login' : 'Register'}
             </Button>

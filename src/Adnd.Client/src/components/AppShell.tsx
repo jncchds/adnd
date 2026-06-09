@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { Box, Alert, AlertTitle, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button } from '@mui/material';
+import { Box, Alert, AlertTitle, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, useMediaQuery } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { useAuth } from '../api/authHook';
 import { useGames, useLLMPresets } from '../api/gameHooks';
 import SidePanel, { type AppView } from './SidePanel';
@@ -8,24 +9,28 @@ import WelcomeScreen from './WelcomeScreen';
 
 export default function AppShell() {
   const { isAuthenticated } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md')); // < 900px
 
   // Not authenticated — no data hooks (avoids 401s)
   if (!isAuthenticated) {
     return (
       <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
         <SidePanel
-          open={true}
+          open={!isMobile}
           onToggle={() => {}}
           currentView="welcome"
           onNavigate={() => {}}
           games={[]}
           presets={[]}
+          isMobile={isMobile}
         />
         <Box component="main" sx={{
           flexGrow: 1,
           minWidth: 0,
           overflow: 'auto',
           bgcolor: 'background.default',
+          p: { xs: 1.5, sm: 2 },
         }}>
           <WelcomeScreen />
         </Box>
@@ -41,10 +46,12 @@ export default function AppShell() {
 function AuthenticatedShell() {
   const navigate = useNavigate();
   const location = useLocation();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md')); // < 900px
   const { createGame, joinByCode } = useGames();
   const { presets } = useLLMPresets();
 
-  const [drawerOpen, setDrawerOpen] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(!isMobile);
   const [currentView, setCurrentView] = useState<AppView>('dashboard');
   const [currentGameId, setCurrentGameId] = useState<string | undefined>(undefined);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -57,6 +64,13 @@ function AuthenticatedShell() {
   const [plotSeed, setPlotSeed] = useState('');
   const [gameParameters, setGameParameters] = useState('');
   const [joinCode, setJoinCode] = useState('');
+
+  // Auto-close drawer on mobile when navigating
+  useEffect(() => {
+    if (isMobile && drawerOpen) {
+      setDrawerOpen(false);
+    }
+  }, [location.pathname, isMobile]);
 
   // Determine current view from URL
   useEffect(() => {
@@ -170,11 +184,12 @@ function AuthenticatedShell() {
         onJoinGame={currentView === 'dashboard' ? handleJoinGame : undefined}
         onAddPreset={currentView === 'llm-presets' ? handleAddPreset : undefined}
         onNewSystem={currentView === 'systems' ? handleNewSystem : undefined}
+        isMobile={isMobile}
       />
       <Box component="main" sx={{
         flexGrow: 1,
         minWidth: 0,
-        p: { xs: 2, md: 3 },
+        p: { xs: 1.5, sm: 2, md: 3 },
         overflow: 'auto',
         bgcolor: 'background.default',
       }}>

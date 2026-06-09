@@ -15,6 +15,8 @@ import {
   Tab,
   Alert,
   AlertTitle,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   SportsEsports as DiceIcon,
@@ -28,6 +30,8 @@ import {
 export default function WelcomeScreen() {
   const navigate = useNavigate();
   const { login, register, isLoading, user } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [authTab, setAuthTab] = useState(0);
   const [authOpen, setAuthOpen] = useState(false);
   const [email, setEmail] = useState('');
@@ -91,12 +95,13 @@ export default function WelcomeScreen() {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        py: 6,
+        py: { xs: 4, sm: 6 },
         px: 2,
       }}>
         {/* Title */}
-        <Typography variant="h2" component="h1" gutterBottom sx={{
+        <Typography component="h1" gutterBottom sx={{
           fontWeight: 700,
+          fontSize: { xs: '2rem', sm: '3rem' },
           background: 'linear-gradient(135deg, #9147ff 0%, #f50057 100%)',
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
@@ -104,11 +109,11 @@ export default function WelcomeScreen() {
         }}>
           ADnD
         </Typography>
-        <Typography variant="h5" color="text.secondary" sx={{ mb: 1, fontWeight: 300 }}>
+        <Typography color="text.secondary" sx={{ mb: 1, fontWeight: 300, fontSize: { xs: '1.1rem', sm: '1.25rem' } }}>
           Advanced Dungeon Network
         </Typography>
-        <Typography variant="body1" color="text.secondary" sx={{
-          mb: 5,
+        <Typography color="text.secondary" sx={{
+          mb: { xs: 4, sm: 5 },
           maxWidth: 600,
           mx: 'auto',
           textAlign: 'center',
@@ -119,12 +124,13 @@ export default function WelcomeScreen() {
         </Typography>
 
         {/* CTA Buttons */}
-        <Box sx={{ display: 'flex', gap: 2, mb: 8 }}>
+        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, mb: { xs: 6, sm: 8 }, width: { xs: '100%', sm: 'auto' }, px: 1 }}>
           <Button
             variant="contained"
             size="large"
             onClick={() => openAuthDialog(0)}
-            sx={{ px: 4, py: 1.5, fontSize: 16 }}
+            fullWidth={isMobile}
+            sx={{ py: { xs: 1.5, sm: 1 }, fontSize: 16 }}
           >
             Log in
           </Button>
@@ -132,7 +138,8 @@ export default function WelcomeScreen() {
             variant="outlined"
             size="large"
             onClick={() => openAuthDialog(1)}
-            sx={{ px: 4, py: 1.5, fontSize: 16 }}
+            fullWidth={isMobile}
+            sx={{ py: { xs: 1.5, sm: 1 }, fontSize: 16 }}
           >
             Register
           </Button>
@@ -141,10 +148,11 @@ export default function WelcomeScreen() {
         {/* Features Grid */}
         <Box sx={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: 3,
+          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
+          gap: { xs: 2, sm: 3 },
           maxWidth: 900,
           width: '100%',
+          px: { xs: 1, sm: 0 },
         }}>
           {[
             { icon: <DiceIcon fontSize="large" />, title: 'Multi-System Support', desc: 'D&D 5e, Pathfinder 2e, Call of Cthulhu 7e, and custom systems' },
@@ -158,7 +166,7 @@ export default function WelcomeScreen() {
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
-              p: 3,
+              p: { xs: 2, sm: 3 },
               borderRadius: 2,
             }}>
               <Box sx={{ color: 'primary.main', mb: 1, textAlign: 'center' }}>
@@ -176,20 +184,23 @@ export default function WelcomeScreen() {
       </Box>
 
       {/* Footer */}
-      <Typography variant="body2" color="text.secondary" sx={{
+      <Typography color="text.secondary" sx={{
         textAlign: 'center',
-        py: 3,
+        py: { xs: 2, sm: 3 },
         borderTop: '1px solid rgba(255,255,255,0.06)',
+        px: 1,
       }}>
         ADnD · Built with ASP.NET Core 10, React 19, PostgreSQL + PGVector
       </Typography>
 
       {/* Auth Modal */}
-      <Dialog open={authOpen} onClose={() => setAuthOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={authOpen} onClose={() => setAuthOpen(false)} maxWidth="sm" fullWidth
+        fullScreen={isMobile}
+        PaperProps={{ sx: { maxHeight: '95dvh', margin: isMobile ? 1 : undefined } }}>
         <DialogTitle sx={{ pb: 1 }}>
           {authTab === 0 ? 'Log in' : 'Create Account'}
         </DialogTitle>
-        <DialogContent sx={{ mt: 1 }}>
+        <DialogContent sx={{ mt: 1, px: isMobile ? 2 : undefined }}>
           {/* Tabs */}
           <Tabs value={authTab} onChange={(_, v) => setAuthTab(v)} sx={{ mb: 2 }}>
             <Tab label="Log in" />

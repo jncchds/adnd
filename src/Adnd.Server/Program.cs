@@ -27,16 +27,35 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "ADnD API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "ADnD API",
+        Version = "v1",
+        Description = "Advanced Dungeon Network — a multi-system TTRPG web framework with LLM-powered Game Master assistance, real-time chat, and custom system support.",
+        Contact = new OpenApiContact
+        {
+            Name = "ADnD Support",
+            Url = new Uri("https://github.com/adnd/api-docs")
+        }
+    });
+
+    // Include XML documentation comments
+    var xmlFile = $"{typeof(Program).Assembly.GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath);
+    }
 
     // Add JWT auth to Swagger
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme.",
         Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
+        Description = "Enter your JWT token in the format: `Bearer <token>`"
     });
 
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -53,6 +72,12 @@ builder.Services.AddSwaggerGen(c =>
             Array.Empty<string>()
         }
     });
+
+    // Custom operation filter for adding tags and descriptions
+    c.OperationFilter<SwaggerOperationFilter>();
+
+    // Group endpoints by controller name
+    c.CustomSchemaIds(type => type.Name);
 });
 
 // SignalR
@@ -234,10 +259,12 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline
+// Swagger is enabled in all environments for API documentation
+app.UseSwagger();
+app.UseSwaggerUI();
+
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
     app.UseCors("AllowAll");
 }
 else

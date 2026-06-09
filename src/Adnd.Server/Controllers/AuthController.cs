@@ -6,6 +6,9 @@ using Adnd.Server.Services;
 
 namespace Adnd.Server.Controllers;
 
+/// <summary>
+/// Authentication endpoints — register, login, token refresh, logout, and profile management.
+/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
@@ -19,6 +22,13 @@ public class AuthController : ControllerBase
         _logger = logger;
     }
 
+    /// <summary>
+/// Register a new user account.
+/// </summary>
+    /// <param name="request">Registration request with email and password.</param>
+    /// <returns>Authentication response with JWT token and refresh token.</returns>
+    /// <response code="200">User registered successfully.</response>
+    /// <response code="400">Invalid email format or password too short.</response>
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
@@ -48,6 +58,13 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Authenticate with email and password to receive a JWT token.
+    /// </summary>
+    /// <param name="request">Login credentials.</param>
+    /// <returns>Authentication response with JWT token and refresh token.</returns>
+    /// <response code="200">Login successful.</response>
+    /// <response code="401">Invalid credentials.</response>
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
@@ -65,6 +82,13 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Refresh an expired JWT token using a valid refresh token.
+    /// </summary>
+    /// <param name="request">Refresh token.</param>
+    /// <returns>New JWT token and refresh token pair.</returns>
+    /// <response code="200">Token refreshed successfully.</response>
+    /// <response code="401">Invalid or revoked refresh token.</response>
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
     {
@@ -82,6 +106,10 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>
+    /// Revoke the current refresh token, effectively logging the user out.
+    /// </summary>
+    /// <param name="request">Refresh token to revoke.</param>
     [HttpPost("logout")]
     [Authorize]
     public async Task<IActionResult> Logout([FromBody] RefreshRequest request)
@@ -90,6 +118,10 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Logged out successfully." });
     }
 
+    /// <summary>
+    /// Get the current authenticated user's profile information.
+    /// </summary>
+    /// <returns>User profile with id, email, display name, and creation date.</returns>
     [HttpGet("me")]
     [Authorize]
     public async Task<IActionResult> GetMe()
@@ -115,6 +147,12 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Change the current user's password.
+    /// </summary>
+    /// <param name="request">Current and new password.</param>
+    /// <response code="200">Password changed successfully.</response>
+    /// <response code="400">Current password is incorrect.</response>
     [HttpPost("change-password")]
     [Authorize]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
@@ -139,6 +177,12 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Password changed successfully." });
     }
 
+    /// <summary>
+    /// Update the current user's display name.
+    /// </summary>
+    /// <param name="request">New display name.</param>
+    /// <response code="200">Display name updated successfully.</response>
+    /// <response code="400">Display name is empty.</response>
     [HttpPut("display-name")]
     [Authorize]
     public async Task<IActionResult> UpdateDisplayName([FromBody] UpdateDisplayNameRequest request)
@@ -164,13 +208,22 @@ public class AuthController : ControllerBase
     }
 }
 
+/// <summary>
+/// Request to change a user's password.
+/// </summary>
 public class ChangePasswordRequest
 {
+    /// <summary>Current password.</summary>
     public string CurrentPassword { get; set; } = string.Empty;
+    /// <summary>New password (minimum 8 characters).</summary>
     public string NewPassword { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Request to update a user's display name.
+/// </summary>
 public class UpdateDisplayNameRequest
 {
+    /// <summary>New display name (non-empty).</summary>
     public string DisplayName { get; set; } = string.Empty;
 }
