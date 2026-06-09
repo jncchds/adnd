@@ -147,8 +147,8 @@ public class AgentBus : IAgentBus
         _context.AgentCalls.Add(call);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Agent call queued: {FromAgent} -> {ToAgent} [{Action}] (call: {CallId})",
-            call.FromAgent, call.ToAgent, call.Action, call.Id);
+        _logger.LogInformation("[AGENT_CALL] Queued | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | SessionId={SessionId}",
+            call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.SessionId);
 
         return call;
     }
@@ -159,6 +159,9 @@ public class AgentBus : IAgentBus
         call.StartedAt = DateTime.UtcNow;
         _context.AgentCalls.Update(call);
         await _context.SaveChangesAsync();
+
+        _logger.LogInformation("[AGENT_CALL] Started | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}]",
+            call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action);
 
         try
         {
@@ -174,8 +177,8 @@ public class AgentBus : IAgentBus
             _context.AgentCalls.Update(call);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Agent call completed: {FromAgent} -> {ToAgent} [{Action}] in {Duration}ms",
-                call.FromAgent, call.ToAgent, call.Action, call.DurationMs);
+            _logger.LogInformation("[AGENT_CALL] Completed | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | Duration={Duration}ms",
+                call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.DurationMs);
 
             return call;
         }
@@ -191,8 +194,8 @@ public class AgentBus : IAgentBus
             _context.AgentCalls.Update(call);
             await _context.SaveChangesAsync();
 
-            _logger.LogError(ex, "Agent call failed: {FromAgent} -> {ToAgent} [{Action}]",
-                call.FromAgent, call.ToAgent, call.Action);
+            _logger.LogError("[AGENT_CALL] Failed | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | Duration={Duration}ms | Error={Error}",
+                call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.DurationMs, ex.Message);
 
             return call;
         }

@@ -223,13 +223,9 @@ builder.Services.AddScoped<IPromptTemplateService, PromptTemplateService>();
 builder.Services.AddScoped<IDiceStatsService, DiceStatsService>();
 builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
 
-// Player disconnect detector (background service)
-builder.Services.AddHostedService<PlayerDisconnectDetector>(sp => new PlayerDisconnectDetector(
-    sp,
-    sp.GetRequiredService<ILogger<PlayerDisconnectDetector>>(),
-    interval: TimeSpan.FromSeconds(30),
-    timeout: TimeSpan.FromSeconds(60)
-));
+// Player disconnect detection is handled by GameHub.OnDisconnectedAsync()
+// and GameHub.CheckDisconnectedPlayersAsync() — no separate background service needed.
+// The Hub already broadcasts PlayerDisconnected/PlayerReconnected events on disconnect/reconnect.
 
 // Rate limiting configuration (bound from app settings)
 builder.Services.AddRateLimitingOptions();

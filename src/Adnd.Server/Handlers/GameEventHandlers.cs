@@ -31,51 +31,69 @@ public class GameLifecycleHandler :
 
     public Task Handle(GameCreated notification, CancellationToken ct)
     {
-        _logger.LogInformation("Game created: {GameId} by {CreatorId}", notification.GameId, notification.CreatorId);
+        _logger.LogInformation("[STATE] GameCreated | GameId={GameId} | CreatorId={CreatorId} | SystemId={SystemId} | LLMPresetId={LLMPresetId}",
+            notification.GameId, notification.CreatorId, notification.SystemId, notification.LLMPresetId);
         return Task.CompletedTask;
     }
 
     public async Task Handle(GameStarted notification, CancellationToken ct)
     {
-        _logger.LogInformation("Game started — activating GameAgent: {GameId}", notification.GameId);
+        _logger.LogInformation("[STATE] GameStarted | GameId={GameId} | CreatorId={CreatorId} | Transition: Created→Active", 
+            notification.GameId, notification.CreatorId);
+
         var agent = _gameAgentManager.GetOrCreate(notification.GameId);
         await agent.StartAsync(notification.GameId, notification.CreatorId);
+        _logger.LogInformation("[STATE] GameAgentStarted | GameId={GameId} | Status=Running | Loop=Started",
+            notification.GameId);
 
         // Queue the initial GM narrative call so the processing loop has something to process
         try
         {
-            await _agentBus.ActivateGameAgentAsync(notification.GameId, notification.CreatorId);
-            _logger.LogInformation("Queued initial GM narrative for game {GameId}", notification.GameId);
+            var call = await _agentBus.ActivateGameAgentAsync(notification.GameId, notification.CreatorId);
+            _logger.LogInformation("[AGENT_CALL] QueuedInitialNarrate | GameId={GameId} | CallId={CallId} | Action={Action} | Status={Status}",
+                notification.GameId, call.Id, call.Action, call.Status);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to queue initial GM narrative for game {GameId}", notification.GameId);
+            _logger.LogWarning(ex, "[AGENT_CALL] FailedToQueueInitialNarrate | GameId={GameId} | Error={Error}",
+                notification.GameId, ex.Message);
         }
     }
 
     public async Task Handle(GameArchived notification, CancellationToken ct)
     {
-        _logger.LogInformation("Game archived — removing GameAgent: {GameId}", notification.GameId);
+        _logger.LogInformation("[STATE] GameArchived | GameId={GameId} | Transition: Active→Archived | Agent=Removed",
+            notification.GameId);
         _gameAgentManager.Remove(notification.GameId);
     }
 
     public async Task Handle(GamePaused notification, CancellationToken ct)
     {
-        _logger.LogInformation("Game paused — pausing GameAgent: {GameId}", notification.GameId);
+        _logger.LogInformation("[STATE] GamePaused | GameId={GameId} | Transition: Running→Paused | Agent=Paused",
+            notification.GameId);
         var agent = _gameAgentManager.GetOrCreate(notification.GameId);
         await agent.PauseAsync(notification.GameId);
     }
 
     public async Task Handle(GameResumed notification, CancellationToken ct)
     {
-        _logger.LogInformation("Game resumed — resuming GameAgent: {GameId}", notification.GameId);
+        _logger.LogInformation("[STATE] GameResumed | GameId={GameId} | Transition: Paused→Running", notification.GameId);
         var agent = _gameAgentManager.GetOrCreate(notification.GameId);
+
+        var wasRestarted = agent.IsActive(notification.GameId);
         await agent.ResumeAsync(notification.GameId);
+
+        var isNowActive = agent.IsActive(notification.GameId);
+        _logger.LogInformation("[STATE] GameAgentResumed | GameId={GameId} | LoopRestarted={WasRestarted} | NowActive={IsActive}",
+            notification.GameId, !wasRestarted && isNowActive, isNowActive);
     }
 }
 
 /// <summary>
 /// Handles player lifecycle events.
+/// Responsibility: Log player state changes for observability.
+/// Note: PlotWeaverHandler reacts to PlayerJoined for plot thread generation.
+///       PlayerDisconnectDetector was removed — GameHub handles disconnect detection.
 /// </summary>
 public class PlayerHandler :
     INotificationHandler<PlayerJoined>,
@@ -92,27 +110,29 @@ public class PlayerHandler :
 
     public Task Handle(PlayerJoined notification, CancellationToken ct)
     {
-        _logger.LogInformation("Player joined game {GameId}: {PlayerId}", notification.GameId, notification.PlayerId);
+        _logger.LogInformation("[PLAYER] Joined | GameId={GameId} | PlayerId={PlayerId} | Character={Character} | Role={Role}",
+            notification.GameId, notification.PlayerId, notification.CharacterName, notification.PlayerId);
         return Task.CompletedTask;
     }
 
     public Task Handle(PlayerLeft notification, CancellationToken ct)
     {
-        _logger.LogInformation("Player left game {GameId}: {PlayerId}", notification.GameId, notification.PlayerId);
+        _logger.LogInformation("[PLAYER] Left | GameId={GameId} | PlayerId={PlayerId}",
+            notification.GameId, notification.PlayerId);
         return Task.CompletedTask;
     }
 
     public Task Handle(PlayerDisconnected notification, CancellationToken ct)
     {
-        _logger.LogInformation("Player disconnected from game {GameId}: {CharacterName} ({UserId}) at {DisconnectedAt}",
-            notification.GameId, notification.CharacterName, notification.UserId, notification.DisconnectedAt);
+        _logger.LogInformation("[PLAYER] Disconnected | GameId={GameId} | PlayerId={PlayerId} | Character={Character} | UserId={UserId} | DisconnectedAt={DisconnectedAt}",
+            notification.GameId, notification.PlayerId, notification.CharacterName, notification.UserId, notification.DisconnectedAt);
         return Task.CompletedTask;
     }
 
     public Task Handle(PlayerReconnected notification, CancellationToken ct)
     {
-        _logger.LogInformation("Player reconnected to game {GameId}: {CharacterName} ({UserId})",
-            notification.GameId, notification.CharacterName, notification.UserId);
+        _logger.LogInformation("[PLAYER] Reconnected | GameId={GameId} | PlayerId={PlayerId} | Character={Character} | UserId={UserId}",
+            notification.GameId, notification.PlayerId, notification.CharacterName, notification.UserId);
         return Task.CompletedTask;
     }
 }
@@ -227,7 +247,11 @@ public class GameActionHandler :
     {
         var gameStatus = await _agentBus.GetGMStatusAsync(gameId);
         if (gameStatus.Status != GMStatus.Running)
+        {
+            _logger.LogDebug("[AGENT_CALL] SkipNarrateQueue | GameId={GameId} | GMStatus={GMStatus} — no narrative needed",
+                gameId, gameStatus.Status);
             return; // GM is paused or idle — no narrative needed
+        }
 
         // Quick debounce: if there's already a pending GM call, don't add another.
         // This prevents spam during rapid combat actions.
@@ -235,8 +259,8 @@ public class GameActionHandler :
         var gmPending = pendingCount.Where(c => c.Action == AgentAction.Narrate).Count();
         if (gmPending >= 2)
         {
-            _logger.LogDebug("Skipping GM narrative queue for game {GameId} — already {Count} pending",
-                gameId, gmPending);
+            _logger.LogDebug("[AGENT_CALL] DebounceSkip | GameId={GameId} | PendingNarrates={Count} | Context={Context}",
+                gameId, gmPending, context);
             return;
         }
 
@@ -268,15 +292,17 @@ public class GameActionHandler :
             CreatedAt = DateTime.UtcNow
         };
 
-        await _agentBus.SendCallAsync(call);
-        _logger.LogDebug("Queued GM narrative for game {GameId}: {Context}", gameId, context);
+        var queuedCall = await _agentBus.SendCallAsync(call);
+        _logger.LogInformation("[AGENT_CALL] QueuedNarrate | GameId={GameId} | CallId={CallId} | From={FromAgent} → To={ToAgent} [{Action}] | Context={Context} | PendingNarrates={PendingCount}",
+            gameId, queuedCall.Id, queuedCall.FromAgent, queuedCall.ToAgent, queuedCall.Action, context, gmPending + 1);
     }
 }
 
 /// <summary>
 /// Handles chat/whisper events.
-/// In-game messages are processed by the GameAgent for narrative.
-/// OOC messages bypass the GameAgent entirely.
+/// Responsibility: Log message routing for observability.
+/// Note: OOC bypass is enforced at the Hub level (separate events published for OOC vs in-game).
+///       The PlotWeaverHandler reacts to MessageSent for periodic plot reviews.
 /// </summary>
 public class ChatHandler :
     INotificationHandler<MessageSent>,
@@ -294,71 +320,41 @@ public class ChatHandler :
 
     public Task Handle(MessageSent notification, CancellationToken ct)
     {
-        _logger.LogDebug("Message sent in game {GameId}: type={Type} ooc={IsOOC}",
-            notification.GameId, notification.Type, notification.IsOOC);
-        // OOC messages are NOT processed by the GameAgent — they bypass narrative entirely
+        _logger.LogInformation("[CHAT] MessageSent | GameId={GameId} | Type={Type} | OOC={IsOOC} | PlayerId={PlayerId}",
+            notification.GameId, notification.Type, notification.IsOOC, notification.PlayerId);
         return Task.CompletedTask;
     }
 
     public Task Handle(WhisperSent notification, CancellationToken ct)
     {
-        _logger.LogDebug("Whisper in game {GameId}: {FromPlayerId} → {Targets} (type: {Type})",
+        _logger.LogInformation("[CHAT] WhisperSent | GameId={GameId} | From={FromPlayerId} → Targets={Targets} | Type={Type}",
             notification.GameId, notification.FromPlayerId, notification.Targets, notification.Type);
         return Task.CompletedTask;
     }
 
     public Task Handle(OOCMessageSent notification, CancellationToken ct)
     {
-        _logger.LogDebug("OOC message in game {GameId}: channel={Channel}",
-            notification.GameId, notification.OOCChannel);
-        // OOC messages never reach the GameAgent
+        _logger.LogInformation("[CHAT] OOCMessageSent | GameId={GameId} | Channel={Channel} | PlayerId={PlayerId}",
+            notification.GameId, notification.OOCChannel, notification.PlayerId);
         return Task.CompletedTask;
     }
 
     public Task Handle(OOCWhisperSent notification, CancellationToken ct)
     {
-        _logger.LogDebug("OOC whisper in game {GameId}: {FromPlayerId} → {Targets}",
+        _logger.LogInformation("[CHAT] OOCWhisperSent | GameId={GameId} | From={FromPlayerId} → Targets={Targets}",
             notification.GameId, notification.FromPlayerId, notification.Targets);
         return Task.CompletedTask;
     }
 
     public Task Handle(OOCWhisperReceived notification, CancellationToken ct)
     {
-        _logger.LogDebug("OOC whisper received in game {GameId}: {FromPlayerId} → {ToPlayerId}",
+        _logger.LogInformation("[CHAT] OOCWhisperReceived | GameId={GameId} | From={FromPlayerId} → To={ToPlayerId}",
             notification.GameId, notification.FromPlayerId, notification.ToPlayerId);
         return Task.CompletedTask;
     }
 }
 
-/// <summary>
-/// Handles plot/NPC events.
-/// </summary>
-public class PlotHandler :
-    INotificationHandler<NPCCreated>,
-    INotificationHandler<NPCUpdated>,
-    INotificationHandler<NPCDeleted>,
-    INotificationHandler<PlotThreadCreated>,
-    INotificationHandler<PlotThreadUpdated>
-{
-    private readonly ILogger<PlotHandler> _logger;
 
-    public PlotHandler(ILogger<PlotHandler> logger)
-    {
-        _logger = logger;
-    }
-
-    public Task Handle(NPCCreated n, CancellationToken ct) => Log(n, nameof(NPCCreated));
-    public Task Handle(NPCUpdated n, CancellationToken ct) => Log(n, nameof(NPCUpdated));
-    public Task Handle(NPCDeleted n, CancellationToken ct) => Log(n, nameof(NPCDeleted));
-    public Task Handle(PlotThreadCreated n, CancellationToken ct) => Log(n, nameof(PlotThreadCreated));
-    public Task Handle(PlotThreadUpdated n, CancellationToken ct) => Log(n, nameof(PlotThreadUpdated));
-
-    private Task Log<T>(T notification, string name) where T : INotification
-    {
-        _logger.LogDebug("Plot event: {EventName} for game {GameId}", name, notification.GetType().GetProperty("GameId")?.GetValue(notification));
-        return Task.CompletedTask;
-    }
-}
 
 /// <summary>
 /// Handles session events.

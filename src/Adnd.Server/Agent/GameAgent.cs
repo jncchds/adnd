@@ -129,6 +129,15 @@ public class GameAgent : IGameAgent
                 await context.SaveChangesAsync();
             }
         }
+
+        // Restart the processing loop if it was disposed (e.g., due to error or unexpected exit)
+        if (_processingLoop == null || _processingLoop.IsCompleted)
+        {
+            var loopState = _processingLoop == null ? "null" : _processingLoop.Status.ToString();
+            _logger.LogInformation("Restarting processing loop for game {GameId} (loop was {State})",
+                gameId, loopState);
+            _processingLoop = ProcessLoopAsync();
+        }
     }
 
     public async Task QueueEventAsync(Guid gameId, AgentCall call)
