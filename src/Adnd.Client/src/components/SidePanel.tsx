@@ -40,7 +40,8 @@ import {
   PlayArrow as PlayArrowIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../api/authHook';
-import { useGames, useLLMPresets } from '../api/gameHooks';
+import type { GameListItem } from '../api/client';
+import type { LLMPreset } from '../api/client';
 
 const DRAWER_WIDTH = 260;
 const DRAWER_COLLAPSED_WIDTH = 56;
@@ -58,6 +59,8 @@ interface SidePanelProps {
   onJoinGame?: () => void;
   onAddPreset?: () => void;
   onNewSystem?: () => void;
+  games?: GameListItem[];
+  presets?: LLMPreset[];
 }
 
 // Unified button style
@@ -73,17 +76,16 @@ const buttonBaseSx = {
   '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
 };
 
-export default function SidePanel({ open, onToggle, currentView, onNavigate, gameId, activeGameTab, onNewGame, onJoinGame, onAddPreset, onNewSystem }: SidePanelProps) {
+export default function SidePanel({ open, onToggle, currentView, onNavigate, gameId, activeGameTab, onNewGame, onJoinGame, onAddPreset, onNewSystem, games, presets }: SidePanelProps) {
   const navigate = useNavigate();
   const theme = useTheme();
   const { user, isAuthenticated, logout } = useAuth();
-  const { games } = useGames();
-  const { presets } = useLLMPresets();
 
   const drawerWidth = open ? DRAWER_WIDTH : DRAWER_COLLAPSED_WIDTH;
 
   const isInGame = gameId !== undefined;
   const activeGames = games?.filter(g => g.status !== 'Archived' && g.status !== 'Finished') || [];
+  const resolvedPresets = presets ?? [];
 
   const handleLogout = async () => {
     await logout();
@@ -248,10 +250,10 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
                 <ListItemText primary="Add Preset" />
               </ListItemButton>
             )}
-            {presets.length === 0 ? (
+            {resolvedPresets.length === 0 ? (
               <Typography variant="caption" sx={{ px: 2, color: 'text.secondary' }}>No presets yet</Typography>
             ) : (
-              presets.map(preset => (
+              resolvedPresets.map(preset => (
                 <ListItemButton key={preset.id} onClick={() => navigate(`/llm-presets/${preset.id}`)} sx={{ ...buttonBaseSx, bgcolor: preset.isDefault ? 'rgba(145,71,255,0.08)' : 'transparent', border: preset.isDefault ? '1px solid' : 'none', borderColor: preset.isDefault ? 'rgba(145,71,255,0.3)' : 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 'auto', justifyContent: 'center' }}><LLMIcon fontSize="small" color="action" /></ListItemIcon>
                   <ListItemText primary={preset.name} primaryTypographyProps={{ noWrap: true, fontSize: 13, fontWeight: 500 }} />

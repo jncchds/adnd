@@ -38,10 +38,12 @@ public class SystemRegistry : ISystemRegistry
 {
     private readonly Dictionary<string, SystemDefinition> _systems = new();
     private readonly ILogger<SystemRegistry> _logger;
+    private readonly ISystemRulesFactory _rulesFactory;
 
-    public SystemRegistry(ILogger<SystemRegistry> logger)
+    public SystemRegistry(ILogger<SystemRegistry> logger, ISystemRulesFactory rulesFactory)
     {
         _logger = logger;
+        _rulesFactory = rulesFactory;
         RegisterBuiltinSystems();
     }
 

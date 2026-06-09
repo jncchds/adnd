@@ -27,28 +27,21 @@ public class GameEngine : IGameEngine
     private readonly AppDbContext _context;
     private readonly IDiceEngine _diceEngine;
     private readonly ISystemRegistry _systemRegistry;
+    private readonly ISystemRulesFactory _rulesFactory;
     private readonly ILogger<GameEngine> _logger;
 
     public GameEngine(
         AppDbContext context,
         IDiceEngine diceEngine,
         ISystemRegistry systemRegistry,
+        ISystemRulesFactory rulesFactory,
         ILogger<GameEngine> logger)
     {
         _context = context;
         _diceEngine = diceEngine;
         _systemRegistry = systemRegistry;
+        _rulesFactory = rulesFactory;
         _logger = logger;
-    }
-
-    private static int GetProficiencyBonus(int level)
-    {
-        // D&D 5e proficiency bonus progression
-        if (level <= 4) return 2;
-        if (level <= 8) return 3;
-        if (level <= 12) return 4;
-        if (level <= 16) return 5;
-        return 6;
     }
 
     public async Task<DiceRollResult> RollDiceAsync(Guid sessionId, string formula, Guid? playerId = null)
@@ -230,9 +223,10 @@ public class GameEngine : IGameEngine
             Level = attrs.TryGetProperty("level", out var levelProp) && levelProp.ValueKind == System.Text.Json.JsonValueKind.Number
                 ? levelProp.GetInt32()
                 : 1,
-            ProficiencyBonus = GetProficiencyBonus(attrs.TryGetProperty("level", out var lvlProp) && lvlProp.ValueKind == System.Text.Json.JsonValueKind.Number
-                ? lvlProp.GetInt32()
-                : 1),
+            ProficiencyBonus = _rulesFactory.GetRules(systemId).GetProficiencyBonus(
+                attrs.TryGetProperty("level", out var lvlProp) && lvlProp.ValueKind == System.Text.Json.JsonValueKind.Number
+                    ? lvlProp.GetInt32()
+                    : 1),
             CurrentHP = currentHP,
             MaxHP = maxHP,
             Attributes = attrs.TryGetProperty("attributes", out var attrProp) ? attrProp : default,

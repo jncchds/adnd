@@ -7,13 +7,45 @@ import SidePanel, { type AppView } from './SidePanel';
 import WelcomeScreen from './WelcomeScreen';
 
 export default function AppShell() {
+  const { isAuthenticated } = useAuth();
+
+  // Not authenticated — no data hooks (avoids 401s)
+  if (!isAuthenticated) {
+    return (
+      <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+        <SidePanel
+          open={true}
+          onToggle={() => {}}
+          currentView="welcome"
+          onNavigate={() => {}}
+          games={[]}
+          presets={[]}
+        />
+        <Box component="main" sx={{
+          flexGrow: 1,
+          minWidth: 0,
+          overflow: 'auto',
+          bgcolor: 'background.default',
+        }}>
+          <WelcomeScreen />
+        </Box>
+      </Box>
+    );
+  }
+
+  // Authenticated — load data hooks (only when needed)
+  return <AuthenticatedShell />;
+}
+
+// ==================== Authenticated sub-component ====================
+function AuthenticatedShell() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated } = useAuth();
   const { createGame, joinByCode } = useGames();
+  const { presets } = useLLMPresets();
 
   const [drawerOpen, setDrawerOpen] = useState(true);
-  const [currentView, setCurrentView] = useState<AppView>('welcome');
+  const [currentView, setCurrentView] = useState<AppView>('dashboard');
   const [currentGameId, setCurrentGameId] = useState<string | undefined>(undefined);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -25,15 +57,9 @@ export default function AppShell() {
   const [plotSeed, setPlotSeed] = useState('');
   const [gameParameters, setGameParameters] = useState('');
   const [joinCode, setJoinCode] = useState('');
-  const { presets } = useLLMPresets();
 
   // Determine current view from URL
   useEffect(() => {
-    if (!isAuthenticated) {
-      setCurrentView('welcome');
-      return;
-    }
-
     const path = location.pathname;
     const gameId = path.match(/\/game\/([a-f0-9-]+)/)?.[1];
     const adminId = path.match(/\/admin\/([a-f0-9-]+)/)?.[1];
@@ -50,8 +76,6 @@ export default function AppShell() {
     } else if (path === '/user-settings') {
       setCurrentView('user-settings');
       setCurrentGameId(undefined);
-    } else if (path === '/login' || path === '/register') {
-      setCurrentView(currentView);
     } else if (gameId) {
       setCurrentView('game');
       setCurrentGameId(gameId);
@@ -59,13 +83,10 @@ export default function AppShell() {
       setCurrentView('admin');
       setCurrentGameId(adminId);
     }
-  }, [location.pathname, isAuthenticated]);
+  }, [location.pathname]);
 
   const handleNavigate = (view: AppView) => {
     switch (view) {
-      case 'welcome':
-        setCurrentView('welcome');
-        break;
       case 'dashboard':
         setCurrentView('dashboard');
         setCurrentGameId(undefined);
@@ -136,33 +157,6 @@ export default function AppShell() {
     }
   };
 
-
-
-
-
-  // ==================== WELCOME VIEW ====================
-  if (!isAuthenticated) {
-    return (
-      <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
-        <SidePanel
-          open={drawerOpen}
-          onToggle={() => setDrawerOpen(!drawerOpen)}
-          currentView="welcome"
-          onNavigate={handleNavigate}
-        />
-        <Box component="main" sx={{
-          flexGrow: 1,
-          minWidth: 0,
-          overflow: 'auto',
-          bgcolor: 'background.default',
-        }}>
-          <WelcomeScreen />
-        </Box>
-      </Box>
-    );
-  }
-
-  // ==================== LAYOUT WRAPPER ====================
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
       <SidePanel

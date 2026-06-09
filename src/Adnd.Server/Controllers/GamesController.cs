@@ -17,29 +17,35 @@ namespace Adnd.Server.Controllers;
 [Authorize]
 public class GamesController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private readonly IGameManagementService _gameService;
+    private readonly ISessionManagementService _sessionService;
+    private readonly IPlayerManagementService _playerService;
     private readonly Adnd.Server.Services.IUserIdProvider _userIdProvider;
     private readonly IGameAuthorizationService _authService;
     private readonly IAgentBus _agentBus;
     private readonly IMediator _mediator;
-    private readonly IHubContext<GameHub> _hubContext;
+    private readonly AppDbContext _context;
     private readonly ILogger<GamesController> _logger;
 
     public GamesController(
-        AppDbContext context,
+        IGameManagementService gameService,
+        ISessionManagementService sessionService,
+        IPlayerManagementService playerService,
         Adnd.Server.Services.IUserIdProvider userIdProvider,
         IGameAuthorizationService authService,
         IAgentBus agentBus,
         IMediator mediator,
-        IHubContext<GameHub> hubContext,
+        AppDbContext context,
         ILogger<GamesController> logger)
     {
-        _context = context;
+        _gameService = gameService;
+        _sessionService = sessionService;
+        _playerService = playerService;
         _userIdProvider = userIdProvider;
         _authService = authService;
         _agentBus = agentBus;
         _mediator = mediator;
-        _hubContext = hubContext;
+        _context = context;
         _logger = logger;
     }
 
@@ -47,344 +53,164 @@ public class GamesController : ControllerBase
     public async Task<IActionResult> GetGames()
     {
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var id))
-        {
-            return Unauthorized();
-        }
+        if (userId == null) return Unauthorized();
 
-        var games = await _context.Games
-            .Where(g => g.CreatorId == id || g.Players.Any(p => p.UserId == id))
-            .Select(g => new GameResponse
-            {
-                Id = g.Id,
-                CreatorId = g.CreatorId,
-                CreatorName = g.Creator != null ? (g.Creator.DisplayName ?? g.Creator.Email) : "Unknown",
-                Name = g.Name,
-                SystemId = g.SystemId,
-                SystemVersion = g.SystemVersion,
-                Status = g.Status,
-                GMStatus = g.GMStatus,
-                CreatedAt = g.CreatedAt,
-                InviteCode = g.InviteCode,
-                LLMPresetId = g.LLMPresetId,
-                LLMPresetName = g.LLMPreset != null ? g.LLMPreset.Name : null,
-                Language = g.Language
-            })
-            .ToListAsync();
-
+        var games = await _gameService.GetGamesAsync(userId);
         return Ok(games);
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetGame(Guid id)
     {
-        var game = await _context.Games
-            .Include(g => g.Creator)
-            .Include(g => g.LLMPreset)
-            .FirstOrDefaultAsync(g => g.Id == id);
-
-        if (game == null)
-        {
-            return NotFound(new { error = "Game not found." });
-        }
-
-        // Check if user has access
         var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId != null && Guid.TryParse(userId, out var uid))
-        {
-            var hasAccess = game.CreatorId == uid || game.Players.Any(p => p.UserId == uid);
-            if (!hasAccess)
-            {
-                return Forbid();
-            }
-        }
+        if (userId == null) return Unauthorized();
 
-        return Ok(new GameResponse
-        {
-            Id = game.Id,
-            CreatorId = game.CreatorId,
-            CreatorName = game.Creator!.DisplayName ?? game.Creator.Email,
-            Name = game.Name,
-            SystemId = game.SystemId,
-            SystemVersion = game.SystemVersion,
-            Status = game.Status,
-            GMStatus = game.GMStatus,
-            CreatedAt = game.CreatedAt,
-            InviteCode = game.InviteCode,
-            PlotSeed = game.PlotSeed,
-            GameParameters = game.GameParameters,
-            GameState = game.GameState,
-            LLMPresetId = game.LLMPresetId,
-            LLMPresetName = game.LLMPreset?.Name,
-            Language = game.Language
-        });
+        var game = await _gameService.GetGameAsync(id, userId);
+        if (game == null) return Forbid();
+
+        return Ok(game);
     }
 
     [HttpPost]
     [Authorize]
     public async Task<IActionResult> CreateGame([FromBody] CreateGameRequest request)
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var id))
-        {
+        var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr == null || !Guid.TryParse(userIdStr, out var userId))
             return Unauthorized();
-        }
 
-        var game = new Game
-        {
-            CreatorId = id,
-            Name = request.Name,
-            SystemId = request.SystemId,
-            SystemVersion = request.SystemVersion,
-            CustomSystemJson = request.CustomSystemJson,
-            PlotSeed = request.PlotSeed,
-            GameParameters = request.GameParameters,
-            LLMPresetId = request.LLMPresetId,
-            Language = request.Language ?? "English",
-            GMStatus = GMStatus.Idle,
-            Status = GameStatus.Draft,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        // Generate invite code
-        game.InviteCode = GenerateInviteCode();
-
-        _context.Games.Add(game);
-        await _context.SaveChangesAsync();
+        var response = await _gameService.CreateGameAsync(userId, request);
 
         // Publish game created event
-        await _mediator.Publish(new GameCreated(game.Id, id, request.SystemId, request.LLMPresetId));
+        await _mediator.Publish(new GameCreated(response.Id, userId, request.SystemId, request.LLMPresetId));
 
-        return Ok(new GameResponse
-        {
-            Id = game.Id,
-            CreatorId = game.CreatorId,
-            CreatorName = (await _context.Users.FindAsync(id))!.DisplayName ?? (await _context.Users.FindAsync(id))!.Email,
-            Name = game.Name,
-            SystemId = game.SystemId,
-            SystemVersion = game.SystemVersion,
-            Status = game.Status,
-            GMStatus = game.GMStatus,
-            CreatedAt = game.CreatedAt,
-            InviteCode = game.InviteCode,
-            PlotSeed = game.PlotSeed,
-            GameParameters = game.GameParameters,
-            GameState = game.GameState,
-            LLMPresetId = game.LLMPresetId,
-            LLMPresetName = game.LLMPreset?.Name,
-            Language = game.Language
-        });
+        return Ok(response);
     }
 
     [HttpPost("{id}/invite")]
     [Authorize]
     public async Task<IActionResult> GenerateInvite(Guid id)
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var uid))
-        {
+        var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr == null || !Guid.TryParse(userIdStr, out var userId))
             return Unauthorized();
-        }
 
-        var game = await _context.Games.FirstOrDefaultAsync(g => g.Id == id);
-        if (game == null || game.CreatorId != uid)
+        try
+        {
+            var response = await _gameService.GenerateInviteAsync(id, userId);
+            return Ok(response);
+        }
+        catch (UnauthorizedAccessException)
         {
             return Forbid();
         }
-
-        game.InviteCode = GenerateInviteCode();
-        await _context.SaveChangesAsync();
-
-        return Ok(new InviteResponse
-        {
-            InviteCode = game.InviteCode!,
-            InviteUrl = $"/join/{game.InviteCode}"
-        });
     }
 
     [HttpPut("{id}/language")]
     [Authorize]
     public async Task<IActionResult> UpdateGameLanguage(Guid id, [FromBody] UpdateGameLanguageRequest request)
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var uid))
-        {
+        var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr == null || !Guid.TryParse(userIdStr, out var userId))
             return Unauthorized();
-        }
 
-        var game = await _context.Games.FirstOrDefaultAsync(g => g.Id == id);
-        if (game == null)
+        try
         {
-            return NotFound(new { error = "Game not found." });
+            await _gameService.UpdateGameLanguageAsync(id, userId, request.Language);
+            return Ok(new { id, Language = request.Language ?? "English" });
         }
-
-        if (game.CreatorId != uid)
+        catch (UnauthorizedAccessException)
         {
             return Forbid();
         }
-
-        game.Language = request.Language ?? "English";
-        await _context.SaveChangesAsync();
-
-        return Ok(new { game.Id, game.Language });
     }
 
     [HttpPost("join-by-code")]
     [Authorize]
     public async Task<IActionResult> JoinByCode([FromBody] JoinByCodeRequest request)
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var uid))
+        var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr == null) return Unauthorized();
+
+        try
         {
-            return Unauthorized();
+            var (player, message) = await _playerService.JoinByCodeAsync(request.Code, userIdStr);
+            return Ok(new { message, gameId = player.GameId, inviteCode = request.Code.TrimStart('/') });
         }
-
-        // Extract code from URL format ("/join/abc12345" or "abc12345")
-        var code = request.Code.TrimStart('/');
-
-        var game = await _context.Games
-            .Include(g => g.Players)
-            .FirstOrDefaultAsync(g => g.InviteCode != null && g.InviteCode.ToLower() == code.ToLower());
-
-        if (game == null)
+        catch (KeyNotFoundException ex)
         {
-            return NotFound(new { error = "Game not found with this invite code." });
+            return NotFound(new { error = ex.Message });
         }
-
-        if (game.Status != GameStatus.Active)
+        catch (InvalidOperationException ex)
         {
-            return BadRequest(new { error = "This game is not currently active." });
+            return BadRequest(new { error = ex.Message });
         }
-
-        // Check if already a player
-        if (game.Players.Any(p => p.UserId == uid))
-        {
-            return BadRequest(new { error = "You are already a player in this game." });
-        }
-
-        var player = new Player
-        {
-            GameId = game.Id,
-            UserId = uid,
-            CharacterName = $"Player {game.Players.Count + 1}",
-            Role = PlayerRole.Player,
-            Status = PlayerStatus.Active,
-            JoinedAt = DateTime.UtcNow
-        };
-
-        game.Players.Add(player);
-        await _context.SaveChangesAsync();
-
-        // Publish player joined event
-        await _mediator.Publish(new PlayerJoined(game.Id, player.Id, uid, player.CharacterName));
-
-        // Broadcast player joined to the game group
-        await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("PlayerJoined", new
-        {
-            ConnectionId = $"join-by-code",
-            UserId = uid,
-            PlayerId = player.Id,
-            CharacterName = player.CharacterName,
-            Role = player.Role.ToString(),
-            Message = $"{player.CharacterName} joined the game"
-        });
-
-        return Ok(new { message = "Joined game successfully.", gameId = game.Id, inviteCode = game.InviteCode });
     }
 
     [HttpPost("{id}/join")]
     [Authorize]
     public async Task<IActionResult> JoinGame(Guid id)
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var uid))
+        var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr == null) return Unauthorized();
+
+        try
         {
-            return Unauthorized();
+            var game = await _context.Games.Include(g => g.Players).FirstOrDefaultAsync(g => g.Id == id);
+            if (game == null) return NotFound(new { error = "Game not found." });
+
+            var (player, message) = await _playerService.JoinGameAsync(id, userIdStr, game.Players.Count);
+            return Ok(new { message });
         }
-
-        var game = await _context.Games
-            .Include(g => g.Players)
-            .FirstOrDefaultAsync(g => g.Id == id);
-
-        if (game == null)
+        catch (KeyNotFoundException ex)
         {
-            return NotFound(new { error = "Game not found." });
+            return NotFound(new { error = ex.Message });
         }
-
-        // Check if already a player
-        if (game.Players.Any(p => p.UserId == uid))
+        catch (InvalidOperationException ex)
         {
-            return BadRequest(new { error = "You are already a player in this game." });
+            return BadRequest(new { error = ex.Message });
         }
-
-        var player = new Player
-        {
-            GameId = id,
-            UserId = uid,
-            CharacterName = $"Player {game.Players.Count + 1}",
-            Role = PlayerRole.Player,
-            Status = PlayerStatus.Active,
-            JoinedAt = DateTime.UtcNow
-        };
-
-        game.Players.Add(player);
-        await _context.SaveChangesAsync();
-
-        return Ok(new { message = "Joined game successfully." });
     }
 
     [HttpPost("{id}/leave")]
     [Authorize]
     public async Task<IActionResult> LeaveGame(Guid id)
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var uid))
+        var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr == null) return Unauthorized();
+
+        try
         {
-            return Unauthorized();
+            await _playerService.LeaveGameAsync(id, userIdStr);
+            return Ok(new { message = "Left game successfully." });
         }
-
-        var game = await _context.Games
-            .Include(g => g.Players)
-            .FirstOrDefaultAsync(g => g.Id == id);
-
-        if (game == null)
+        catch (KeyNotFoundException)
         {
             return NotFound(new { error = "Game not found." });
         }
-
-        var player = game.Players.FirstOrDefault(p => p.UserId == uid);
-        if (player == null)
+        catch (InvalidOperationException ex)
         {
-            return BadRequest(new { error = "You are not a player in this game." });
+            return BadRequest(new { error = ex.Message });
         }
-
-        player.Status = PlayerStatus.Left;
-        player.LeftAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
-
-        return Ok(new { message = "Left game successfully." });
     }
 
     [HttpDelete("{id}")]
     [Authorize]
     public async Task<IActionResult> DeleteGame(Guid id)
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (userId == null || !Guid.TryParse(userId, out var uid))
-        {
+        var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr == null || !Guid.TryParse(userIdStr, out var userId))
             return Unauthorized();
-        }
 
-        var game = await _context.Games.FirstOrDefaultAsync(g => g.Id == id);
-        if (game == null || game.CreatorId != uid)
+        try
+        {
+            await _gameService.DeleteGameAsync(id, userId);
+            return Ok(new { message = "Game deleted successfully." });
+        }
+        catch (UnauthorizedAccessException)
         {
             return Forbid();
         }
-
-        _context.Games.Remove(game);
-        await _context.SaveChangesAsync();
-
-        return Ok(new { message = "Game deleted successfully." });
     }
 
     // ==================== Session Management ====================
@@ -397,42 +223,28 @@ public class GamesController : ControllerBase
 
         if (!await _authService.HasAccessAsync(_context, id, _userIdProvider.GetCurrentUserId())) return Forbid();
 
-        var sessions = await _context.GameSessions
-            .Where(s => s.GameId == id)
-            .OrderByDescending(s => s.StartedAt)
-            .Select(s => new
-            {
-                s.Id,
-                s.Title,
-                s.Description,
-                s.StartedAt,
-                s.EndedAt,
-                MessageCount = _context.Messages.Count(m => m.SessionId == s.Id)
-            })
-            .ToListAsync();
-
+        var sessions = await _sessionService.GetSessionsAsync(id, _context);
         return Ok(sessions);
     }
 
     [HttpPost("{id}/sessions")]
     public async Task<IActionResult> CreateSession(Guid id, [FromBody] CreateSessionRequest request)
     {
-        var game = await _context.Games.FindAsync(id);
-        if (game == null) return NotFound(new { error = "Game not found." });
-        if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
+        var creatorId = _userIdProvider.GetCurrentUserId();
 
-        var session = new GameSession
+        try
         {
-            GameId = id,
-            Title = request.Title,
-            Description = request.Description,
-            StartedAt = DateTime.UtcNow
-        };
-
-        _context.GameSessions.Add(session);
-        await _context.SaveChangesAsync();
-
-        return Ok(new { session.Id, session.Title, session.StartedAt });
+            var (session, response) = await _sessionService.CreateSessionAsync(id, creatorId, request);
+            return Ok(response);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
     }
 
     [HttpPost("{id}/sessions/{sessionId}/close")]
@@ -442,14 +254,15 @@ public class GamesController : ControllerBase
         if (game == null) return NotFound(new { error = "Game not found." });
         if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
-        var session = await _context.GameSessions.FindAsync(sessionId);
-        if (session == null || session.GameId != id)
-            return NotFound(new { error = "Session not found." });
-
-        session.EndedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
-
-        return Ok(new { session.Id, session.EndedAt });
+        try
+        {
+            await _sessionService.CloseSessionAsync(id, sessionId);
+            return Ok(new { sessionId, EndedAt = DateTime.UtcNow });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
     }
 
     [HttpGet("{id}/players")]
@@ -459,21 +272,7 @@ public class GamesController : ControllerBase
         if (game == null) return NotFound(new { error = "Game not found." });
         if (!await _authService.HasAccessAsync(_context, id, _userIdProvider.GetCurrentUserId())) return Forbid();
 
-        var players = await _context.Players
-            .Where(p => p.GameId == id)
-            .Select(p => new
-            {
-                p.Id,
-                p.CharacterName,
-                p.Role,
-                p.Status,
-                p.JoinedAt,
-                p.Character,
-                UserName = p.User != null ? (p.User.DisplayName ?? p.User.Email) : "Unknown",
-                UserEmail = p.User != null ? p.User.Email : null
-            })
-            .ToListAsync();
-
+        var players = await _playerService.GetPlayersAsync(id, _context);
         return Ok(players);
     }
 
@@ -484,32 +283,19 @@ public class GamesController : ControllerBase
         if (game == null) return NotFound(new { error = "Game not found." });
         if (game.CreatorId != _userIdProvider.GetCurrentUserId()) return Forbid();
 
-        var player = await _context.Players.FirstOrDefaultAsync(p => p.GameId == id && p.Id == playerId);
-        if (player == null) return NotFound(new { error = "Player not found." });
-
-        if (!Enum.TryParse(role, true, out PlayerRole parsedRole))
-            return BadRequest(new { error = $"Invalid role. Use: Creator, Player, Spectator" });
-
-        player.Role = parsedRole;
-        await _context.SaveChangesAsync();
-
-        return Ok(new { player.Id, player.Role });
-    }
-
-    private string GenerateInviteCode()
-    {
-        var chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-        var random = Random.Shared;
-        var code = new string(Enumerable.Repeat(chars, 8)
-            .Select(s => s[random.Next(s.Length)]).ToArray());
-
-        // Ensure uniqueness
-        if (_context.Games.Any(g => g.InviteCode == code))
+        try
         {
-            return GenerateInviteCode();
+            await _playerService.PromotePlayerAsync(id, game.CreatorId, playerId, role);
+            return Ok(new { playerId, Role = role });
         }
-
-        return code;
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
 }

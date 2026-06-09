@@ -106,10 +106,24 @@ builder.Services.AddScoped<IGameAuthorizationService, GameAuthorizationService>(
 
 // Game Engine
 builder.Services.AddScoped<IDiceEngine, DiceEngine>();
+builder.Services.AddScoped<ISystemRulesFactory, SystemRulesFactory>();
 builder.Services.AddScoped<ISystemRegistry, SystemRegistry>();
 builder.Services.AddScoped<IGameEngine, GameEngine>();
 
-// Combat
+// Combat — domain services (extracted from monolithic CombatService)
+builder.Services.AddScoped<ICombatActionFactory, CombatActionFactory>();
+builder.Services.AddScoped<ICombatLifecycleService, CombatLifecycleService>();
+builder.Services.AddScoped<ICombatParticipantService, CombatParticipantService>();
+builder.Services.AddScoped<ICombatInitiativeService, CombatInitiativeService>();
+builder.Services.AddScoped<ICombatTurnService, CombatTurnService>();
+builder.Services.AddScoped<ICombatStateService, CombatStateService>();
+builder.Services.AddScoped<ICombatSpellService, CombatSpellService>();
+builder.Services.AddScoped<ICombatInventoryService, CombatInventoryService>();
+builder.Services.AddScoped<ICombatProgressionService, CombatProgressionService>();
+builder.Services.AddScoped<ICombatGridService, CombatGridService>();
+builder.Services.AddScoped<ICombatAIService, CombatAIService>();
+builder.Services.AddScoped<ICombatQueryService, CombatQueryService>();
+builder.Services.AddScoped<ISANService, SANService>();
 builder.Services.AddScoped<ICombatService, CombatService>();
 
 // Agent Framework
@@ -185,6 +199,18 @@ builder.Services.AddScoped<ILLMInteractionLogger, LLMInteractionLogger>();
 
 // PlotWeaver — automatic plot thread generation and evolution
 builder.Services.AddScoped<IPlotWeaver, PlotWeaver>();
+
+// Character creation factory (Strategy pattern)
+builder.Services.AddScoped<ICharacterCreationFactory, CharacterCreationFactory>();
+
+// Game start service + narrative generation (Strategy pattern)
+builder.Services.AddScoped<IGameStartService, GameStartService>();
+builder.Services.AddScoped<INarrativeGenerationFactory, NarrativeGenerationFactory>();
+
+// Game/Session/Player management (FactoryMethod split from GamesController)
+builder.Services.AddScoped<IGameManagementService, GameManagementService>();
+builder.Services.AddScoped<ISessionManagementService, SessionManagementService>();
+builder.Services.AddScoped<IPlayerManagementService, PlayerManagementService>();
 
 var app = builder.Build();
 

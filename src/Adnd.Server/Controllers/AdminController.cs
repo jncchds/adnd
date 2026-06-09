@@ -18,20 +18,21 @@ namespace Adnd.Server.Controllers;
 [Authorize]
 public partial class AdminController : ControllerBase
 {
-    private readonly AppDbContext _context;
-    private readonly IGameEngine _gameEngine;
-    private readonly IRAGService _ragService;
-    private readonly ILLMProviderRegistry _providerRegistry;
-    private readonly IAgentBus _agentBus;
-    private readonly IWhisperService _whisperService;
-    private readonly ILLMPresetService _presetService;
-    private readonly ILLMInteractionLogger _interactionLogger;
-    private readonly IPlotWeaver _plotWeaver;
-    private readonly Adnd.Server.Services.IUserIdProvider _userIdProvider;
-    private readonly IGameAuthorizationService _authService;
-    private readonly IMediator _mediator;
-    private readonly IHubContext<GameHub> _hubContext;
-    private readonly ILogger<AdminController> _logger;
+    protected readonly AppDbContext _context;
+    protected readonly IGameEngine _gameEngine;
+    protected readonly IRAGService _ragService;
+    protected readonly ILLMProviderRegistry _providerRegistry;
+    protected readonly IAgentBus _agentBus;
+    protected readonly IWhisperService _whisperService;
+    protected readonly ILLMPresetService _presetService;
+    protected readonly ILLMInteractionLogger _interactionLogger;
+    protected readonly IPlotWeaver _plotWeaver;
+    protected readonly Adnd.Server.Services.IUserIdProvider _userIdProvider;
+    protected readonly IGameAuthorizationService _authService;
+    protected readonly IMediator _mediator;
+    protected readonly IHubContext<GameHub> _hubContext;
+    protected readonly ILogger<AdminController> _logger;
+    protected readonly IGameStartService _gameStartService;
 
     public AdminController(
         AppDbContext context,
@@ -47,7 +48,8 @@ public partial class AdminController : ControllerBase
         IGameAuthorizationService authService,
         IMediator mediator,
         IHubContext<GameHub> hubContext,
-        ILogger<AdminController> logger)
+        ILogger<AdminController> logger,
+        IGameStartService gameStartService)
     {
         _context = context;
         _gameEngine = gameEngine;
@@ -63,6 +65,6 @@ public partial class AdminController : ControllerBase
         _mediator = mediator;
         _hubContext = hubContext;
         _logger = logger;
+        _gameStartService = gameStartService;
     }
-
 }
