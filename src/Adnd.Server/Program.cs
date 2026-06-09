@@ -189,52 +189,8 @@ builder.Services.AddHealthChecks()
 // LLM Providers
 builder.Services.AddHttpClient();
 
-// Register the LLMProviderRegistry and auto-populate it with configured providers
-builder.Services.AddSingleton<ILLMProviderRegistry>(sp =>
-{
-    var registry = new LLMProviderRegistry(sp.GetRequiredService<ILogger<LLMProviderRegistry>>());
-    var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
-    var config = builder.Configuration;
-    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-
-    var ollamaConfig = config.GetSection("Ollama");
-    if (!string.IsNullOrEmpty(ollamaConfig["BaseUrl"]))
-    {
-        var provider = new OllamaLLMProvider(
-            loggerFactory.CreateLogger<OllamaLLMProvider>(),
-            config, httpClientFactory);
-        registry.RegisterProvider(provider.ProviderId, provider);
-    }
-
-    var lmStudioConfig = config.GetSection("LmStudio");
-    if (!string.IsNullOrEmpty(lmStudioConfig["BaseUrl"]))
-    {
-        var provider = new LmStudioLLMProvider(
-            loggerFactory.CreateLogger<LmStudioLLMProvider>(),
-            config, httpClientFactory);
-        registry.RegisterProvider(provider.ProviderId, provider);
-    }
-
-    var openAIConfig = config.GetSection("OpenAI");
-    if (!string.IsNullOrEmpty(openAIConfig["ApiKey"]))
-    {
-        var provider = new OpenAILLMProvider(
-            loggerFactory.CreateLogger<OpenAILLMProvider>(),
-            config, httpClientFactory);
-        registry.RegisterProvider(provider.ProviderId, provider);
-    }
-
-    var googleConfig = config.GetSection("Google");
-    if (!string.IsNullOrEmpty(googleConfig["ApiKey"]))
-    {
-        var provider = new GoogleAIStudioLLMProvider(
-            loggerFactory.CreateLogger<GoogleAIStudioLLMProvider>(),
-            config, httpClientFactory);
-        registry.RegisterProvider(provider.ProviderId, provider);
-    }
-
-    return registry;
-});
+// All LLM providers are created from per-game LLMPreset records via ILLMProviderFactory.
+// There is no global provider registry — each game uses its own preset.
 builder.Services.AddScoped<IRAGService, RAGService>();
 builder.Services.AddScoped<IEmbeddingService, EmbeddingService>();
 builder.Services.AddScoped<ILLMPresetService, LLMPresetService>();
@@ -262,6 +218,7 @@ builder.Services.AddScoped<IPlayerManagementService, PlayerManagementService>();
 builder.Services.AddScoped<ISessionNoteService, SessionNoteService>();
 builder.Services.AddScoped<IPromptTemplateService, PromptTemplateService>();
 builder.Services.AddScoped<IDiceStatsService, DiceStatsService>();
+builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
 
 // Player disconnect detector (background service)
 builder.Services.AddHostedService<PlayerDisconnectDetector>(sp => new PlayerDisconnectDetector(

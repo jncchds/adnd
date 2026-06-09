@@ -16,7 +16,6 @@ public class GameAgent : IGameAgent
 {
     private readonly Guid _gameId;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILLMProviderRegistry _llmRegistry;
     private readonly IAgentBus _agentBus;
     private readonly IGameEngine _gameEngine;
     private readonly IRAGService _ragService;
@@ -30,7 +29,6 @@ public class GameAgent : IGameAgent
     public GameAgent(
         Guid gameId,
         IServiceScopeFactory scopeFactory,
-        ILLMProviderRegistry llmRegistry,
         IAgentBus agentBus,
         IGameEngine gameEngine,
         IRAGService ragService,
@@ -39,7 +37,6 @@ public class GameAgent : IGameAgent
     {
         _gameId = gameId;
         _scopeFactory = scopeFactory;
-        _llmRegistry = llmRegistry;
         _agentBus = agentBus;
         _gameEngine = gameEngine;
         _ragService = ragService;
@@ -421,7 +418,6 @@ public class GameAgent : IGameAgent
 public class GameAgentManager : IGameAgentManager, IDisposable
 {
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILLMProviderRegistry _llmRegistry;
     private readonly IAgentBus _agentBus;
     private readonly IGameEngine _gameEngine;
     private readonly IRAGService _ragService;
@@ -431,7 +427,6 @@ public class GameAgentManager : IGameAgentManager, IDisposable
 
     public GameAgentManager(
         IServiceScopeFactory scopeFactory,
-        ILLMProviderRegistry llmRegistry,
         IAgentBus agentBus,
         IGameEngine gameEngine,
         IRAGService ragService,
@@ -439,7 +434,6 @@ public class GameAgentManager : IGameAgentManager, IDisposable
         ILoggerFactory loggerFactory)
     {
         _scopeFactory = scopeFactory;
-        _llmRegistry = llmRegistry;
         _agentBus = agentBus;
         _gameEngine = gameEngine;
         _ragService = ragService;
@@ -463,7 +457,6 @@ public class GameAgentManager : IGameAgentManager, IDisposable
         var agent = new GameAgent(
             gameId,
             _scopeFactory,
-            _llmRegistry,
             _agentBus,
             _gameEngine,
             _ragService,

@@ -11,16 +11,13 @@ namespace Adnd.Server.Services;
 /// </summary>
 public class PlotMilestoneSpawningStrategy
 {
-    private readonly ILLMProviderRegistry _llmRegistry;
     private readonly ILLMProviderFactory _providerFactory;
     private readonly IApiKeyEncryptionService _encryption;
 
     public PlotMilestoneSpawningStrategy(
-        ILLMProviderRegistry llmRegistry,
         ILLMProviderFactory providerFactory,
         IApiKeyEncryptionService encryption)
     {
-        _llmRegistry = llmRegistry;
         _providerFactory = providerFactory;
         _encryption = encryption;
     }
@@ -117,9 +114,6 @@ The milestone should be a specific event (not a vague suggestion). Example: "The
 
     private ILLMProvider? GetProvider(LLMPreset preset)
     {
-        var provider = _llmRegistry.GetProvider(preset.ProviderType);
-        if (provider != null) return provider;
-
         if (preset.ApiKey != null && preset.DecryptedApiKey == null)
         {
             try

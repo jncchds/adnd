@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, PlotThreadResponse, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary, GameProviderUsageSummary, GMStatusResponse, SwayResponse, PlotReviewResponse, PendingCallsResponse, DiceHistoryEntry, CombatSummaryEntry, CombatLogResponse, GMToolDefinition, SpellEntry, SpellSlotInfo, SpellUpdateRequest } from './client';
+import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, PlotThreadResponse, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary, GameProviderUsageSummary, GMStatusResponse, SwayResponse, PlotReviewResponse, PendingCallsResponse, DiceHistoryEntry, CombatSummaryEntry, CombatLogResponse, GMToolDefinition, SpellEntry, SpellSlotInfo, SpellUpdateRequest, GameTemplate, CreateGameTemplateRequest, UpdateGameTemplateRequest } from './client';
 import { useEntity } from './useEntity';
 
 export function useGames() {
@@ -865,5 +865,57 @@ export function useSpells(characterId: string | undefined) {
     updateSpells,
     addSpell,
     removeSpell,
+  };
+}
+
+// ==================== Game Templates Hook ====================
+
+export function useGameTemplates() {
+  const [templates, setTemplates] = useState<GameTemplate[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTemplates = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getGameTemplates();
+      setTemplates(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTemplates();
+  }, [fetchTemplates]);
+
+  const createTemplate = async (request: CreateGameTemplateRequest) => {
+    const template = await api.createGameTemplate(request);
+    setTemplates(prev => [...prev, template]);
+    return template;
+  };
+
+  const updateTemplate = async (id: string, request: UpdateGameTemplateRequest) => {
+    const template = await api.updateGameTemplate(id, request);
+    setTemplates(prev => prev.map(t => t.id === id ? template : t));
+    return template;
+  };
+
+  const deleteTemplate = async (id: string) => {
+    await api.deleteGameTemplate(id);
+    setTemplates(prev => prev.filter(t => t.id !== id));
+  };
+
+  return {
+    templates,
+    isLoading,
+    error,
+    refetch: fetchTemplates,
+    createTemplate,
+    updateTemplate,
+    deleteTemplate,
   };
 }

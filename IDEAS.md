@@ -83,6 +83,7 @@ This document captures improvement ideas, feature requests, and architectural en
 - [x] **Message pagination** — `GET /admin/games/{gameId}/sessions/{sessionId}/messages?page=1&pageSize=50`
 - [x] **Message search** — pgvector cosine similarity search (`POST /admin/games/{gameId}/sessions/{sessionId}/messages/search`)
 - [x] **LLM prompt templates** — `PromptTemplate` model + CRUD endpoints (`IPromptTemplateService`)
+- [x] **Game templates** — `GameTemplate` model + CRUD endpoints (`IGameTemplateService`) — save/load game configs (system, LLM preset, language, plot seed, parameters)
 
 - [x] **`HasGmRoleAsync`** — authorization helper for GM-only features
 
@@ -403,7 +404,7 @@ This document captures improvement ideas, feature requests, and architectural en
 - [x] Security hardening
 - [x] Error handling & resilience
 - [x] Database performance improvements
-- [x] Quick-win features (pagination, search, stats, notes, templates)
+- [x] Quick-win features (pagination, search, stats, notes, templates, game templates)
 - [ ] Add unit/integration tests
 
 ### Phase 2: Core Features
@@ -443,8 +444,8 @@ This document captures improvement ideas, feature requests, and architectural en
 3. ~~**Add message search**~~ ✅ Done — `POST /admin/games/{gameId}/sessions/{sessionId}/messages/search` (pgvector cosine similarity)
 4. ~~**Add dice roll statistics**~~ ✅ Done — `GET /admin/games/{gameId}/dice-stats` + per-player stats
 5. ~~**Add session notes**~~ ✅ Done — `SessionNote` model + CRUD endpoints
-6. **Add markdown to chat** — Simple formatting support
-7. **Add game templates** — Save/load game configurations
+6. ~~**Add markdown to chat**~~ ✅ Done — `MarkdownRenderer` component with GFM support
+7. ~~**Add game templates**~~ ✅ Done — `GameTemplate` model + CRUD endpoints + UI in Dashboard
 8. ~~**Add LLM prompt templates**~~ ✅ Done — `PromptTemplate` model + CRUD endpoints
 9. ~~**Add health check endpoints**~~ ✅ Done (Batch 2)
 10. ~~**Add rate limiting**~~ ✅ Done (Batch 1)
@@ -462,4 +463,4 @@ This document captures improvement ideas, feature requests, and architectural en
 
 ---
 
-*Last updated: 2026-06-09*
+*Last updated: 2026-06-09 — Added Game Templates feature*

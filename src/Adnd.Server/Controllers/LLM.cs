@@ -8,10 +8,18 @@ public partial class AdminController
     // ==================== LLM / RAG Endpoints ====================
 
     [HttpGet("llm/providers")]
-    public async Task<IActionResult> GetLLMProviders()
+    public IActionResult GetLLMProviders()
     {
-        var statuses = _providerRegistry.GetAllStatusAsync().ToList();
-        return Ok(statuses);
+        // Providers are no longer registered globally — they are created from per-game LLMPreset records.
+        // Return available provider types that can be selected when creating a preset.
+        var types = new[] { "Ollama", "LmStudio", "OpenAI", "Google" };
+        return Ok(types.Select(t => new
+        {
+            ProviderId = t.ToLowerInvariant(),
+            ProviderName = t,
+            IsAvailable = true,
+            CheckedAt = DateTime.UtcNow
+        }));
     }
 
     [HttpGet("llm-presets/models")]

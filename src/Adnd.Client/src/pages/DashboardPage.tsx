@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
-import { useGames, useLLMPresets } from '../api/gameHooks';
+import { useGames, useLLMPresets, useGameTemplates } from '../api/gameHooks';
 import { api } from '../api/client';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
@@ -18,6 +18,7 @@ export default function DashboardPage() {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
   const { games, isLoading, error, refetch, createGame, deleteGame, leaveGame, generateInvite, archiveGame, joinByCode } = useGames();
   const { presets } = useLLMPresets();
+  const { templates, createTemplate, deleteTemplate } = useGameTemplates();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showJoinDialog, setShowJoinDialog] = useState(false);
   const [joinCode, setJoinCode] = useState('');
@@ -27,6 +28,10 @@ export default function DashboardPage() {
   const [plotSeed, setPlotSeed] = useState('');
   const [gameParameters, setGameParameters] = useState('');
   const [language, setLanguage] = useState('English');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [templateDefaultName, setTemplateDefaultName] = useState('');
   const [errorState, setErrorState] = useState<string | null>(null);
   const [successState, setSuccessState] = useState<string | null>(null);
 
@@ -194,6 +199,53 @@ export default function DashboardPage() {
       <Dialog open={showCreateDialog} onClose={handleCloseCreate} maxWidth="md" fullWidth>
         <DialogTitle>Create New Game</DialogTitle>
         <DialogContent sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {/* Template Selector */}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography variant="subtitle2" color="text.secondary">Load from template:</Typography>
+            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', flex: 1 }}>
+              {templates.length === 0 ? (
+                <Chip label="No templates yet" size="small" variant="outlined" color="default" />
+              ) : (
+                templates.map(t => (
+                  <Chip
+                    key={t.id}
+                    label={t.name}
+                    size="small"
+                    clickable
+                    onClick={() => {
+                      setSelectedTemplateId(t.id);
+                      setSystemId(t.systemId);
+                      setLLMPresetId(t.llmPresetId || null);
+                      setLanguage(t.language);
+                      setPlotSeed(t.plotSeed || '');
+                      setGameParameters(t.gameParameters || '');
+                      setGameName(t.defaultName || '');
+                    }}
+                    sx={{
+                      bgcolor: selectedTemplateId === t.id ? 'primary.lighter' : 'background.default',
+                      borderColor: selectedTemplateId === t.id ? 'primary.main' : 'divider',
+                      borderWidth: 1,
+                      borderStyle: 'solid',
+                    }}
+                    onDelete={() => {
+                      deleteTemplate(t.id);
+                      if (selectedTemplateId === t.id) setSelectedTemplateId(null);
+                    }}
+                  />
+                ))
+              )}
+              <Chip
+                label="+ New Template"
+                size="small"
+                clickable
+                onClick={() => {
+                  setShowTemplateDialog(true);
+                  setTemplateName('');
+                  setTemplateDefaultName('');
+                }}
+              />
+            </Box>
+          </Box>
           <TextField
             fullWidth
             label="Game Name"
@@ -290,8 +342,76 @@ export default function DashboardPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseCreate}>Cancel</Button>
+          <Button onClick={() => setShowTemplateDialog(true)} variant="outlined" disabled={!gameName.trim()}>
+            💾 Save as Template
+          </Button>
           <Button onClick={handleCreate} variant="contained" disabled={!gameName.trim()}>
             Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Save Template Dialog */}
+      <Dialog open={showTemplateDialog} onClose={() => setShowTemplateDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Save as Template</DialogTitle>
+        <DialogContent sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            Save your current game configuration as a reusable template.
+          </Typography>
+          <TextField
+            fullWidth
+            label="Template Name"
+            value={templateName}
+            onChange={e => setTemplateName(e.target.value)}
+            placeholder="e.g., D&D Fantasy Adventure"
+            helperText="A short name to identify this template"
+          />
+          <TextField
+            fullWidth
+            label="Default Game Name"
+            value={templateDefaultName}
+            onChange={e => setTemplateDefaultName(e.target.value)}
+            placeholder="e.g., My New Adventure"
+            helperText="Pre-filled game name (optional)"
+          />
+          <Box sx={{ bgcolor: 'background.default', p: 1.5, borderRadius: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Will save:</Typography>
+            <Typography variant="caption" sx={{ display: 'block' }}>🎮 System: {systemId}</Typography>
+            {llmPresetId && <Typography variant="caption" sx={{ display: 'block' }}>🤖 LLM Preset: {presets?.find(p => p.id === llmPresetId)?.name}</Typography>}
+            <Typography variant="caption" sx={{ display: 'block' }}>🌐 Language: {language}</Typography>
+            {plotSeed && <Typography variant="caption" sx={{ display: 'block' }}>📖 Plot Seed: {plotSeed.substring(0, 60)}{plotSeed.length > 60 ? '...' : ''}</Typography>}
+            {gameParameters && <Typography variant="caption" sx={{ display: 'block' }}>⚙️ Parameters: {gameParameters.substring(0, 60)}{gameParameters.length > 60 ? '...' : ''}</Typography>}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowTemplateDialog(false)}>Cancel</Button>
+          <Button
+            onClick={async () => {
+              if (!templateName.trim()) return;
+              try {
+                await createTemplate({
+                  name: templateName,
+                  defaultName: templateDefaultName || undefined,
+                  systemId,
+                  llmPresetId: llmPresetId || undefined,
+                  llmPresetName: presets?.find(p => p.id === llmPresetId)?.name,
+                  language,
+                  plotSeed: plotSeed || undefined,
+                  gameParameters: gameParameters || undefined,
+                });
+                setShowTemplateDialog(false);
+                setTemplateName('');
+                setTemplateDefaultName('');
+                setSuccessState('Template saved!');
+                setTimeout(() => setSuccessState(null), 2000);
+              } catch (e: any) {
+                setErrorState(e.message);
+              }
+            }}
+            variant="contained"
+            disabled={!templateName.trim()}
+          >
+            Save Template
           </Button>
         </DialogActions>
       </Dialog>

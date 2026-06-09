@@ -52,6 +52,9 @@ public class AppDbContext : DbContext
     // Prompt Templates
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
 
+    // Game Templates
+    public DbSet<GameTemplate> GameTemplates => Set<GameTemplate>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -353,5 +356,23 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PromptTemplate>()
             .HasIndex(pt => new { pt.GameId, pt.Type, pt.Name })
             .IsUnique();
+
+        // Game Templates
+        modelBuilder.Entity<GameTemplate>()
+            .HasOne(gt => gt.User)
+            .WithMany()
+            .HasForeignKey(gt => gt.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<GameTemplate>()
+            .HasOne(gt => gt.LLMPreset)
+            .WithMany()
+            .HasForeignKey(gt => gt.LLMPresetId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<GameTemplate>()
+            .HasIndex(gt => new { gt.UserId, gt.Name })
+            .IsUnique();
+        modelBuilder.Entity<GameTemplate>()
+            .HasIndex(gt => new { gt.UserId, gt.CreatedAt })
+            .IsDescending(new[] { false, true });
     }
 }

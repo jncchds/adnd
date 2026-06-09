@@ -459,3 +459,41 @@ export interface AdjustMomentumRequest {
   delta: number;
   reason: string;
 }
+
+// ============= Game Template types =============
+
+export interface GameTemplate {
+  id: string;
+  name: string;
+  defaultName?: string;
+  systemId: string;
+  llmPresetId?: string;
+  llmPresetName?: string;
+  language: string;
+  plotSeed?: string;
+  gameParameters?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateGameTemplateRequest {
+  name: string;
+  defaultName?: string;
+  systemId: string;
+  llmPresetId?: string;
+  llmPresetName?: string;
+  language: string;
+  plotSeed?: string;
+  gameParameters?: string;
+}
+
+export interface UpdateGameTemplateRequest {
+  name: string;
+  defaultName?: string;
+  systemId: string;
+  llmPresetId?: string;
+  llmPresetName?: string;
+  language: string;
+  plotSeed?: string;
+  gameParameters?: string;
+}

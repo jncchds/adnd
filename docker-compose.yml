@@ -4,13 +4,13 @@ services:
     container_name: adnd-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: adnd
-      POSTGRES_USER: adnd
-      POSTGRES_PASSWORD: adnd_secret
+      POSTGRES_DB: ${POSTGRES_DB:-adnd}
+      POSTGRES_USER: ${POSTGRES_USER:-adnd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-adnd_secret}
     volumes:
       - adnd-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U adnd"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-adnd}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -22,10 +22,21 @@ services:
     container_name: adnd-app
     restart: unless-stopped
     ports:
-      - "5010:8080"
+      - "${APP_PORT:-5010}:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=adnd;Username=adnd;Password=adnd_secret
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+      - ConnectionStrings__Default=Host=postgres;Port=5432;Database=${POSTGRES_DB:-adnd};Username=${POSTGRES_USER:-adnd};Password=${POSTGRES_PASSWORD:-adnd_secret}
+      # JWT Settings — MUST be set in production
+      - JwtSettings__SecretKey=${JWT_SECRET_KEY:-CHANGE_ME_TO_A_LONG_RANDOM_STRING}
+      - JwtSettings__Issuer=${JWT_ISSUER:-adnd-server}
+      - JwtSettings__Audience=${JWT_AUDIENCE:-adnd-client}
+      # Encryption master key for API key encryption at rest (AES-256-GCM)
+      - Encryption__MasterKey=${ENCRYPTION_MASTER_KEY:-CHANGE_ME_TO_A_32_BYTE_MIN_KEY_FOR_AES256}
+      # Resilience settings (Polly retry + circuit breaker)
+      - Resilience__RetryDelayMs=${RESILIENCE_RETRY_DELAY_MS:-500}
+      - Resilience__MaxRetries=${RESILIENCE_MAX_RETRIES:-3}
+      - Resilience__FailureThreshold=${RESILIENCE_FAILURE_THRESHOLD:-5}
+      - Resilience__HalfOpenAfterSec=${RESILIENCE_HALF_OPEN_AFTER_SEC:-30}
     depends_on:
       postgres:
         condition: service_healthy

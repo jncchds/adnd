@@ -32,16 +32,16 @@ public interface IEmbeddingService
 public class EmbeddingService : IEmbeddingService
 {
     private readonly AppDbContext _context;
-    private readonly ILLMProviderRegistry _llmRegistry;
+    private readonly ILLMProviderFactory _providerFactory;
     private readonly ILogger<EmbeddingService> _logger;
 
     public EmbeddingService(
         AppDbContext context,
-        ILLMProviderRegistry llmRegistry,
+        ILLMProviderFactory providerFactory,
         ILogger<EmbeddingService> logger)
     {
         _context = context;
-        _llmRegistry = llmRegistry;
+        _providerFactory = providerFactory;
         _logger = logger;
     }
 
@@ -96,31 +96,12 @@ public class EmbeddingService : IEmbeddingService
 
     public async Task<float[]> GenerateEmbeddingWithPresetAsync(LLMPreset preset, string text)
     {
-        // First try the registry (configured providers)
-        var provider = _llmRegistry.GetProvider(preset.ProviderType);
-        if (provider != null)
-        {
-            try
-            {
-                var embedding = await provider.GetEmbeddingAsync(text);
-                if (embedding != null && embedding.Length > 0)
-                    return embedding;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Registry provider '{Provider}' failed for embedding, trying preset wrapper", preset.ProviderType);
-            }
-        }
-
-        // Fall back to preset-based wrapper
-        return preset.ProviderType switch
-        {
-            "ollama" => await GenerateWithOllamaPreset(preset, text),
-            "lmstudio" => await GenerateWithLmStudioPreset(preset, text),
-            "openai" => await GenerateWithOpenAIPreset(preset, text),
-            "google" => await GenerateWithGooglePreset(preset, text),
-            _ => throw new InvalidOperationException($"Unknown provider type '{preset.ProviderType}' for embedding generation.")
-        };
+        // Create provider from preset (decrypts API key, creates correct provider type)
+        var provider = _providerFactory.CreateFromPreset(preset);
+        var embedding = await provider.GetEmbeddingAsync(text);
+        if (embedding == null || embedding.Length == 0)
+            throw new InvalidOperationException($"Embedding returned empty for preset '{preset.Name}'.");
+        return embedding;
     }
 
     private async Task<float[]> GenerateWithOllamaPreset(LLMPreset preset, string text)

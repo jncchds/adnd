@@ -82,7 +82,7 @@ public interface IAgentBus
 public class AgentBus : IAgentBus
 {
     private readonly AppDbContext _context;
-    private readonly ILLMProviderRegistry _llmRegistry;
+    private readonly ILLMProviderFactory _providerFactory;
     private readonly IGameEngine _gameEngine;
     private readonly IRAGService _ragService;
     private readonly IDiceEngine _diceEngine;
@@ -90,13 +90,12 @@ public class AgentBus : IAgentBus
     private readonly ILLMPresetService _presetService;
     private readonly ILLMInteractionLogger _interactionLogger;
     private readonly IGMToolRegistry _toolRegistry;
-    private readonly ILLMProviderFactory _providerFactory;
     private readonly IApiKeyEncryptionService _encryption;
     private readonly ILogger<AgentBus> _logger;
 
     public AgentBus(
         AppDbContext context,
-        ILLMProviderRegistry llmRegistry,
+        ILLMProviderFactory providerFactory,
         IGameEngine gameEngine,
         IRAGService ragService,
         IDiceEngine diceEngine,
@@ -104,12 +103,11 @@ public class AgentBus : IAgentBus
         ILLMPresetService presetService,
         ILLMInteractionLogger interactionLogger,
         IGMToolRegistry toolRegistry,
-        ILLMProviderFactory providerFactory,
         IApiKeyEncryptionService encryption,
         ILogger<AgentBus> logger)
     {
         _context = context;
-        _llmRegistry = llmRegistry;
+        _providerFactory = providerFactory;
         _gameEngine = gameEngine;
         _ragService = ragService;
         _diceEngine = diceEngine;
@@ -124,11 +122,6 @@ public class AgentBus : IAgentBus
 
     private ILLMProvider? GetProvider(LLMPreset preset)
     {
-        // Try the DI-registered registry first (for built-in providers)
-        var provider = _llmRegistry.GetProvider(preset.ProviderType);
-        if (provider != null) return provider;
-
-        // Fall back to factory for user-configured presets
         // Decrypt the API key if needed
         if (preset.ApiKey != null && preset.DecryptedApiKey == null)
         {

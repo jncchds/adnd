@@ -61,27 +61,20 @@ public class StartGameResult
 /// </summary>
 public class DefaultNarrativeGenerator : INarrativeGenerationStrategy
 {
-    private readonly ILLMProviderRegistry _providerRegistry;
     private readonly ILLMProviderFactory _providerFactory;
     private readonly IApiKeyEncryptionService _encryption;
 
     public DefaultNarrativeGenerator(
-        ILLMProviderRegistry providerRegistry,
         ILLMProviderFactory providerFactory,
         IApiKeyEncryptionService encryption)
     {
-        _providerRegistry = providerRegistry;
         _providerFactory = providerFactory;
         _encryption = encryption;
     }
 
     private ILLMProvider? ResolveProvider(LLMPreset preset)
     {
-        // Try the DI-registered registry first (for built-in providers)
-        var provider = _providerRegistry.GetProvider(preset.ProviderType);
-        if (provider != null) return provider;
-
-        // Fall back to factory for user-configured presets
+        // Decrypt the API key if needed
         if (preset.ApiKey != null && preset.DecryptedApiKey == null)
         {
             try
@@ -160,21 +153,18 @@ public class TemplateNarrativeGenerator : INarrativeGenerationStrategy
 /// </summary>
 public class NarrativeGenerationFactory : INarrativeGenerationFactory
 {
-    private readonly ILLMProviderRegistry _providerRegistry;
     private readonly ILogger<NarrativeGenerationFactory> _logger;
     private readonly Dictionary<string, INarrativeGenerationStrategy> _strategies = new();
 
     public NarrativeGenerationFactory(
-        ILLMProviderRegistry providerRegistry,
         ILLMProviderFactory providerFactory,
         IApiKeyEncryptionService encryption,
         ILogger<NarrativeGenerationFactory> logger)
     {
-        _providerRegistry = providerRegistry;
         _logger = logger;
 
         // Register default generators (pass factory + encryption for runtime provider resolution)
-        RegisterStrategy(new DefaultNarrativeGenerator(providerRegistry, providerFactory, encryption));
+        RegisterStrategy(new DefaultNarrativeGenerator(providerFactory, encryption));
         RegisterStrategy(new TemplateNarrativeGenerator());
     }
 
@@ -189,13 +179,7 @@ public class NarrativeGenerationFactory : INarrativeGenerationFactory
         if (_strategies.TryGetValue(providerType, out var strategy))
             return strategy;
 
-        // If we have an LLM provider (built-in), use the default generator
-        if (_providerRegistry.GetProvider(providerType) != null)
-            return _strategies["default"];
-
-        // For preset-based providers (e.g., lmstudio, openai, google),
-        // the provider is created dynamically from the LLMPreset at runtime.
-        // Use the default generator which will create the provider from the preset.
+        // All providers are created from presets at runtime via the factory
         return _strategies["default"];
     }
 

@@ -53,18 +53,18 @@ public interface IRAGService
 public class RAGService : IRAGService
 {
     private readonly AppDbContext _context;
-    private readonly ILLMProviderRegistry _providerRegistry;
+    private readonly ILLMProviderFactory _providerFactory;
     private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<RAGService> _logger;
 
     public RAGService(
         AppDbContext context,
-        ILLMProviderRegistry providerRegistry,
+        ILLMProviderFactory providerFactory,
         IEmbeddingService embeddingService,
         ILogger<RAGService> logger)
     {
         _context = context;
-        _providerRegistry = providerRegistry;
+        _providerFactory = providerFactory;
         _embeddingService = embeddingService;
         _logger = logger;
     }
@@ -350,23 +350,9 @@ public class RAGService : IRAGService
             };
         }
 
-        var provider = _providerRegistry.GetProvider(game.LLMPreset.ProviderType);
-        if (provider == null)
-        {
-            _logger.LogWarning("No LLM provider '{Provider}' configured for game {GameId}.", game.LLMPreset.ProviderType, thread.GameId);
-            return new PlotContinuation
-            {
-                Suggestions = new[]
-                {
-                    "Consider having the NPCs react to the players' recent actions.",
-                    "Introduce a new complication related to the current plot thread.",
-                    "Offer the players a choice between two interesting paths.",
-                    "Reveal a hidden detail about the current location or situation."
-                },
-                Generated = false,
-                Reason = $"LLM provider '{game.LLMPreset.ProviderType}' not available"
-            };
-        }
+        // Provider is created from preset at runtime via the factory
+        // (no need to check registry — if preset exists, factory can create provider)
+        var provider = _providerFactory.CreateFromPreset(game.LLMPreset);
 
         try
         {

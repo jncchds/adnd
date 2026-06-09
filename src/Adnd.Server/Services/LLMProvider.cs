@@ -113,60 +113,6 @@ public class ToolCall
 }
 
 /// <summary>
-/// Registry of available LLM providers.
-/// </summary>
-public interface ILLMProviderRegistry
-{
-    ILLMProvider? GetProvider(string providerId);
-    IEnumerable<ProviderStatus> GetAllStatusAsync();
-    void RegisterProvider(string providerId, ILLMProvider provider);
-    void ConfigureProvider(string providerId, IConfigurationSection config);
-}
-
-public class LLMProviderRegistry : ILLMProviderRegistry
-{
-    private readonly Dictionary<string, ILLMProvider> _providers = new();
-    private readonly Dictionary<string, IConfigurationSection> _configs = new();
-    private readonly ILogger<LLMProviderRegistry> _logger;
-
-    public LLMProviderRegistry(ILogger<LLMProviderRegistry> logger)
-    {
-        _logger = logger;
-    }
-
-    public ILLMProvider? GetProvider(string providerId)
-    {
-        return _providers.TryGetValue(providerId, out var provider) ? provider : null;
-    }
-
-    public IEnumerable<ProviderStatus> GetAllStatusAsync()
-    {
-        return _providers.Select(p => new ProviderStatus
-        {
-            ProviderId = p.Key,
-            Model = p.Value.ProviderId,
-            IsAvailable = false,
-            CheckedAt = DateTime.UtcNow
-        }).ToList();
-    }
-
-    public void RegisterProvider(string providerId, ILLMProvider provider)
-    {
-        if (_providers.ContainsKey(providerId))
-        {
-            _logger.LogWarning("Overwriting LLM provider '{ProviderId}'", providerId);
-        }
-        _providers[providerId] = provider;
-        _logger.LogInformation("Registered LLM provider: {ProviderId}", providerId);
-    }
-
-    public void ConfigureProvider(string providerId, IConfigurationSection config)
-    {
-        _configs[providerId] = config;
-    }
-}
-
-/// <summary>
 /// Base class for LLM providers with common functionality.
 /// Concrete providers: OllamaLLMProvider, LmStudioLLMProvider, OpenAILLMProvider, GoogleAIStudioLLMProvider.
 /// Preset-based wrappers: ProviderFromPresets.cs

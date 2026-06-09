@@ -476,6 +476,34 @@ class APIClient {
     });
   }
 
+  // ==================== Game Templates ====================
+
+  async getGameTemplates() {
+    return this.request<GameTemplate[]>('/admin/game-templates');
+  }
+
+  async createGameTemplate(request: CreateGameTemplateRequest) {
+    return this.request<GameTemplate>('/admin/game-templates', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async updateGameTemplate(id: string, request: UpdateGameTemplateRequest) {
+    return this.request<GameTemplate>(`/admin/game-templates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async deleteGameTemplate(id: string) {
+    return this.request(`/admin/game-templates/${id}`, { method: 'DELETE' });
+  }
+
+  async getGameTemplate(id: string) {
+    return this.request<GameTemplate>(`/admin/game-templates/${id}`);
+  }
+
   async getProviderModels(providerType: string, endpointUrl?: string, apiKey?: string) {
     const params = new URLSearchParams({ providerType });
     if (endpointUrl) params.set('endpointUrl', endpointUrl);
@@ -1124,6 +1152,44 @@ export interface TestConnectionResponse {
 export interface ProviderModelsResponse {
   models: string[];
   error?: string;
+}
+
+// ==================== Game Template Types ====================
+
+export interface GameTemplate {
+  id: string;
+  name: string;
+  defaultName?: string;
+  systemId: string;
+  llmPresetId?: string;
+  llmPresetName?: string;
+  language: string;
+  plotSeed?: string;
+  gameParameters?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateGameTemplateRequest {
+  name: string;
+  defaultName?: string;
+  systemId: string;
+  llmPresetId?: string;
+  llmPresetName?: string;
+  language: string;
+  plotSeed?: string;
+  gameParameters?: string;
+}
+
+export interface UpdateGameTemplateRequest {
+  name: string;
+  defaultName?: string;
+  systemId: string;
+  llmPresetId?: string;
+  llmPresetName?: string;
+  language: string;
+  plotSeed?: string;
+  gameParameters?: string;
 }
 
 // ==================== LLM Interaction Log Types ====================

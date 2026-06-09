@@ -12,7 +12,6 @@ namespace Adnd.Server.Services;
 /// </summary>
 public class PlotThreadGenerationStrategy
 {
-    private readonly ILLMProviderRegistry _llmRegistry;
     private readonly ILLMProviderFactory _providerFactory;
     private readonly IApiKeyEncryptionService _encryption;
     private const string SystemPrompt =
@@ -37,11 +36,9 @@ public class PlotThreadGenerationStrategy
         "]";
 
     public PlotThreadGenerationStrategy(
-        ILLMProviderRegistry llmRegistry,
         ILLMProviderFactory providerFactory,
         IApiKeyEncryptionService encryption)
     {
-        _llmRegistry = llmRegistry;
         _providerFactory = providerFactory;
         _encryption = encryption;
     }
@@ -198,9 +195,6 @@ Only generate threads that are genuinely new and relevant to the current game st
 
     private ILLMProvider? GetProvider(LLMPreset preset)
     {
-        var provider = _llmRegistry.GetProvider(preset.ProviderType);
-        if (provider != null) return provider;
-
         // Decrypt the API key if needed
         if (preset.ApiKey != null && preset.DecryptedApiKey == null)
         {

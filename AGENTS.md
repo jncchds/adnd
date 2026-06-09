@@ -138,7 +138,7 @@ src/
 - **Auth** uses JWT bearer tokens with refresh token rotation. `UserIdProvider` extracts user ID from JWT.
 - **Authorization** is game-scoped. `GameAuthorizationService` checks role permissions (Creator/Player/Spectator/Observer).
 - **SignalR** hub is `GameHub`. Use `Clients.Group($"game:{gameId}")` for game-scoped broadcasts.
-- **LLM providers** implement a pluggable interface. Configure via admin panel, stored in DB.
+- **LLM providers** are created per-game from `LLMPreset` DB records via `ILLMProviderFactory`. Each game has its own preset (provider type, model, endpoint, API key). There is no global provider registry.
 - **RAG** uses pgvector for embeddings. `RAGService` handles similarity search and consistency checks.
 - **AgentBus** is the agentic framework. Agents register handlers and call each other via `CallAgent`.
 - **DiceEngine** parses formulas like `4d6kh3+2d4-1`. System-aware resolution.
@@ -243,6 +243,24 @@ cd src/Adnd.Client && npm run dev
 cd src/Adnd.Client && npm run build
 cd ../Adnd.Server && dotnet publish -c Release -o ../publish
 ```
+
+## Environment Variables
+
+All env vars are documented in `docker-compose.yml` with defaults. Key production variables:
+
+| Variable | Purpose | Required in Prod? |
+|----------|---------|-------------------|
+| `JWT_SECRET_KEY` | JWT signing key (HS256) | ✅ Yes — 32+ char random string |
+| `ENCRYPTION_MASTER_KEY` | AES-256-GCM key for API key encryption at rest | ✅ Yes — 32+ char hex |
+| `ConnectionStrings__Default` | PostgreSQL connection | ✅ Yes |
+| `JWT_ISSUER` | JWT issuer claim | Optional (default: `adnd-server`) |
+| `JWT_AUDIENCE` | JWT audience claim | Optional (default: `adnd-client`) |
+| `RESILIENCE_RETRY_DELAY_MS` | Polly retry delay | Optional (default: 500) |
+| `RESILIENCE_MAX_RETRIES` | Max LLM call retries | Optional (default: 3) |
+| `RESILIENCE_FAILURE_THRESHOLD` | Circuit breaker trip threshold | Optional (default: 5) |
+| `RESILIENCE_HALF_OPEN_AFTER_SEC` | Circuit breaker half-open delay | Optional (default: 30) |
+
+## Adding a New RPG System
 
 ## Adding a New RPG System
 

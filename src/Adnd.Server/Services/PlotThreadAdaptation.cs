@@ -11,16 +11,13 @@ namespace Adnd.Server.Services;
 /// </summary>
 public class PlotThreadAdaptationStrategy
 {
-    private readonly ILLMProviderRegistry _llmRegistry;
     private readonly ILLMProviderFactory _providerFactory;
     private readonly IApiKeyEncryptionService _encryption;
 
     public PlotThreadAdaptationStrategy(
-        ILLMProviderRegistry llmRegistry,
         ILLMProviderFactory providerFactory,
         IApiKeyEncryptionService encryption)
     {
-        _llmRegistry = llmRegistry;
         _providerFactory = providerFactory;
         _encryption = encryption;
     }
@@ -159,9 +156,6 @@ Only include threads that need changes. Threads not listed keep their current va
 
     private ILLMProvider? GetProvider(LLMPreset preset)
     {
-        var provider = _llmRegistry.GetProvider(preset.ProviderType);
-        if (provider != null) return provider;
-
         if (preset.ApiKey != null && preset.DecryptedApiKey == null)
         {
             try

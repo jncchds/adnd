@@ -41,6 +41,21 @@ docker compose up -d
 
 Database is created automatically and migrations are applied. The app runs at **http://localhost:5010**.
 
+Environment variables (all optional):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ASPNETCORE_ENVIRONMENT` | `Production` | `Development` or `Production` |
+| `ConnectionStrings__Default` | `Host=postgres;Port=5432;Database=adnd;Username=adnd;Password=adnd_secret` | PostgreSQL connection string |
+| `JwtSettings__SecretKey` | *(dev only)* | JWT signing key — **must be set in production** (32+ char random string) |
+| `JwtSettings__Issuer` | `adnd-server` | JWT token issuer |
+| `JwtSettings__Audience` | `adnd-client` | JWT token audience |
+| `Encryption__MasterKey` | *(dev only)* | AES-256-GCM key for API key encryption at rest — **must be set in production** (32+ char hex) |
+| `Resilience__RetryDelayMs` | `500` | Polly retry delay in ms |
+| `Resilience__MaxRetries` | `3` | Max retry attempts for LLM calls |
+| `Resilience__FailureThreshold` | `5` | Circuit breaker trip threshold |
+| `Resilience__HalfOpenAfterSec` | `30` | Circuit breaker half-open delay in seconds |
+
 ### Development
 
 ```bash

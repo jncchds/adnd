@@ -32,27 +32,13 @@ public class DatabaseHealthCheck : IHealthCheck
 
 /// <summary>
 /// LLM providers health check.
+/// Note: LLM providers are now created from per-game presets at runtime via ILLMProviderFactory.
+/// There is no global provider registry to check. Health is verified per-game when a preset is used.
 /// </summary>
 public class LlmProvidersHealthCheck : IHealthCheck
 {
-    private readonly ILLMProviderRegistry _registry;
-    private readonly ILogger<LlmProvidersHealthCheck> _logger;
-
-    public LlmProvidersHealthCheck(ILLMProviderRegistry registry, ILogger<LlmProvidersHealthCheck> logger)
-    {
-        _registry = registry;
-        _logger = logger;
-    }
-
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken token = default)
     {
-        var providers = _registry.GetAllStatusAsync().ToList();
-        var unhealthy = providers.Where(p => !p.IsAvailable).Select(p => p.ProviderId).ToList();
-
-        if (unhealthy.Count > 0 && providers.Count == 0)
-            return Task.FromResult(HealthCheckResult.Unhealthy($"All LLM providers unavailable: {string.Join(", ", unhealthy)}"));
-        if (unhealthy.Count > 0)
-            return Task.FromResult(HealthCheckResult.Degraded($"Some LLM providers unavailable: {string.Join(", ", unhealthy)}"));
-        return Task.FromResult(HealthCheckResult.Healthy($"All {providers.Count} LLM providers healthy."));
+        return Task.FromResult(HealthCheckResult.Healthy("LLM providers are configured per-game via LLM presets."));
     }
 }

@@ -10,16 +10,13 @@ namespace Adnd.Server.Services;
 /// </summary>
 public class PlotOpportunityDetectionStrategy
 {
-    private readonly ILLMProviderRegistry _llmRegistry;
     private readonly ILLMProviderFactory _providerFactory;
     private readonly IApiKeyEncryptionService _encryption;
 
     public PlotOpportunityDetectionStrategy(
-        ILLMProviderRegistry llmRegistry,
         ILLMProviderFactory providerFactory,
         IApiKeyEncryptionService encryption)
     {
-        _llmRegistry = llmRegistry;
         _providerFactory = providerFactory;
         _encryption = encryption;
     }
@@ -117,9 +114,6 @@ Only include genuine opportunities — not every minor event needs a response.
 
     private ILLMProvider? GetProvider(LLMPreset preset)
     {
-        var provider = _llmRegistry.GetProvider(preset.ProviderType);
-        if (provider != null) return provider;
-
         if (preset.ApiKey != null && preset.DecryptedApiKey == null)
         {
             try
