@@ -22,6 +22,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   InputLabel, useMediaQuery, useTheme
 } from '@mui/material';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 import { Send as SendIcon, SportsEsports as DiceIcon,
   People as PeopleIcon, Replay as ReplayIcon, ExitToApp as LeaveIcon,
   Article as SheetIcon } from '@mui/icons-material';
@@ -64,6 +65,17 @@ interface UnifiedMessage {
   agentAction?: string;
   agentStatus?: string;
   extra?: React.ReactNode;
+}
+
+// ==================== Markdown Support ====================
+
+/** Message types that render with markdown */
+const MARKDOWN_TYPES = new Set<UnifiedMessageType>(['inGamePublic', 'inGameWhisper', 'oocPublic', 'oocWhisper']);
+
+/** Check if content contains markdown syntax */
+function hasMarkdownSyntax(content: string): boolean {
+  // Check for common markdown patterns
+  return /\*\*|\*_|~~|`{1,3}|\[.+\]\(|^#{1,6}\s|^[\-\*\+]\s|^[0-9]+\.\s|^>\s|^---|^- \[|^- \[x\]/m.test(content);
 }
 
 // ==================== Message Color Config ====================
@@ -1471,14 +1483,24 @@ function MessageBubble({ msg }: { msg: UnifiedMessage }) {
         </Typography>
       </Box>
 
-      {/* Content */}
-      <Typography variant="body2" sx={{
-        color: isSystem ? 'text.secondary' : 'text.primary',
-        fontStyle: isWhisper ? 'italic' : 'normal',
-        wordBreak: 'break-word',
-      }}>
-        {msg.content}
-      </Typography>
+      {/* Content — markdown for text messages, plain for system messages */}
+      {MARKDOWN_TYPES.has(msg.type) && hasMarkdownSyntax(msg.content) ? (
+        <Box sx={{
+          color: isWhisper ? 'text.secondary' : 'text.primary',
+          fontStyle: isWhisper ? 'italic' : 'normal',
+          wordBreak: 'break-word',
+        }}>
+          <MarkdownRenderer content={msg.content} compact />
+        </Box>
+      ) : (
+        <Typography variant="body2" sx={{
+          color: isSystem ? 'text.secondary' : 'text.primary',
+          fontStyle: isWhisper ? 'italic' : 'normal',
+          wordBreak: 'break-word',
+        }}>
+          {msg.content}
+        </Typography>
+      )}
 
       {/* Extra info for dice/skill/attack */}
       {msg.type === 'dice' && msg.diceRolls && (
