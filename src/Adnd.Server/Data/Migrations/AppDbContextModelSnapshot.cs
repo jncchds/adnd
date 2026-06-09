@@ -331,6 +331,80 @@ namespace Adnd.Server.Data.Migrations
                     b.ToTable("CustomSystems");
                 });
 
+            modelBuilder.Entity("Adnd.Server.Models.GMToolCall", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Arguments")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConfirmedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ConfirmedByPlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("GameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OutputMessage")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ParentToolCallId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("RequiresConfirmation")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Result")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ToolCallId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToolName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConfirmedByPlayerId");
+
+                    b.HasIndex("GameId");
+
+                    b.HasIndex("ParentToolCallId");
+
+                    b.HasIndex("SessionId");
+
+                    b.ToTable("GMToolCalls");
+                });
+
             modelBuilder.Entity("Adnd.Server.Models.Game", b =>
                 {
                     b.Property<Guid>("Id")
@@ -362,13 +436,12 @@ namespace Adnd.Server.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("invitecode");
 
-                    b.Property<string>("Language")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasDefaultValue("English");
-
                     b.Property<Guid?>("LLMPresetId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("LastGMAction")
                         .HasColumnType("text");
@@ -458,6 +531,9 @@ namespace Adnd.Server.Data.Migrations
 
                     b.Property<int>("DurationMs")
                         .HasColumnType("integer");
+
+                    b.Property<string>("EndpointUrl")
+                        .HasColumnType("text");
 
                     b.Property<string>("Error")
                         .HasColumnType("text");
@@ -619,6 +695,9 @@ namespace Adnd.Server.Data.Migrations
                     b.Property<string>("Embedding")
                         .HasColumnType("vector");
 
+                    b.Property<bool>("IsOOC")
+                        .HasColumnType("boolean");
+
                     b.Property<JsonElement>("Metadata")
                         .HasColumnType("jsonb");
 
@@ -637,6 +716,9 @@ namespace Adnd.Server.Data.Migrations
                     b.Property<string>("WhisperTarget")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("WhisperToId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PlayerId");
@@ -644,6 +726,8 @@ namespace Adnd.Server.Data.Migrations
                     b.HasIndex("SessionId");
 
                     b.HasIndex("WhisperFromId");
+
+                    b.HasIndex("WhisperToId");
 
                     b.ToTable("Messages");
                 });
@@ -736,132 +820,6 @@ namespace Adnd.Server.Data.Migrations
                     b.ToTable("Players");
                 });
 
-            modelBuilder.Entity("Adnd.Server.Models.GMToolCall", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Arguments")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ConfirmedBy")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("ConfirmedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("DurationMs")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Error")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("GameId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("OutputMessage")
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("ParentToolCallId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("SessionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime?>("StartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("RequiresConfirmation")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Result")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ToolCallId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ToolName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GameId");
-
-                    b.HasIndex("ParentToolCallId");
-
-                    b.HasIndex("SessionId");
-
-                    b.HasIndex("Status");
-
-                    b.ToTable("GMToolCalls");
-                });
-
-            modelBuilder.Entity("Adnd.Server.Models.PlotThread", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Embedding")
-                        .HasColumnType("vector");
-
-                    b.Property<Guid>("GameId")
-                        .HasColumnType("uuid");
-
-                    b.PrimitiveCollection<List<Guid>>("KeyEventMessageIds")
-                        .IsRequired()
-                        .HasColumnType("uuid[]");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("Category")
-                        .HasColumnType("integer");
-
-                    b.Property<float>("Momentum")
-                        .HasColumnType("real");
-
-                    b.Property<float>("RelevanceScore")
-                        .HasColumnType("real");
-
-                    b.Property<bool>("IsDynamic")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("MilestoneEvents")
-                        .HasColumnType("jsonb");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GameId");
-
-                    b.ToTable("PlotThreads");
-                });
-
             modelBuilder.Entity("Adnd.Server.Models.PlotReview", b =>
                 {
                     b.Property<Guid>("Id")
@@ -874,15 +832,16 @@ namespace Adnd.Server.Data.Migrations
                     b.Property<DateTime>("ReviewedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Trigger")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<string>("Summary")
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Updates")
+                        .IsRequired()
                         .HasColumnType("jsonb");
 
                     b.HasKey("Id");
@@ -891,6 +850,72 @@ namespace Adnd.Server.Data.Migrations
                         .IsDescending(false, true);
 
                     b.ToTable("PlotReviews");
+                });
+
+            modelBuilder.Entity("Adnd.Server.Models.PlotThread", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdaptationHistory")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Embedding")
+                        .HasColumnType("vector");
+
+                    b.Property<string>("Foreshadowing")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("GameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDynamic")
+                        .HasColumnType("boolean");
+
+                    b.PrimitiveCollection<List<Guid>>("KeyEventMessageIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
+
+                    b.Property<string>("MilestoneEvents")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<float>("Momentum")
+                        .HasColumnType("real");
+
+                    b.Property<string>("NextMilestone")
+                        .HasColumnType("text");
+
+                    b.Property<float>("RelevanceScore")
+                        .HasColumnType("real");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GameId");
+
+                    b.ToTable("PlotThreads");
                 });
 
             modelBuilder.Entity("Adnd.Server.Models.RefreshToken", b =>
@@ -1028,37 +1053,6 @@ namespace Adnd.Server.Data.Migrations
                     b.Navigation("Session");
                 });
 
-            modelBuilder.Entity("Adnd.Server.Models.GMToolCall", b =>
-                {
-                    b.HasOne("Adnd.Server.Models.Game", "Game")
-                        .WithMany("GMToolCalls")
-                        .HasForeignKey("GameId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Adnd.Server.Models.GameSession", "Session")
-                        .WithMany()
-                        .HasForeignKey("SessionId");
-
-                    b.HasOne("Adnd.Server.Models.Player", "ConfirmedBy")
-                        .WithMany()
-                        .HasForeignKey("ConfirmedBy");
-
-                    b.HasOne("Adnd.Server.Models.GMToolCall", "ParentToolCall")
-                        .WithMany("ChildToolCalls")
-                        .HasForeignKey("ParentToolCallId");
-
-                    b.Navigation("Game");
-
-                    b.Navigation("Session");
-
-                    b.Navigation("ConfirmedBy");
-
-                    b.Navigation("ParentToolCall");
-
-                    b.Navigation("ChildToolCalls");
-                });
-
             modelBuilder.Entity("Adnd.Server.Models.Character", b =>
                 {
                     b.HasOne("Adnd.Server.Models.Player", "Player")
@@ -1130,6 +1124,35 @@ namespace Adnd.Server.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Game");
+                });
+
+            modelBuilder.Entity("Adnd.Server.Models.GMToolCall", b =>
+                {
+                    b.HasOne("Adnd.Server.Models.Player", "ConfirmedByPlayer")
+                        .WithMany()
+                        .HasForeignKey("ConfirmedByPlayerId");
+
+                    b.HasOne("Adnd.Server.Models.Game", "Game")
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Adnd.Server.Models.GMToolCall", "ParentToolCall")
+                        .WithMany("ChildToolCalls")
+                        .HasForeignKey("ParentToolCallId");
+
+                    b.HasOne("Adnd.Server.Models.GameSession", "Session")
+                        .WithMany()
+                        .HasForeignKey("SessionId");
+
+                    b.Navigation("ConfirmedByPlayer");
+
+                    b.Navigation("Game");
+
+                    b.Navigation("ParentToolCall");
+
+                    b.Navigation("Session");
                 });
 
             modelBuilder.Entity("Adnd.Server.Models.Game", b =>
@@ -1206,11 +1229,17 @@ namespace Adnd.Server.Data.Migrations
                         .WithMany()
                         .HasForeignKey("WhisperFromId");
 
+                    b.HasOne("Adnd.Server.Models.Player", "WhisperTo")
+                        .WithMany()
+                        .HasForeignKey("WhisperToId");
+
                     b.Navigation("Player");
 
                     b.Navigation("Session");
 
                     b.Navigation("WhisperFrom");
+
+                    b.Navigation("WhisperTo");
                 });
 
             modelBuilder.Entity("Adnd.Server.Models.NPC", b =>
@@ -1230,17 +1259,6 @@ namespace Adnd.Server.Data.Migrations
                     b.Navigation("PlotThread");
                 });
 
-            modelBuilder.Entity("Adnd.Server.Models.PlotReview", b =>
-                {
-                    b.HasOne("Adnd.Server.Models.Game", "Game")
-                        .WithMany("PlotReviews")
-                        .HasForeignKey("GameId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Game");
-                });
-
             modelBuilder.Entity("Adnd.Server.Models.Player", b =>
                 {
                     b.HasOne("Adnd.Server.Models.Game", "Game")
@@ -1258,6 +1276,17 @@ namespace Adnd.Server.Data.Migrations
                     b.Navigation("Game");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Adnd.Server.Models.PlotReview", b =>
+                {
+                    b.HasOne("Adnd.Server.Models.Game", "Game")
+                        .WithMany("PlotReviews")
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Game");
                 });
 
             modelBuilder.Entity("Adnd.Server.Models.PlotThread", b =>
@@ -1321,19 +1350,22 @@ namespace Adnd.Server.Data.Migrations
                     b.Navigation("Participants");
                 });
 
+            modelBuilder.Entity("Adnd.Server.Models.GMToolCall", b =>
+                {
+                    b.Navigation("ChildToolCalls");
+                });
+
             modelBuilder.Entity("Adnd.Server.Models.Game", b =>
                 {
                     b.Navigation("AgentCalls");
-
-                    b.Navigation("GMToolCalls");
 
                     b.Navigation("NPCs");
 
                     b.Navigation("Players");
 
-                    b.Navigation("PlotThreads");
-
                     b.Navigation("PlotReviews");
+
+                    b.Navigation("PlotThreads");
 
                     b.Navigation("Sessions");
                 });

@@ -69,7 +69,8 @@ builder.Services.AddCors(options =>
 
 // DB Context
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default"))
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Default"),
+        npgsqlOptions => npgsqlOptions.MigrationsAssembly(typeof(AppDbContext).Assembly))
         .ConfigureWarnings(w => w
             .Ignore(RelationalEventId.PendingModelChangesWarning)
             .Ignore((EventId)10620)));
