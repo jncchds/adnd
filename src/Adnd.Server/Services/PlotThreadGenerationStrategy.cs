@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
@@ -12,6 +13,8 @@ namespace Adnd.Server.Services;
 public class PlotThreadGenerationStrategy
 {
     private readonly ILLMProviderRegistry _llmRegistry;
+    private readonly ILLMProviderFactory _providerFactory;
+    private readonly IApiKeyEncryptionService _encryption;
     private const string SystemPrompt =
         "You are a TTRPG plot architect. Given a game's premise, tone, and RPG system,\n" +
         "generate 3-5 compelling plot threads that will guide the story. Each thread should have:\n" +
@@ -33,9 +36,14 @@ public class PlotThreadGenerationStrategy
         "  ...\n" +
         "]";
 
-    public PlotThreadGenerationStrategy(ILLMProviderRegistry llmRegistry)
+    public PlotThreadGenerationStrategy(
+        ILLMProviderRegistry llmRegistry,
+        ILLMProviderFactory providerFactory,
+        IApiKeyEncryptionService encryption)
     {
         _llmRegistry = llmRegistry;
+        _providerFactory = providerFactory;
+        _encryption = encryption;
     }
 
     public async Task<List<PlotThread>> GenerateInitialAsync(
@@ -193,14 +201,20 @@ Only generate threads that are genuinely new and relevant to the current game st
         var provider = _llmRegistry.GetProvider(preset.ProviderType);
         if (provider != null) return provider;
 
-        return preset.ProviderType switch
+        // Decrypt the API key if needed
+        if (preset.ApiKey != null && preset.DecryptedApiKey == null)
         {
-            "ollama" => new OllamaLLMProviderFromPreset(preset),
-            "lmstudio" => new LmStudioLLMProviderFromPreset(preset),
-            "openai" => new OpenAILLMProviderFromPreset(preset),
-            "google" => new GoogleAIStudioLLMProviderFromPreset(preset),
-            _ => null
-        };
+            try
+            {
+                preset.DecryptedApiKey = _encryption.Decrypt(preset.ApiKey);
+            }
+            catch (CryptographicException)
+            {
+                return null;
+            }
+        }
+
+        return _providerFactory.CreateFromPreset(preset);
     }
 
     private static string ExtractJson(string result)

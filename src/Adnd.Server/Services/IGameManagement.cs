@@ -15,6 +15,8 @@ public interface IGameManagementService
     Task DeleteGameAsync(Guid id, Guid userId);
     Task<InviteResponse> GenerateInviteAsync(Guid id, Guid userId);
     Task UpdateGameLanguageAsync(Guid id, Guid userId, string language);
+    /// <summary>Checks whether the LLM preset can be changed for a game.</summary>
+    Task<bool> CanChangeLLMPresetAsync(Guid gameId, Guid userId);
 }
 
 public class GameManagementService : IGameManagementService
@@ -94,6 +96,15 @@ public class GameManagementService : IGameManagementService
 
     public async Task<GameResponse> CreateGameAsync(Guid userId, CreateGameRequest request)
     {
+        // Validate LLM preset ownership if one was provided
+        if (request.LLMPresetId.HasValue)
+        {
+            var preset = await _context.LLMPresets
+                .FirstOrDefaultAsync(p => p.Id == request.LLMPresetId.Value && p.UserId == userId);
+            if (preset == null)
+                throw new ArgumentException("Selected LLM preset does not belong to you or does not exist.");
+        }
+
         var game = new Game
         {
             CreatorId = userId,
@@ -172,6 +183,18 @@ public class GameManagementService : IGameManagementService
 
         game.Language = language ?? "English";
         await _context.SaveChangesAsync();
+    }
+
+    public async Task<bool> CanChangeLLMPresetAsync(Guid gameId, Guid userId)
+    {
+        var game = await _context.Games
+            .FirstOrDefaultAsync(g => g.Id == gameId && g.CreatorId == userId);
+
+        if (game == null)
+            return false;
+
+        // Cannot change preset once the game has started
+        return game.Status != GameStatus.Active;
     }
 
     private string GenerateInviteCode()

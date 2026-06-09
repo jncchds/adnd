@@ -249,6 +249,9 @@ builder.Services.AddScoped<ICharacterCreationFactory, CharacterCreationFactory>(
 builder.Services.AddScoped<IGameStartService, GameStartService>();
 builder.Services.AddScoped<INarrativeGenerationFactory, NarrativeGenerationFactory>();
 
+// LLM provider factory — creates ILLMProvider from LLMPreset at runtime
+builder.Services.AddSingleton<ILLMProviderFactory, LLMProviderFactory>();
+
 // Game/Session/Player management (FactoryMethod split from GamesController)
 builder.Services.AddScoped<IGameManagementService, GameManagementService>();
 builder.Services.AddScoped<ISessionManagementService, SessionManagementService>();

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
@@ -89,6 +90,8 @@ public class AgentBus : IAgentBus
     private readonly ILLMPresetService _presetService;
     private readonly ILLMInteractionLogger _interactionLogger;
     private readonly IGMToolRegistry _toolRegistry;
+    private readonly ILLMProviderFactory _providerFactory;
+    private readonly IApiKeyEncryptionService _encryption;
     private readonly ILogger<AgentBus> _logger;
 
     public AgentBus(
@@ -101,6 +104,8 @@ public class AgentBus : IAgentBus
         ILLMPresetService presetService,
         ILLMInteractionLogger interactionLogger,
         IGMToolRegistry toolRegistry,
+        ILLMProviderFactory providerFactory,
+        IApiKeyEncryptionService encryption,
         ILogger<AgentBus> logger)
     {
         _context = context;
@@ -112,22 +117,33 @@ public class AgentBus : IAgentBus
         _presetService = presetService;
         _interactionLogger = interactionLogger;
         _toolRegistry = toolRegistry;
+        _providerFactory = providerFactory;
+        _encryption = encryption;
         _logger = logger;
     }
 
     private ILLMProvider? GetProvider(LLMPreset preset)
     {
+        // Try the DI-registered registry first (for built-in providers)
         var provider = _llmRegistry.GetProvider(preset.ProviderType);
         if (provider != null) return provider;
 
-        return preset.ProviderType switch
+        // Fall back to factory for user-configured presets
+        // Decrypt the API key if needed
+        if (preset.ApiKey != null && preset.DecryptedApiKey == null)
         {
-            "ollama" => new OllamaLLMProviderFromPreset(preset),
-            "lmstudio" => new LmStudioLLMProviderFromPreset(preset),
-            "openai" => new OpenAILLMProviderFromPreset(preset),
-            "google" => new GoogleAIStudioLLMProviderFromPreset(preset),
-            _ => null
-        };
+            try
+            {
+                preset.DecryptedApiKey = _encryption.Decrypt(preset.ApiKey);
+            }
+            catch (CryptographicException ex)
+            {
+                _logger.LogError(ex, "Failed to decrypt API key for preset '{PresetName}'", preset.Name);
+                return null;
+            }
+        }
+
+        return _providerFactory.CreateFromPreset(preset);
     }
 
     public async Task<AgentCall> SendCallAsync(AgentCall call)

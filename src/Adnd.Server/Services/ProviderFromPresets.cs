@@ -10,8 +10,8 @@ public class OllamaLLMProviderFromPreset : BaseLLMProvider
     private readonly string _embeddingUrl;
     private readonly string _embeddingModel;
 
-    public OllamaLLMProviderFromPreset(LLMPreset preset)
-        : base(new NullLogger<OllamaLLMProviderFromPreset>(), new NullConfiguration())
+    public OllamaLLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null)
+        : base(logger ?? new NullLogger<OllamaLLMProviderFromPreset>(), configuration ?? new NullConfiguration())
     {
         _baseUrl = preset.EndpointUrl ?? "http://localhost:11434";
         _model = preset.BaseModel;
@@ -107,8 +107,8 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
     private readonly string _embeddingUrl;
     private readonly string _embeddingModel;
 
-    public LmStudioLLMProviderFromPreset(LLMPreset preset)
-        : base(new NullLogger<LmStudioLLMProviderFromPreset>(), new NullConfiguration())
+    public LmStudioLLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null)
+        : base(logger ?? new NullLogger<LmStudioLLMProviderFromPreset>(), configuration ?? new NullConfiguration())
     {
         _baseUrl = preset.EndpointUrl ?? "http://localhost:1234";
         _model = preset.BaseModel;
@@ -225,8 +225,8 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
     private readonly string _embeddingUrl;
     private readonly string _embeddingModel;
 
-    public OpenAILLMProviderFromPreset(LLMPreset preset)
-        : base(new NullLogger<OpenAILLMProviderFromPreset>(), new NullConfiguration())
+    public OpenAILLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null)
+        : base(logger ?? new NullLogger<OpenAILLMProviderFromPreset>(), configuration ?? new NullConfiguration())
     {
         _baseUrl = preset.EndpointUrl ?? "https://api.openai.com/v1";
         _model = preset.BaseModel;
@@ -332,8 +332,8 @@ public class GoogleAIStudioLLMProviderFromPreset : BaseLLMProvider
     private readonly string _embeddingUrl;
     private readonly string _embeddingModel;
 
-    public GoogleAIStudioLLMProviderFromPreset(LLMPreset preset)
-        : base(new NullLogger<GoogleAIStudioLLMProviderFromPreset>(), new NullConfiguration())
+    public GoogleAIStudioLLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null)
+        : base(logger ?? new NullLogger<GoogleAIStudioLLMProviderFromPreset>(), configuration ?? new NullConfiguration())
     {
         _apiKey = preset.DecryptedApiKey ?? preset.ApiKey ?? throw new InvalidOperationException("API key is required");
         _model = preset.BaseModel;

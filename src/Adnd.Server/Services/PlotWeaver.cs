@@ -19,6 +19,8 @@ public class PlotWeaver : IPlotWeaver
 {
     private readonly AppDbContext _context;
     private readonly ILLMProviderRegistry _llmRegistry;
+    private readonly ILLMProviderFactory _providerFactory;
+    private readonly IApiKeyEncryptionService _encryption;
     private readonly IRAGService _ragService;
     private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<PlotWeaver> _logger;
@@ -30,20 +32,24 @@ public class PlotWeaver : IPlotWeaver
     public PlotWeaver(
         AppDbContext context,
         ILLMProviderRegistry llmRegistry,
+        ILLMProviderFactory providerFactory,
+        IApiKeyEncryptionService encryption,
         IRAGService ragService,
         IEmbeddingService embeddingService,
         ILogger<PlotWeaver> logger)
     {
         _context = context;
         _llmRegistry = llmRegistry;
+        _providerFactory = providerFactory;
+        _encryption = encryption;
         _ragService = ragService;
         _embeddingService = embeddingService;
         _logger = logger;
 
-        _threadGenerationStrategy = new PlotThreadGenerationStrategy(llmRegistry);
-        _threadAdaptationStrategy = new PlotThreadAdaptationStrategy(llmRegistry);
-        _milestoneSpawningStrategy = new PlotMilestoneSpawningStrategy(llmRegistry);
-        _opportunityDetectionStrategy = new PlotOpportunityDetectionStrategy(llmRegistry);
+        _threadGenerationStrategy = new PlotThreadGenerationStrategy(llmRegistry, providerFactory, encryption);
+        _threadAdaptationStrategy = new PlotThreadAdaptationStrategy(llmRegistry, providerFactory, encryption);
+        _milestoneSpawningStrategy = new PlotMilestoneSpawningStrategy(llmRegistry, providerFactory, encryption);
+        _opportunityDetectionStrategy = new PlotOpportunityDetectionStrategy(llmRegistry, providerFactory, encryption);
     }
 
     public async Task<bool> HasInitialThreadsAsync(Guid gameId)

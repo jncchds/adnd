@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Data;
@@ -61,10 +62,39 @@ public class StartGameResult
 public class DefaultNarrativeGenerator : INarrativeGenerationStrategy
 {
     private readonly ILLMProviderRegistry _providerRegistry;
+    private readonly ILLMProviderFactory _providerFactory;
+    private readonly IApiKeyEncryptionService _encryption;
 
-    public DefaultNarrativeGenerator(ILLMProviderRegistry providerRegistry)
+    public DefaultNarrativeGenerator(
+        ILLMProviderRegistry providerRegistry,
+        ILLMProviderFactory providerFactory,
+        IApiKeyEncryptionService encryption)
     {
         _providerRegistry = providerRegistry;
+        _providerFactory = providerFactory;
+        _encryption = encryption;
+    }
+
+    private ILLMProvider? ResolveProvider(LLMPreset preset)
+    {
+        // Try the DI-registered registry first (for built-in providers)
+        var provider = _providerRegistry.GetProvider(preset.ProviderType);
+        if (provider != null) return provider;
+
+        // Fall back to factory for user-configured presets
+        if (preset.ApiKey != null && preset.DecryptedApiKey == null)
+        {
+            try
+            {
+                preset.DecryptedApiKey = _encryption.Decrypt(preset.ApiKey);
+            }
+            catch (CryptographicException)
+            {
+                return null;
+            }
+        }
+
+        return _providerFactory.CreateFromPreset(preset);
     }
 
     public async Task<string> GenerateOpeningNarrative(Game game)
@@ -75,22 +105,7 @@ public class DefaultNarrativeGenerator : INarrativeGenerationStrategy
             return "The adventure begins...";
         }
 
-        // Try to get from registry first (built-in providers)
-        var provider = _providerRegistry.GetProvider(llp.ProviderType);
-
-        // If not in registry, create from the preset (for user-configured presets)
-        if (provider == null)
-        {
-            provider = llp.ProviderType switch
-            {
-                "ollama" => new OllamaLLMProviderFromPreset(llp),
-                "lmstudio" => new LmStudioLLMProviderFromPreset(llp),
-                "openai" => new OpenAILLMProviderFromPreset(llp),
-                "google" => new GoogleAIStudioLLMProviderFromPreset(llp),
-                _ => null
-            };
-        }
-
+        var provider = ResolveProvider(llp);
         if (provider == null)
         {
             return "The adventure begins...";
@@ -149,13 +164,17 @@ public class NarrativeGenerationFactory : INarrativeGenerationFactory
     private readonly ILogger<NarrativeGenerationFactory> _logger;
     private readonly Dictionary<string, INarrativeGenerationStrategy> _strategies = new();
 
-    public NarrativeGenerationFactory(ILLMProviderRegistry providerRegistry, ILogger<NarrativeGenerationFactory> logger)
+    public NarrativeGenerationFactory(
+        ILLMProviderRegistry providerRegistry,
+        ILLMProviderFactory providerFactory,
+        IApiKeyEncryptionService encryption,
+        ILogger<NarrativeGenerationFactory> logger)
     {
         _providerRegistry = providerRegistry;
         _logger = logger;
 
-        // Register default generators
-        RegisterStrategy(new DefaultNarrativeGenerator(providerRegistry));
+        // Register default generators (pass factory + encryption for runtime provider resolution)
+        RegisterStrategy(new DefaultNarrativeGenerator(providerRegistry, providerFactory, encryption));
         RegisterStrategy(new TemplateNarrativeGenerator());
     }
 
@@ -202,6 +221,8 @@ public class GameStartService : IGameStartService
     private readonly IMediator _mediator;
     private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<GameStartService> _logger;
+    private readonly ILLMProviderFactory _providerFactory;
+    private readonly IApiKeyEncryptionService _encryption;
 
     public GameStartService(
         AppDbContext context,
@@ -210,7 +231,9 @@ public class GameStartService : IGameStartService
         IHubContext<GameHub> hubContext,
         IMediator mediator,
         IEmbeddingService embeddingService,
-        ILogger<GameStartService> logger)
+        ILogger<GameStartService> logger,
+        ILLMProviderFactory providerFactory,
+        IApiKeyEncryptionService encryption)
     {
         _context = context;
         _plotWeaver = plotWeaver;
@@ -219,6 +242,8 @@ public class GameStartService : IGameStartService
         _mediator = mediator;
         _embeddingService = embeddingService;
         _logger = logger;
+        _providerFactory = providerFactory;
+        _encryption = encryption;
     }
 
     public async Task<StartGameResult> StartGameAsync(Guid gameId, Guid userId)
