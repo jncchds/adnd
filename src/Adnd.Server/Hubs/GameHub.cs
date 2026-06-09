@@ -22,11 +22,12 @@ public partial class GameHub : Hub
     private readonly ICombatService _combatService;
     private readonly IGMToolRegistry _toolRegistry;
     private readonly IMediator _mediator;
+    private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(AppDbContext context, IGameEngine gameEngine, IAgentBus agentBus,
         IWhisperService whisperService, ICombatService combatService, IGMToolRegistry toolRegistry,
-        IMediator mediator, ILogger<GameHub> logger)
+        IMediator mediator, IEmbeddingService embeddingService, ILogger<GameHub> logger)
     {
         _context = context;
         _gameEngine = gameEngine;
@@ -35,6 +36,7 @@ public partial class GameHub : Hub
         _combatService = combatService;
         _toolRegistry = toolRegistry;
         _mediator = mediator;
+        _embeddingService = embeddingService;
         _logger = logger;
     }
 
@@ -48,5 +50,27 @@ public partial class GameHub : Hub
     {
         _logger.LogInformation("Client disconnected: {ConnectionId}", Context.ConnectionId);
         await base.OnDisconnectedAsync(exception);
+    }
+
+    /// <summary>
+    /// Generate an embedding for a message asynchronously.
+    /// Called after messages are saved to the database.
+    /// </summary>
+    private async Task EmbedMessageAsync(Guid gameId, Guid messageId, string content)
+    {
+        try
+        {
+            var embedding = await _embeddingService.GenerateEmbeddingAsync(gameId, content);
+            var message = await _context.Messages.FindAsync(messageId);
+            if (message != null && message.Embedding == null)
+            {
+                message.Embedding = embedding;
+                await _context.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate embedding for message {MessageId} in game {GameId}", messageId, gameId);
+        }
     }
 }

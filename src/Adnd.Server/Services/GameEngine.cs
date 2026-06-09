@@ -28,6 +28,7 @@ public class GameEngine : IGameEngine
     private readonly IDiceEngine _diceEngine;
     private readonly ISystemRegistry _systemRegistry;
     private readonly ISystemRulesFactory _rulesFactory;
+    private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<GameEngine> _logger;
 
     public GameEngine(
@@ -35,12 +36,14 @@ public class GameEngine : IGameEngine
         IDiceEngine diceEngine,
         ISystemRegistry systemRegistry,
         ISystemRulesFactory rulesFactory,
+        IEmbeddingService embeddingService,
         ILogger<GameEngine> logger)
     {
         _context = context;
         _diceEngine = diceEngine;
         _systemRegistry = systemRegistry;
         _rulesFactory = rulesFactory;
+        _embeddingService = embeddingService;
         _logger = logger;
     }
 
@@ -81,7 +84,35 @@ public class GameEngine : IGameEngine
         await _context.Messages.AddAsync(message);
         await _context.SaveChangesAsync();
 
+        // Generate embedding for the dice roll message
+        await EmbedMessageAsync(sessionId, message.Id, message.Content);
+
         return result;
+    }
+
+    /// <summary>
+    /// Generate an embedding for a message asynchronously.
+    /// </summary>
+    private async Task EmbedMessageAsync(Guid sessionId, Guid messageId, string content)
+    {
+        try
+        {
+            var session = await _context.GameSessions.FindAsync(sessionId);
+            if (session == null)
+                return;
+
+            var embedding = await _embeddingService.GenerateEmbeddingAsync(session.GameId, content);
+            var message = await _context.Messages.FindAsync(messageId);
+            if (message != null && message.Embedding == null)
+            {
+                message.Embedding = embedding;
+                await _context.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate embedding for message {MessageId} in session {SessionId}", messageId, sessionId);
+        }
     }
 
     public async Task<SkillCheckResult> SkillCheckAsync(Guid sessionId, string skill, Guid? playerId = null, int? dc = null)

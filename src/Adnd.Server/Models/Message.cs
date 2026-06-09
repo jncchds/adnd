@@ -25,8 +25,7 @@ public class Message
     public Player? WhisperTo { get; set; }
     public string? WhisperTarget { get; set; } // "all", "player:{userId}", "group:{groupName}"
 
-    // PGVector embedding (stored as JSON text, converted by RAG service)
-    [NotMapped]
+    // PGVector embedding for semantic search
     public float[]? Embedding { get; set; }
 }
 

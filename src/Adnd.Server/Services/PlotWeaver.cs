@@ -96,17 +96,20 @@ public class PlotWeaver : IPlotWeaver
     private readonly AppDbContext _context;
     private readonly ILLMProviderRegistry _llmRegistry;
     private readonly IRAGService _ragService;
+    private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<PlotWeaver> _logger;
 
     public PlotWeaver(
         AppDbContext context,
         ILLMProviderRegistry llmRegistry,
         IRAGService ragService,
+        IEmbeddingService embeddingService,
         ILogger<PlotWeaver> logger)
     {
         _context = context;
         _llmRegistry = llmRegistry;
         _ragService = ragService;
+        _embeddingService = embeddingService;
         _logger = logger;
     }
 
@@ -217,8 +220,8 @@ public class PlotWeaver : IPlotWeaver
             if (threads == null || !threads.Any())
                 throw new InvalidOperationException("LLM returned no plot threads.");
 
-            // Generate embeddings for each thread
-            var embeddings = await GenerateEmbeddings(threads.Select(t => t.title + " " + t.description).ToList());
+            // Generate embeddings for each thread using the game's preset embedding model
+            var embeddings = await _embeddingService.GenerateEmbeddingsAsync(gameId, threads.Select(t => t.title + " " + t.description));
 
             var plotThreads = new List<PlotThread>();
             foreach (var (thread, embedding) in threads.Zip(embeddings))
@@ -501,44 +504,6 @@ Only include threads that need changes. Threads not listed keep their current va
         await _context.SaveChangesAsync();
     }
 
-    /// <summary>
-    /// Generate pgvector embeddings for a list of texts.
-    /// </summary>
-    private async Task<List<float[]>> GenerateEmbeddings(List<string> texts)
-    {
-        // Find a game with an embedding-capable preset
-        // For now, use the first game with an embedding model configured
-        var preset = await _context.LLMPresets.FirstOrDefaultAsync(p => !string.IsNullOrEmpty(p.EmbeddingModel));
-        if (preset == null)
-        {
-            _logger.LogWarning("No LLM preset with embedding model found. Skipping embeddings.");
-            return texts.Select(_ => new float[1536]).ToList(); // Fallback: random-ish vectors
-        }
-
-        var provider = GetProvider(preset);
-        if (provider == null)
-        {
-            _logger.LogWarning("LLM provider '{Provider}' not available for embeddings.", preset.ProviderType);
-            return texts.Select(_ => new float[1536]).ToList();
-        }
-
-        try
-        {
-            var results = new List<float[]>();
-            foreach (var text in texts)
-            {
-                var embedding = await provider.GetEmbeddingAsync(text);
-                results.Add(embedding);
-            }
-            return results;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to generate embeddings, using fallback vectors");
-            return texts.Select(_ => new float[1536]).ToList();
-        }
-    }
-
     // ==================== Dynamic Generation ====================
 
     public async Task<List<PlotThread>> GenerateNewThreadsAsync(Guid gameId, string context, string trigger)
@@ -613,7 +578,8 @@ Only generate threads that are genuinely new and relevant to the current game st
             if (threads == null || !threads.Any())
                 return new List<PlotThread>();
 
-            var embeddings = await GenerateEmbeddings(threads.Select(t => t.title + " " + t.description).ToList());
+            // Generate embeddings for each thread using the game's preset embedding model
+            var embeddings = await _embeddingService.GenerateEmbeddingsAsync(gameId, threads.Select(t => t.title + " " + t.description));
 
             var plotThreads = new List<PlotThread>();
             foreach (var (thread, embedding) in threads.Zip(embeddings))

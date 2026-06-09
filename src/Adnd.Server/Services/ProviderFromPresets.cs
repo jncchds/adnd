@@ -7,12 +7,16 @@ public class OllamaLLMProviderFromPreset : BaseLLMProvider
     private readonly HttpClient _httpClient;
     private readonly string _baseUrl;
     private readonly string _model;
+    private readonly string _embeddingUrl;
+    private readonly string _embeddingModel;
 
     public OllamaLLMProviderFromPreset(LLMPreset preset)
         : base(new NullLogger<OllamaLLMProviderFromPreset>(), new NullConfiguration())
     {
         _baseUrl = preset.EndpointUrl ?? "http://localhost:11434";
         _model = preset.BaseModel;
+        _embeddingUrl = preset.EmbeddingEndpointUrl ?? _baseUrl;
+        _embeddingModel = preset.EmbeddingModel ?? "nomic-embed-text";
         _httpClient = new HttpClient();
     }
 
@@ -73,8 +77,20 @@ public class OllamaLLMProviderFromPreset : BaseLLMProvider
         }
     }
 
-    public override Task<float[]> GetEmbeddingAsync(string text) =>
-        Task.FromResult(Array.Empty<float>());
+    public override async Task<float[]> GetEmbeddingAsync(string text)
+    {
+        var payload = new { model = _embeddingModel, input = text };
+        var response = await _httpClient.PostAsJsonAsync(
+            _embeddingUrl + "/api/embed", payload);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return Array.Empty<float>();
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<OllamaEmbeddingResponse>();
+        return result?.Embedding ?? Array.Empty<float>();
+    }
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
     public override Task<ProviderStatus> GetStatusAsync() =>
         Task.FromResult(new ProviderStatus { ProviderId = ProviderId, Model = _model, IsAvailable = true, CheckedAt = DateTime.UtcNow });
@@ -88,12 +104,16 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
     private readonly HttpClient _httpClient;
     private readonly string _baseUrl;
     private readonly string _model;
+    private readonly string _embeddingUrl;
+    private readonly string _embeddingModel;
 
     public LmStudioLLMProviderFromPreset(LLMPreset preset)
         : base(new NullLogger<LmStudioLLMProviderFromPreset>(), new NullConfiguration())
     {
         _baseUrl = preset.EndpointUrl ?? "http://localhost:1234";
         _model = preset.BaseModel;
+        _embeddingUrl = preset.EmbeddingEndpointUrl ?? _baseUrl;
+        _embeddingModel = preset.EmbeddingModel ?? "nomic-embed-text";
         _httpClient = new HttpClient();
         if (!string.IsNullOrEmpty(preset.ApiKey))
             _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", preset.ApiKey);
@@ -140,7 +160,8 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
             max_tokens = maxTokens,
             top_p = topP,
             frequency_penalty = options?.FrequencyPenalty,
-            presence_penalty = options?.PresencePenalty
+            presence_penalty = options?.PresencePenalty,
+            tool_choice = "none"  // Disable tool-calling for plain text responses
         };
 
         try
@@ -171,8 +192,21 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
         }
     }
 
-    public override Task<float[]> GetEmbeddingAsync(string text) =>
-        Task.FromResult(Array.Empty<float>());
+    public override async Task<float[]> GetEmbeddingAsync(string text)
+    {
+        var embeddingModel = _embeddingModel ?? "nomic-embed-text";
+        var payload = new { model = embeddingModel, input = text };
+        var response = await _httpClient.PostAsJsonAsync(
+            _embeddingUrl + "/v1/embeddings", payload);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return Array.Empty<float>();
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<OpenAIEmbeddingResponse>();
+        return result?.Data?.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
+    }
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
     public override Task<ProviderStatus> GetStatusAsync() =>
         Task.FromResult(new ProviderStatus { ProviderId = ProviderId, Model = _model, IsAvailable = true, CheckedAt = DateTime.UtcNow });
@@ -187,6 +221,8 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
     private readonly string _baseUrl;
     private readonly string _model;
     private readonly string _apiKey;
+    private readonly string _embeddingUrl;
+    private readonly string _embeddingModel;
 
     public OpenAILLMProviderFromPreset(LLMPreset preset)
         : base(new NullLogger<OpenAILLMProviderFromPreset>(), new NullConfiguration())
@@ -194,6 +230,8 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
         _baseUrl = preset.EndpointUrl ?? "https://api.openai.com/v1";
         _model = preset.BaseModel;
         _apiKey = preset.ApiKey ?? throw new InvalidOperationException("API key is required");
+        _embeddingUrl = preset.EmbeddingEndpointUrl ?? _baseUrl;
+        _embeddingModel = preset.EmbeddingModel ?? "text-embedding-3-small";
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
     }
@@ -262,8 +300,21 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
         }
     }
 
-    public override Task<float[]> GetEmbeddingAsync(string text) =>
-        Task.FromResult(Array.Empty<float>());
+    public override async Task<float[]> GetEmbeddingAsync(string text)
+    {
+        var embeddingModel = _embeddingModel ?? "text-embedding-3-small";
+        var payload = new { model = embeddingModel, input = new[] { text } };
+        var response = await _httpClient.PostAsJsonAsync(
+            _embeddingUrl + "/v1/embeddings", payload);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return Array.Empty<float>();
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<OpenAIEmbeddingResponse>();
+        return result?.Data?.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
+    }
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
     public override Task<ProviderStatus> GetStatusAsync() =>
         Task.FromResult(new ProviderStatus { ProviderId = ProviderId, Model = _model, IsAvailable = true, CheckedAt = DateTime.UtcNow });
@@ -277,12 +328,16 @@ public class GoogleAIStudioLLMProviderFromPreset : BaseLLMProvider
     private readonly HttpClient _httpClient;
     private readonly string _apiKey;
     private readonly string _model;
+    private readonly string _embeddingUrl;
+    private readonly string _embeddingModel;
 
     public GoogleAIStudioLLMProviderFromPreset(LLMPreset preset)
         : base(new NullLogger<GoogleAIStudioLLMProviderFromPreset>(), new NullConfiguration())
     {
         _apiKey = preset.ApiKey ?? throw new InvalidOperationException("API key is required");
         _model = preset.BaseModel;
+        _embeddingUrl = preset.EmbeddingEndpointUrl ?? "https://generativelanguage.googleapis.com";
+        _embeddingModel = preset.EmbeddingModel ?? "text-embedding-004";
         _httpClient = new HttpClient();
     }
 
@@ -353,8 +408,21 @@ public class GoogleAIStudioLLMProviderFromPreset : BaseLLMProvider
         }
     }
 
-    public override Task<float[]> GetEmbeddingAsync(string text) =>
-        Task.FromResult(Array.Empty<float>());
+    public override async Task<float[]> GetEmbeddingAsync(string text)
+    {
+        var embeddingModel = _embeddingModel ?? "text-embedding-004";
+        var payload = new { content = new { parts = new[] { new { text } } } };
+        var response = await _httpClient.PostAsJsonAsync(
+            $"{_embeddingUrl}/v1beta/models/{embeddingModel}:embedContent?key={_apiKey}", payload);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return Array.Empty<float>();
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<GoogleAIEmbeddingResponse>();
+        return result?.Embedding?.Values ?? Array.Empty<float>();
+    }
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
     public override Task<ProviderStatus> GetStatusAsync() =>
         Task.FromResult(new ProviderStatus { ProviderId = ProviderId, Model = _model, IsAvailable = true, CheckedAt = DateTime.UtcNow });

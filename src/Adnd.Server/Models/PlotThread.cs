@@ -37,8 +37,7 @@ public class PlotThread
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 
-    // PGVector embedding (stored as JSON text, converted by RAG service)
-    [NotMapped]
+    // PGVector embedding for semantic search
     public float[]? Embedding { get; set; }
 }
 

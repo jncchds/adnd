@@ -194,6 +194,7 @@ builder.Services.AddSingleton<ILLMProviderRegistry>(sp =>
     return registry;
 });
 builder.Services.AddScoped<IRAGService, RAGService>();
+builder.Services.AddScoped<IEmbeddingService, EmbeddingService>();
 builder.Services.AddScoped<ILLMPresetService, LLMPresetService>();
 builder.Services.AddScoped<ILLMInteractionLogger, LLMInteractionLogger>();
 

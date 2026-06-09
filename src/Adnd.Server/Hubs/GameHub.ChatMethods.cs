@@ -53,6 +53,9 @@ public partial class GameHub
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
 
+        // Generate embedding for narrative-influencing messages
+        await EmbedMessageAsync(session.GameId, message.Id, message.Content);
+
         // Publish event for game agent processing (in-game only)
         await _mediator.Publish(new MessageSent(
             session.GameId, sessionId, player.Id, content, Adnd.Server.Events.MessageType.InGamePublic, null, false));
@@ -116,6 +119,9 @@ public partial class GameHub
 
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
+
+        // Generate embedding for in-game whisper (influences GM knowledge)
+        await EmbedMessageAsync(session.GameId, message.Id, message.Content);
 
         // Create whisper record for GM targeting
         var whisper = await _whisperService.SendWhisperAsync(
@@ -439,6 +445,9 @@ public partial class GameHub
 
         _context.Messages.Add(message);
         await _context.SaveChangesAsync();
+
+        // Generate embedding for in-game whisper (influences GM knowledge)
+        await EmbedMessageAsync(gmPlayer.GameId, message.Id, message.Content);
 
         // Create whisper record
         var whisper = await _whisperService.SendGMWhisperAsync(

@@ -6,12 +6,12 @@ using System.Text.Json;
 
 namespace Adnd.Server.Data;
 
-// Value converter for PGVector float[]? <-> JSON string
+// Value converter for PGVector float[]? <-> PostgreSQL vector format
 public class VectorValueConverter : Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<float[]?, string?>
 {
     public VectorValueConverter() : base(
-        v => v == null ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-        v => string.IsNullOrEmpty(v) ? null! : JsonSerializer.Deserialize<float[]>(v) ?? Array.Empty<float>()) { }
+        v => v == null ? null : "[" + string.Join(",", v.Select(f => f.ToString(System.Globalization.CultureInfo.InvariantCulture))) + "]",
+        v => string.IsNullOrEmpty(v) || v == "[]" ? null! : v.Trim('[', ']').Split(',').Select(float.Parse).ToArray() ?? Array.Empty<float>()) { }
 }
 
 public class AppDbContext : DbContext
@@ -45,6 +45,20 @@ public class AppDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // PGVector for PlotThread embeddings
+        modelBuilder.Entity<PlotThread>()
+            .Property(p => p.Embedding)
+            .HasConversion(new VectorValueConverter())
+            .HasColumnType("vector")
+            .IsRequired(false);
+
+        // PGVector for Message embeddings
+        modelBuilder.Entity<Message>()
+            .Property(m => m.Embedding)
+            .HasConversion(new VectorValueConverter())
+            .HasColumnType("vector")
+            .IsRequired(false);
 
         // Value converter for Message Metadata (JsonElement)
         modelBuilder.Entity<Message>()

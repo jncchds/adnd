@@ -37,21 +37,35 @@ public interface IRAGService
     /// Generate a continuation suggestion for the current plot thread.
     /// </summary>
     Task<PlotContinuation> SuggestContinuationAsync(Guid plotThreadId, string currentContext);
+
+    /// <summary>
+    /// Generate and store embeddings for messages in a session.
+    /// Only generates embeddings for narrative-influencing messages (not OOC).
+    /// </summary>
+    Task EmbedMessagesAsync(Guid gameId, IEnumerable<Guid> messageIds);
+
+    /// <summary>
+    /// Generate and store an embedding for a single message.
+    /// </summary>
+    Task EmbedMessageAsync(Guid messageId, string content);
 }
 
 public class RAGService : IRAGService
 {
     private readonly AppDbContext _context;
     private readonly ILLMProviderRegistry _providerRegistry;
+    private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<RAGService> _logger;
 
     public RAGService(
         AppDbContext context,
         ILLMProviderRegistry providerRegistry,
+        IEmbeddingService embeddingService,
         ILogger<RAGService> logger)
     {
         _context = context;
         _providerRegistry = providerRegistry;
+        _embeddingService = embeddingService;
         _logger = logger;
     }
 
@@ -120,44 +134,58 @@ public class RAGService : IRAGService
 
     public async Task<List<PlotThread>> FindSimilarPlotThreadsAsync(Guid gameId, string query, int limit = 5)
     {
-        // Try vector similarity search first
+        // Generate embedding for the query using the game's preset embedding model
+        float[]? queryEmbedding = null;
         try
         {
-            using var conn = _context.Database.GetDbConnection();
-            await conn.OpenAsync();
-
-            using var cmd = new Npgsql.NpgsqlCommand(@"
-                SELECT id, title, description, status, created_at, updated_at
-                FROM plot_threads
-                WHERE game_id = @gameId
-                ORDER BY embedding <=> @query_embedding
-                LIMIT @limit", (Npgsql.NpgsqlConnection)(object)conn);
-            cmd.Parameters.AddWithValue("gameId", gameId.ToString());
-            cmd.Parameters.AddWithValue("query_embedding", query.ToArray());
-            cmd.Parameters.AddWithValue("limit", limit);
-
-            using var reader = await cmd.ExecuteReaderAsync();
-            var results = new List<PlotThread>();
-
-            while (await reader.ReadAsync())
-            {
-                results.Add(new PlotThread
-                {
-                    Id = reader.GetGuid(0),
-                    Title = reader.GetString(1),
-                    Description = reader.GetString(2),
-                    Status = (PlotThreadStatus)reader.GetInt32(3),
-                    CreatedAt = reader.GetDateTime(4),
-                    UpdatedAt = reader.IsDBNull(5) ? null : reader.GetDateTime(5)
-                });
-            }
-
-            if (results.Any())
-                return results;
+            queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(gameId, query);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Vector search failed, falling back to keyword search");
+            _logger.LogWarning(ex, "Failed to generate embedding for query in game {GameId}, falling back to keyword search", gameId);
+        }
+
+        // Try vector similarity search first
+        if (queryEmbedding != null && queryEmbedding.Length > 0)
+        {
+            try
+            {
+                using var conn = _context.Database.GetDbConnection();
+                await conn.OpenAsync();
+
+                using var cmd = new Npgsql.NpgsqlCommand(@"
+                    SELECT id, title, description, status, created_at, updated_at
+                    FROM plot_threads
+                    WHERE game_id = @gameId
+                    ORDER BY embedding <=> @query_embedding
+                    LIMIT @limit", (Npgsql.NpgsqlConnection)(object)conn);
+                cmd.Parameters.AddWithValue("gameId", gameId.ToString());
+                cmd.Parameters.AddWithValue("query_embedding", queryEmbedding);
+                cmd.Parameters.AddWithValue("limit", limit);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                var results = new List<PlotThread>();
+
+                while (await reader.ReadAsync())
+                {
+                    results.Add(new PlotThread
+                    {
+                        Id = reader.GetGuid(0),
+                        Title = reader.GetString(1),
+                        Description = reader.GetString(2),
+                        Status = (PlotThreadStatus)reader.GetInt32(3),
+                        CreatedAt = reader.GetDateTime(4),
+                        UpdatedAt = reader.IsDBNull(5) ? null : reader.GetDateTime(5)
+                    });
+                }
+
+                if (results.Any())
+                    return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Vector search failed, falling back to keyword search");
+            }
         }
 
         // Fallback: keyword search
@@ -288,10 +316,26 @@ public class RAGService : IRAGService
 
     public async Task<PlotContinuation> SuggestContinuationAsync(Guid plotThreadId, string currentContext)
     {
-        var provider = _providerRegistry.GetProvider("ollama");
-        if (provider == null)
+        // Get the game from the plot thread
+        var thread = await _context.PlotThreads.FindAsync(plotThreadId);
+        if (thread == null)
         {
-            _logger.LogWarning("No LLM provider configured for plot suggestions.");
+            _logger.LogWarning("Plot thread {PlotThreadId} not found.", plotThreadId);
+            return new PlotContinuation
+            {
+                Suggestions = new[] { "Plot thread not found." },
+                Generated = false,
+                Reason = "Plot thread not found"
+            };
+        }
+
+        var game = await _context.Games
+            .Include(g => g.LLMPreset)
+            .FirstOrDefaultAsync(g => g.Id == thread.GameId);
+
+        if (game == null || game.LLMPreset == null)
+        {
+            _logger.LogWarning("No LLM preset configured for game {GameId}.", thread.GameId);
             return new PlotContinuation
             {
                 Suggestions = new[]
@@ -302,7 +346,25 @@ public class RAGService : IRAGService
                     "Reveal a hidden detail about the current location or situation."
                 },
                 Generated = false,
-                Reason = "No LLM provider available"
+                Reason = "No LLM preset configured"
+            };
+        }
+
+        var provider = _providerRegistry.GetProvider(game.LLMPreset.ProviderType);
+        if (provider == null)
+        {
+            _logger.LogWarning("No LLM provider '{Provider}' configured for game {GameId}.", game.LLMPreset.ProviderType, thread.GameId);
+            return new PlotContinuation
+            {
+                Suggestions = new[]
+                {
+                    "Consider having the NPCs react to the players' recent actions.",
+                    "Introduce a new complication related to the current plot thread.",
+                    "Offer the players a choice between two interesting paths.",
+                    "Reveal a hidden detail about the current location or situation."
+                },
+                Generated = false,
+                Reason = $"LLM provider '{game.LLMPreset.ProviderType}' not available"
             };
         }
 
@@ -340,6 +402,62 @@ public class RAGService : IRAGService
                 Generated = false,
                 Reason = ex.Message
             };
+        }
+    }
+
+    public async Task EmbedMessagesAsync(Guid gameId, IEnumerable<Guid> messageIds)
+    {
+        var ids = messageIds.ToList();
+        if (!ids.Any())
+            return;
+
+        // Get messages that don't have embeddings yet, only narrative-influencing ones
+        var messages = await _context.Messages
+            .Where(m => ids.Contains(m.Id) && m.Embedding == null && !m.IsOOC)
+            .ToListAsync();
+
+        if (!messages.Any())
+            return;
+
+        try
+        {
+            var texts = messages.Select(m => m.Content).ToList();
+            var embeddings = await _embeddingService.GenerateEmbeddingsAsync(gameId, texts);
+
+            for (var i = 0; i < messages.Count; i++)
+            {
+                messages[i].Embedding = embeddings[i];
+            }
+
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Generated {Count} embeddings for messages in game {GameId}", messages.Count, gameId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate embeddings for {Count} messages in game {GameId}", messages.Count, gameId);
+        }
+    }
+
+    public async Task EmbedMessageAsync(Guid messageId, string content)
+    {
+        var message = await _context.Messages.FindAsync(messageId);
+        if (message == null || message.Embedding != null || message.IsOOC)
+            return;
+
+        var session = await _context.GameSessions.FindAsync(message.SessionId);
+        if (session == null)
+            return;
+
+        try
+        {
+            var embedding = await _embeddingService.GenerateEmbeddingAsync(session.GameId, content);
+            message.Embedding = embedding;
+            await _context.SaveChangesAsync();
+            _logger.LogDebug("Generated embedding for message {MessageId}", messageId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate embedding for message {MessageId}", messageId);
         }
     }
 }

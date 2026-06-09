@@ -200,6 +200,7 @@ public class GameStartService : IGameStartService
     private readonly INarrativeGenerationFactory _narrativeFactory;
     private readonly IHubContext<GameHub> _hubContext;
     private readonly IMediator _mediator;
+    private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<GameStartService> _logger;
 
     public GameStartService(
@@ -208,6 +209,7 @@ public class GameStartService : IGameStartService
         INarrativeGenerationFactory narrativeFactory,
         IHubContext<GameHub> hubContext,
         IMediator mediator,
+        IEmbeddingService embeddingService,
         ILogger<GameStartService> logger)
     {
         _context = context;
@@ -215,6 +217,7 @@ public class GameStartService : IGameStartService
         _narrativeFactory = narrativeFactory;
         _hubContext = hubContext;
         _mediator = mediator;
+        _embeddingService = embeddingService;
         _logger = logger;
     }
 
@@ -301,6 +304,18 @@ public class GameStartService : IGameStartService
             };
             _context.Messages.Add(message);
             await _context.SaveChangesAsync();
+
+            // Generate embedding for the opening narrative
+            try
+            {
+                var embedding = await _embeddingService.GenerateEmbeddingAsync(gameId, openingNarrative);
+                message.Embedding = embedding;
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to generate embedding for opening narrative in game {GameId}", gameId);
+            }
 
             await _hubContext.Clients.Group(gameId.ToString()).SendAsync("NewMessage", new
             {

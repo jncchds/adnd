@@ -698,7 +698,8 @@ namespace Adnd.Server.Data.Migrations
                     b.Property<bool>("IsOOC")
                         .HasColumnType("boolean");
 
-                    b.Property<JsonElement>("Metadata")
+                    b.Property<string>("Metadata")
+                        .IsRequired()
                         .HasColumnType("jsonb");
 
                     b.Property<Guid?>("PlayerId")
