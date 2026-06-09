@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using System.Text;
 using Adnd.Server.Data;
 using Adnd.Server.Hubs;
@@ -92,6 +94,8 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader());
 });
 
+
+
 // DB Context
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default"),
@@ -168,6 +172,9 @@ builder.Services.AddMediatR(cfg =>
 
 // Whisper Service
 builder.Services.AddScoped<IWhisperService, WhisperService>();
+
+// API Key Encryption
+builder.Services.AddScoped<IApiKeyEncryptionService, ApiKeyEncryptionService>();
 
 // LLM Providers
 builder.Services.AddHttpClient();
@@ -276,6 +283,23 @@ else
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+
+// Security Headers Middleware
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Append("X-Frame-Options", "DENY");
+    context.Response.Headers.Append("X-XSS-Protection", "1; mode=block");
+    context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+    context.Response.Headers.Append("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    context.Response.Headers.Append("Cache-Control", "no-store, no-cache, must-revalidate");
+    context.Response.Headers.Append("Pragma", "no-cache");
+    await next();
+});
+
+// Rate Limiting Middleware
+app.UseRateLimiting();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

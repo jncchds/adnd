@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 
@@ -23,11 +24,13 @@ public class LLMPresetService : ILLMPresetService
 {
     private readonly AppDbContext _context;
     private readonly ILogger<LLMPresetService> _logger;
+    private readonly IApiKeyEncryptionService _encryption;
 
-    public LLMPresetService(AppDbContext context, ILogger<LLMPresetService> logger)
+    public LLMPresetService(AppDbContext context, ILogger<LLMPresetService> logger, IApiKeyEncryptionService encryption)
     {
         _context = context;
         _logger = logger;
+        _encryption = encryption;
     }
 
     public async Task<List<LLMPreset>> GetUserPresetsAsync(Guid userId)
@@ -66,7 +69,7 @@ public class LLMPresetService : ILLMPresetService
             ProviderType = request.ProviderType,
             BaseModel = request.BaseModel,
             EndpointUrl = request.EndpointUrl,
-            ApiKey = request.ApiKey,
+            ApiKey = !string.IsNullOrEmpty(request.ApiKey) ? _encryption.Encrypt(request.ApiKey) : null,
             Temperature = request.Temperature,
             MaxTokens = request.MaxTokens,
             TopP = request.TopP,
@@ -100,7 +103,10 @@ public class LLMPresetService : ILLMPresetService
         if (request.ProviderType != null) preset.ProviderType = request.ProviderType;
         if (request.BaseModel != null) preset.BaseModel = request.BaseModel;
         if (request.EndpointUrl != null) preset.EndpointUrl = request.EndpointUrl;
-        if (request.ApiKey != null) preset.ApiKey = request.ApiKey;
+        if (request.ApiKey != null)
+        {
+            preset.ApiKey = !string.IsNullOrEmpty(request.ApiKey) ? _encryption.Encrypt(request.ApiKey) : null;
+        }
         if (request.Temperature.HasValue) preset.Temperature = request.Temperature.Value;
         if (request.MaxTokens.HasValue) preset.MaxTokens = request.MaxTokens.Value;
         if (request.TopP.HasValue) preset.TopP = request.TopP.Value;
@@ -303,6 +309,20 @@ public class LLMPresetService : ILLMPresetService
 
     private ILLMProvider CreateProviderFromPreset(LLMPreset preset)
     {
+        // Decrypt the API key and store it in the transient property
+        if (!string.IsNullOrEmpty(preset.ApiKey))
+        {
+            try
+            {
+                preset.DecryptedApiKey = _encryption.Decrypt(preset.ApiKey);
+            }
+            catch (CryptographicException ex)
+            {
+                _logger.LogError(ex, "Failed to decrypt API key for preset '{PresetName}'", preset.Name);
+                throw new InvalidOperationException($"Unable to decrypt API key for preset '{preset.Name}'. Verify the encryption key is correct.");
+            }
+        }
+
         return preset.ProviderType switch
         {
             "ollama" => new OllamaLLMProviderFromPreset(preset),

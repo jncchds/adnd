@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json;
 
 namespace Adnd.Server.Models;
@@ -35,6 +36,10 @@ public class LLMPreset
     public JsonElement? ExtraParams { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
+
+    // Transient: decrypted API key (not persisted)
+    [NotMapped]
+    public string? DecryptedApiKey { get; set; }
 
     // Navigation
     public User? User { get; set; }

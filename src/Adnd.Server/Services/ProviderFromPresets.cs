@@ -115,8 +115,9 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
         _embeddingUrl = preset.EmbeddingEndpointUrl ?? _baseUrl;
         _embeddingModel = preset.EmbeddingModel ?? "nomic-embed-text";
         _httpClient = new HttpClient();
-        if (!string.IsNullOrEmpty(preset.ApiKey))
-            _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", preset.ApiKey);
+        var apiKey = preset.DecryptedApiKey ?? preset.ApiKey;
+        if (!string.IsNullOrEmpty(apiKey))
+            _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
     }
 
     public override string ProviderId => "lmstudio";
@@ -229,7 +230,7 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
     {
         _baseUrl = preset.EndpointUrl ?? "https://api.openai.com/v1";
         _model = preset.BaseModel;
-        _apiKey = preset.ApiKey ?? throw new InvalidOperationException("API key is required");
+        _apiKey = preset.DecryptedApiKey ?? preset.ApiKey ?? throw new InvalidOperationException("API key is required");
         _embeddingUrl = preset.EmbeddingEndpointUrl ?? _baseUrl;
         _embeddingModel = preset.EmbeddingModel ?? "text-embedding-3-small";
         _httpClient = new HttpClient();
@@ -334,7 +335,7 @@ public class GoogleAIStudioLLMProviderFromPreset : BaseLLMProvider
     public GoogleAIStudioLLMProviderFromPreset(LLMPreset preset)
         : base(new NullLogger<GoogleAIStudioLLMProviderFromPreset>(), new NullConfiguration())
     {
-        _apiKey = preset.ApiKey ?? throw new InvalidOperationException("API key is required");
+        _apiKey = preset.DecryptedApiKey ?? preset.ApiKey ?? throw new InvalidOperationException("API key is required");
         _model = preset.BaseModel;
         _embeddingUrl = preset.EmbeddingEndpointUrl ?? "https://generativelanguage.googleapis.com";
         _embeddingModel = preset.EmbeddingModel ?? "text-embedding-004";
