@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -8,6 +9,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Configuration;
+using System.Net;
 using System.Text;
 using Adnd.Server.Data;
 using Adnd.Server.Hubs;
@@ -228,6 +231,82 @@ builder.Services.AddHostedService<PlayerDisconnectDetector>(sp => new PlayerDisc
     timeout: TimeSpan.FromSeconds(60)
 ));
 
+// Rate limiting configuration (bound from app settings)
+builder.Services.AddRateLimitingOptions();
+
+// Bind rate limiting config with comma-separated list support for docker-compose
+var rateLimitingSection = builder.Configuration.GetSection("RateLimiting");
+if (rateLimitingSection.Exists())
+{
+    builder.Services.Configure<RateLimitingOptions>(options =>
+    {
+        options.UseForwardedHeaders = rateLimitingSection.GetValue<bool>("UseForwardedHeaders", options.UseForwardedHeaders);
+        options.TrustAllProxies = rateLimitingSection.GetValue<bool>("TrustAllProxies", options.TrustAllProxies);
+        options.GlobalLimit = rateLimitingSection.GetValue<int>("GlobalLimit", options.GlobalLimit);
+        options.GlobalWindowMinutes = rateLimitingSection.GetValue<int>("GlobalWindowMinutes", options.GlobalWindowMinutes);
+        options.AuthLimit = rateLimitingSection.GetValue<int>("AuthLimit", options.AuthLimit);
+        options.AuthWindowMinutes = rateLimitingSection.GetValue<int>("AuthWindowMinutes", options.AuthWindowMinutes);
+        options.LlmPresetLimit = rateLimitingSection.GetValue<int>("LlmPresetLimit", options.LlmPresetLimit);
+        options.LlmPresetWindowMinutes = rateLimitingSection.GetValue<int>("LlmPresetWindowMinutes", options.LlmPresetWindowMinutes);
+
+        // Parse trusted proxies — supports both array indices and comma-separated
+        var trustedProxiesRaw = rateLimitingSection["TrustedProxies"];
+        if (!string.IsNullOrEmpty(trustedProxiesRaw))
+        {
+            options.TrustedProxies = trustedProxiesRaw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
+        }
+        else
+        {
+            // Try array indices format: TrustedProxies__0, TrustedProxies__1, etc.
+            var proxyIndex = 0;
+            while (true)
+            {
+                var proxy = rateLimitingSection[$"TrustedProxies__{proxyIndex}"];
+                if (string.IsNullOrEmpty(proxy)) break;
+                options.TrustedProxies.Add(proxy.Trim());
+                proxyIndex++;
+            }
+        }
+    });
+}
+
+// Forwarded headers for reverse proxy support (nginx, Caddy, etc.)
+// This reads X-Forwarded-For / X-Real-IP headers to get the real client IP
+// In Docker Compose, proxy IPs are dynamic — use TrustAllProxies to trust all
+var rateLimitingConfig = builder.Configuration.GetSection("RateLimiting");
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.RequireHeaderSymmetry = false;
+
+    // Trust all networks when TrustAllProxies is true (Docker Compose, k8s, etc.)
+    // Otherwise, only trust the specific proxies in the config
+    if (rateLimitingConfig.GetValue<bool>("TrustAllProxies", false))
+    {
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+    }
+    else if (rateLimitingConfig.Exists())
+    {
+        // Parse trusted proxies from config
+        var trustedProxiesRaw = rateLimitingConfig["TrustedProxies"];
+        if (!string.IsNullOrEmpty(trustedProxiesRaw))
+        {
+            foreach (var proxy in trustedProxiesRaw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (IPAddress.TryParse(proxy, out var ip))
+                {
+                    options.KnownProxies.Add(ip);
+                }
+                else if (System.Net.IPNetwork.TryParse(proxy, out var network))
+                {
+                    options.KnownIPNetworks.Add(network);
+                }
+            }
+        }
+    }
+});
+
 var app = builder.Build();
 
 // Apply migrations on startup
@@ -276,7 +355,10 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// Rate Limiting Middleware
+// Forwarded Headers — MUST be before rate limiting so the real client IP is available
+app.ConfigureForwardedHeaders();
+
+// Rate Limiting Middleware — uses real client IP (respecting reverse proxy headers)
 app.UseRateLimiting();
 
 app.UseAuthentication();

@@ -37,6 +37,14 @@ services:
       - Resilience__MaxRetries=${RESILIENCE_MAX_RETRIES:-3}
       - Resilience__FailureThreshold=${RESILIENCE_FAILURE_THRESHOLD:-5}
       - Resilience__HalfOpenAfterSec=${RESILIENCE_HALF_OPEN_AFTER_SEC:-30}
+      # Rate limiting settings
+      - RateLimiting__UseForwardedHeaders=${RATE_LIMITING_USE_FORWARDED_HEADERS:-true}
+      - RateLimiting__TrustAllProxies=${RATE_LIMITING_TRUST_ALL_PROXIES:-true}
+      - RateLimiting__GlobalLimit=${RATE_LIMITING_GLOBAL_LIMIT:-100}
+      - RateLimiting__GlobalWindowMinutes=${RATE_LIMITING_GLOBAL_WINDOW:-1}
+      - RateLimiting__AuthLimit=${RATE_LIMITING_AUTH_LIMIT:-10}
+      - RateLimiting__AuthWindowMinutes=${RATE_LIMITING_AUTH_WINDOW:-1}
+      - RateLimiting__LlmPresetLimit=${RATE_LIMITING_LLM_PRESET_LIMIT:-30}
     depends_on:
       postgres:
         condition: service_healthy
