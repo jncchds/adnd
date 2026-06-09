@@ -22,7 +22,7 @@ import {
 } from '@mui/material';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { Send as SendIcon, SportsEsports as DiceIcon,
-  Replay as ReplayIcon, ExitToApp as LeaveIcon } from '@mui/icons-material';
+  Replay as ReplayIcon, ExitToApp as LeaveIcon, People as PeopleIcon } from '@mui/icons-material';
 
 // ==================== Markdown Support ====================
 
@@ -1255,6 +1255,7 @@ export default function GameRoomPage() {
               activeSession={activeSession}
               isCreator={players.some((p: any) => p.role === 'Creator')}
               isMobile={isMobile}
+              onOpenCharacter={() => setShowCharacterWizard(true)}
             />
           )}
 
@@ -1271,6 +1272,7 @@ export default function GameRoomPage() {
               game={game}
               sessions={sessions}
               onNewSession={() => setCreateSessionOpen(true)}
+              onOpenCharacterWizard={() => setShowCharacterWizard(true)}
               isCreator={isCreator}
               gameId={id}
               onTriggerNarrate={handleTriggerNarrate}
@@ -1410,6 +1412,7 @@ interface UnifiedChatPanelProps {
   activeSession: any;
   isCreator: boolean;
   isMobile: boolean;
+  onOpenCharacter: () => void;
 }
 
 function UnifiedChatPanel({
@@ -1417,7 +1420,8 @@ function UnifiedChatPanel({
   inputType, setInputType, inputTarget, setInputTarget,
   whisperTargetPlayer, setWhisperTargetPlayer, whisperInput, setWhisperInput,
   onSend, onDiceRoll, onSkillCheck, showDiceHistory, setShowDiceHistory: _setShowDiceHistory,
-  messagesEndRef, players, isConnected: _isConnected, activeSession, isCreator, isMobile
+  messagesEndRef, players, isConnected: _isConnected, activeSession, isCreator, isMobile,
+  onOpenCharacter
 }: UnifiedChatPanelProps) {
   const [quickSkill, setQuickSkill] = useState('Perception');
   const [quickDC, setQuickDC] = useState(15);
@@ -1515,6 +1519,7 @@ function UnifiedChatPanel({
 
         {/* Quick Actions */}
         <Chip label="🎲 Dice" size="small" clickable onClick={onDiceRoll} sx={{ fontSize: 11 }} />
+        <Chip label="📝 Character" size="small" clickable onClick={onOpenCharacter} sx={{ fontSize: 11 }} />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <TextField
             size="small"
@@ -1608,6 +1613,7 @@ function UnifiedChatPanel({
 
         {/* Quick Actions */}
         <Chip label="🎲 Dice" size="small" clickable onClick={onDiceRoll} sx={{ fontSize: 11 }} />
+        <Chip label="📝 Character" size="small" clickable onClick={onOpenCharacter} sx={{ fontSize: 11 }} />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <TextField
             size="small"
@@ -1950,7 +1956,7 @@ function MessageBubble({ msg }: { msg: UnifiedMessage }) {
 // Note: Players, Characters, Actions, Dice History, Combat Log, GM Tools, and Agent Calls
 // are all visible in the unified chat above. No separate tabs needed.
 
-function SettingsTab({ game, sessions, onNewSession, isCreator, gameId, onTriggerNarrate, onTriggerSuggest, onTriggerConsistency, onTriggerReview }: any) {
+function SettingsTab({ game, sessions, onNewSession, onOpenCharacterWizard, isCreator, gameId, onTriggerNarrate, onTriggerSuggest, onTriggerConsistency, onTriggerReview }: any) {
   const navigate = useNavigate();
   const [language, setLanguage] = useState(game.language || 'English');
   const [saving, setSaving] = useState(false);
@@ -1978,6 +1984,23 @@ function SettingsTab({ game, sessions, onNewSession, isCreator, gameId, onTrigge
         <Typography variant="body2">Status: {game.status}</Typography>
         <Typography variant="body2">Created: {new Date(game.createdAt).toLocaleDateString()}</Typography>
       </Box>
+
+      {/* Character Creation */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="subtitle1" gutterBottom>📝 Character</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Create and manage your in-game character. You can edit it later from the admin panel.
+        </Typography>
+        <Button
+          variant="outlined"
+          onClick={onOpenCharacterWizard}
+          startIcon={<PeopleIcon />}
+        >
+          Create New Character
+        </Button>
+      </Box>
+
+      <Divider sx={{ my: 2 }} />
 
       {isCreator && (
         <>
