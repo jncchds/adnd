@@ -48,7 +48,12 @@ src/
 │   │   ├── GameAuthorizationService.cs   # Role-based game access checks
 │   │   ├── DiceEngine.cs                 # Dice formula parsing & resolution
 │   │   ├── SystemRegistry.cs             # RPG system definitions (dnd5e, pf2e, coc7e, custom)
-│   │   ├── LLMProvider.cs                # Pluggable LLM interface + implementations
+│   │   ├── LLMProvider.cs                # ILLMProvider interface + BaseLLMProvider + registry
+│   │   ├── OllamaLLMProvider.cs          # Ollama provider
+│   │   ├── LmStudioLLMProvider.cs        # LM Studio (OpenAI-compatible) provider
+│   │   ├── OpenAILLMProvider.cs          # OpenAI provider
+│   │   ├── GoogleAIStudioLLMProvider.cs  # Google AI Studio provider
+│   │   ├── ProviderFromPresets.cs        # Preset-based provider wrappers
 │   │   ├── LLMInteractionLogger.cs       # Logs LLM calls to DB
 │   │   ├── LLMPresetService.cs           # LLM preset CRUD
 │   │   ├── RAGService.cs                 # Embedding search, plot consistency, summaries
@@ -57,7 +62,13 @@ src/
 │   │   ├── CombatService.cs              # Initiative, attacks, combat state
 │   │   ├── UserIdProvider.cs             # Current user from JWT
 │   │   ├── IGameAgent.cs                 # IGameAgent + IGameAgentManager interfaces
-│   │   └── PlotWeaver.cs                 # Dynamic plot generation
+│   │   ├── PlotWeaver.cs                 # Orchestrator (280 lines)
+│   │   ├── IPlotWeaver.cs                # IPlotWeaver interface
+│   │   ├── PlotThreadGenerationStrategy.cs
+│   │   ├── PlotThreadAdaptation.cs
+│   │   ├── PlotMilestoneSpawning.cs
+│   │   ├── PlotOpportunityDetection.cs
+│   │   ├── PlotSharedTypes.cs
 │   └── Program.cs            # DI, auth, Swagger, CORS, SPA, MediatR, GameAgent recovery
 └── Adnd.Client/              # Frontend (React 19 + TS + MUI)
     ├── src/
@@ -139,9 +150,19 @@ src/
 | `src/Adnd.Server/Data/AppDbContext.cs` | All EF entities and relationships |
 | `src/Adnd.Server/Services/GameEngine.cs` | Core game logic — understand this first |
 | `src/Adnd.Server/Services/AgentBus.cs` | Agentic framework — agent registration and dispatch |
-| `src/Adnd.Server/Services/LLMProvider.cs` | LLM provider interface and base |
+| `src/Adnd.Server/Services/LLMProvider.cs` | ILLMProvider interface + BaseLLMProvider + registry |
+| `src/Adnd.Server/Services/OllamaLLMProvider.cs` | Ollama provider |
+| `src/Adnd.Server/Services/LmStudioLLMProvider.cs` | LM Studio provider |
+| `src/Adnd.Server/Services/OpenAILLMProvider.cs` | OpenAI provider |
+| `src/Adnd.Server/Services/GoogleAIStudioLLMProvider.cs` | Google AI Studio provider |
 | `src/Adnd.Server/Services/RAGService.cs` | Embedding search, plot consistency |
-| `src/Adnd.Server/Services/PlotWeaver.cs` | Dynamic plot generation |
+| `src/Adnd.Server/Services/PlotWeaver.cs` | Orchestrator (280 lines) |
+| `src/Adnd.Server/Services/IPlotWeaver.cs` | IPlotWeaver interface |
+| `src/Adnd.Server/Services/PlotThreadGenerationStrategy.cs` | Thread generation strategies |
+| `src/Adnd.Server/Services/PlotThreadAdaptation.cs` | Thread adaptation strategy |
+| `src/Adnd.Server/Services/PlotMilestoneSpawning.cs` | Milestone spawning strategy |
+| `src/Adnd.Server/Services/PlotOpportunityDetection.cs` | Opportunity detection strategy |
+| `src/Adnd.Server/Services/PlotSharedTypes.cs` | Shared types (StoryOpportunity, etc.) |
 | `src/Adnd.Server/Services/IGameAgent.cs` | IGameAgent + IGameAgentManager interfaces |
 | `src/Adnd.Server/Agent/GameAgent.cs` | GameAgent (per-game) + GameAgentManager (singleton) |
 | `src/Adnd.Server/Events/GameEvents.cs` | 25+ MediatR event types |

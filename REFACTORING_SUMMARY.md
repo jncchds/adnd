@@ -249,10 +249,28 @@ public class GamesController : ControllerBase
 
 ### Medium Priority
 1. **`GameHub`** (19 partial files, 2,838 lines) — Already split by concern; good as-is
-2. **`LLMProvider.cs`** (300+ lines) — Extract provider implementations to separate files
-3. **`PlotWeaver.cs`** — Extract thread generation strategies
-4. **`RAGService.cs`** — Extract embedding strategies
-5. **`GMToolRegistry.cs`** (737 lines) — Extract tool registration strategies
+2. **`PlotWeaver.cs`** — Extract thread generation strategies
+3. **`RAGService.cs`** — Extract embedding strategies
+4. **`GMToolRegistry.cs`** (737 lines) — Extract tool registration strategies
+
+### Done ✅
+- **`LLMProvider.cs`** (1,143 lines → 4 files + slimmed core):
+  - `LLMProvider.cs` → 300 lines (interfaces + `BaseLLMProvider` + registry)
+  - `OllamaLLMProvider.cs` → 170 lines
+  - `LmStudioLLMProvider.cs` → 180 lines
+  - `OpenAILLMProvider.cs` → 180 lines
+  - `GoogleAIStudioLLMProvider.cs` → 200 lines
+  - `ProviderFromPresets.cs` → 431 lines (already separate)
+
+- **`PlotWeaver.cs`** (899 lines → 5 files + slimmed core):
+  - `IPlotWeaver.cs` → 80 lines (interface only)
+  - `PlotWeaver.cs` → 280 lines (orchestrator)
+  - `PlotThreadGenerationStrategy.cs` → 200 lines (initial + dynamic generation)
+  - `PlotThreadAdaptation.cs` → 160 lines (review and adapt)
+  - `PlotMilestoneSpawning.cs` → 120 lines (milestone spawning)
+  - `PlotOpportunityDetection.cs` → 120 lines (opportunity detection)
+  - `PlotSharedTypes.cs` → 30 lines (StoryOpportunity, OpportunityType)
+  - DTOs moved to their respective strategy files
 
 ---
 
