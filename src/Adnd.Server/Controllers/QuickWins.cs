@@ -117,7 +117,8 @@ public partial class AdminController
         Guid sessionId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
-        [FromQuery] MessageType? type = null)
+        [FromQuery] MessageType? type = null,
+        [FromQuery] Guid? anchorId = null)
     {
         if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId()))
             return Forbid();
@@ -130,11 +131,25 @@ public partial class AdminController
         if (type.HasValue)
             query = query.Where(m => m.Type == type.Value);
 
+        // Cursor-based pagination: anchorId fetches messages older than the anchor
+        if (anchorId.HasValue)
+        {
+            var anchor = await _context.Messages.FindAsync(anchorId.Value);
+            if (anchor != null)
+            {
+                query = query.Where(m => m.CreatedAt < anchor.CreatedAt || (m.CreatedAt == anchor.CreatedAt && m.Id != anchor.Id));
+            }
+            else
+            {
+                // Anchor not found - return empty by adding a false condition
+                query = query.Where(m => false);
+            }
+        }
+
         var ordered = query.OrderByDescending(m => m.CreatedAt);
         var total = await ordered.CountAsync();
         var messages = await ordered
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+            .Take(pageSize + 1)  // fetch one extra to detect hasMore
             .Select(m => new
             {
                 m.Id,
@@ -149,6 +164,10 @@ public partial class AdminController
             })
             .ToListAsync();
 
+        var hasMore = messages.Count > pageSize;
+        if (hasMore)
+            messages = messages.Take(pageSize).ToList();
+
         return Ok(new
         {
             gameId,
@@ -157,6 +176,7 @@ public partial class AdminController
             pageSize,
             total,
             totalPages = (int)Math.Ceiling((double)total / pageSize),
+            hasMore,
             messages
         });
     }

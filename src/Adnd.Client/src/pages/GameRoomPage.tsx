@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
 import { useGame, useSessions, usePlayers, useCharacters, useGMStatus, useSway } from '../api/gameHooks';
 import { useGameHub } from '../api/hubHook';
 import { useToolCalls } from '../api/toolCallsHook';
+import { useMessagesInfiniteScroll, UnifiedMessage, UnifiedMessageType } from '../api/gameToolsHook';
 import { api } from '../api/client';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
 import CombatTab from './CombatTab';
@@ -26,46 +27,6 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import { Send as SendIcon, SportsEsports as DiceIcon,
   People as PeopleIcon, Replay as ReplayIcon, ExitToApp as LeaveIcon,
   Article as SheetIcon } from '@mui/icons-material';
-
-// ==================== Unified Message Types ====================
-
-type UnifiedMessageType =
-  | 'inGamePublic'   // In-game public (narrative)
-  | 'inGameWhisper'  // In-game whisper (GM knowledge / divination)
-  | 'oocPublic'      // OOC public
-  | 'oocWhisper'     // OOC whisper
-  | 'dice'           // Dice roll
-  | 'skillCheck'     // Skill check result
-  | 'attack'         // Attack result
-  | 'system'         // System notification (join/leave, etc.)
-  | 'agentCall'      // Agent call log
-  | 'agentResponse'; // Agent response
-
-interface UnifiedMessage {
-  id: string | number;
-  type: UnifiedMessageType;
-  content: string;
-  senderName: string;
-  senderRole: string;
-  timestamp: string;
-  isSystem?: boolean;
-  isWhisper?: boolean;
-  whisperTo?: string;
-  diceFormula?: string;
-  diceTotal?: number;
-  diceRolls?: number[];
-  skill?: string;
-  skillDC?: number;
-  skillResult?: string;
-  attackWeapon?: string;
-  attackTarget?: string;
-  attackHit?: boolean;
-  attackDamage?: number;
-  agentFrom?: string;
-  agentAction?: string;
-  agentStatus?: string;
-  extra?: React.ReactNode;
-}
 
 // ==================== Markdown Support ====================
 
@@ -154,7 +115,7 @@ export default function GameRoomPage() {
   const [rollOptional, setRollOptional] = useState(false);
 
   // Unified chat state
-  const [messages, setMessages] = useState<UnifiedMessage[]>([]);
+  const { messages, isLoadingMore, hasMore, loadInitial, loadMoreOldest, addMessage, updateMessage } = useMessagesInfiniteScroll(id, selectedSession || undefined);
   const [inputType, setInputType] = useState<MessageInputType>('inGame');
   const [inputTarget, setInputTarget] = useState<MessageTarget>('all');
   const [whisperTargetPlayer, setWhisperTargetPlayer] = useState<string | null>(null);
@@ -189,36 +150,43 @@ export default function GameRoomPage() {
     }
   }, [sessions, selectedSession]);
 
+  // Load initial messages when session changes
+  useEffect(() => {
+    if (id && selectedSession) {
+      loadInitial();
+    }
+  }, [id, selectedSession, loadInitial]);
+
   // Listen for incoming messages — all funnel into unified chat
   useEffect(() => {
     if (!isConnected) return;
 
     on('NewMessage', (msg: any) => {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: msg.Id,
         type: 'inGamePublic',
         content: msg.Content,
         senderName: msg.PlayerId ? 'Player' : 'AI-GM',
         senderRole: msg.PlayerId ? 'Player' : 'GM',
         timestamp: msg.CreatedAt,
-      }]);
+      });
     });
 
     on('NewOOCMessage', (msg: any) => {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `ooc-${msg.Id}`,
         type: 'oocPublic',
         content: msg.Content,
         senderName: msg.PlayerId ? 'Player' : 'AI-GM',
         senderRole: msg.PlayerId ? 'Player' : 'GM',
         timestamp: msg.CreatedAt,
-      }]);
+      });
     });
 
     on('NewWhisper', (whisper: any) => {
       const isInGame = whisper.Type === WhisperType.InGamePlayerToGM ||
                        whisper.Type === WhisperType.InGameGMToPlayer;
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `whisper-${whisper.Id}`,
         type: isInGame ? 'inGameWhisper' : 'oocWhisper',
         content: whisper.Content,
@@ -227,11 +195,11 @@ export default function GameRoomPage() {
         timestamp: whisper.CreatedAt,
         isWhisper: true,
         whisperTo: whisper.Targets === 'gm' ? 'GM' : whisper.Targets,
-      }]);
+      });
     });
 
     on('NewOOCWhisper', (whisper: any) => {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `ooc-whisper-${whisper.Id}`,
         type: 'oocWhisper',
         content: whisper.Content,
@@ -240,11 +208,11 @@ export default function GameRoomPage() {
         timestamp: whisper.CreatedAt,
         isWhisper: true,
         whisperTo: whisper.Targets === 'gm' ? 'GM' : whisper.Targets,
-      }]);
+      });
     });
 
     on('DiceRollResult', (result: any) => {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `dice-${Date.now()}`,
         type: 'dice',
         content: `${result.Formula} → ${result.Total}`,
@@ -255,7 +223,7 @@ export default function GameRoomPage() {
         diceFormula: result.Formula,
         diceTotal: result.Total,
         diceRolls: result.Rolls,
-      }]);
+      });
       setShowDiceHistory(true);
     });
 
@@ -268,7 +236,7 @@ export default function GameRoomPage() {
     });
 
     on('SkillCheckResult', (result: any) => {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `skill-${Date.now()}`,
         type: 'skillCheck',
         content: `${result.Skill}: d20(${result.DiceRoll})+${result.Modifier}=${result.Total} vs DC ${result.DC} → ${result.Success ? '✓ SUCCESS' : '✗ FAILURE'}`,
@@ -279,11 +247,11 @@ export default function GameRoomPage() {
         skill: result.Skill,
         skillDC: result.DC,
         skillResult: result.Success ? 'success' : 'failure',
-      }]);
+      });
     });
 
     on('AttackResult', (result: any) => {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `attack-${Date.now()}`,
         type: 'attack',
         content: `${result.Weapon} vs ${result.Target}: ${result.Hit ? `HIT! ${result.DamageTotal} damage` : 'MISS'}`,
@@ -295,7 +263,7 @@ export default function GameRoomPage() {
         attackTarget: result.Target,
         attackHit: result.Hit,
         attackDamage: result.DamageTotal,
-      }]);
+      });
     });
 
     on('Error', (err: any) => {
@@ -303,7 +271,7 @@ export default function GameRoomPage() {
     });
 
     on('AgentCallStarted', (call: any) => {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `agent-start-${call.Id}`,
         type: 'agentCall',
         content: `${getAgentLabel(call.FromAgent)} → ${getAgentLabel(call.ToAgent)}: ${getActionLabel(call.Action)}`,
@@ -314,18 +282,18 @@ export default function GameRoomPage() {
         agentFrom: getAgentLabel(call.FromAgent),
         agentAction: getActionLabel(call.Action),
         agentStatus: 'Running',
-      }]);
+      });
     });
 
     on('AgentCallCompleted', (call: any) => {
       // Update the running agent call message
-      setMessages(prev => prev.map(m =>
-        m.id === `agent-start-${call.Id}`
-          ? { ...m, agentStatus: call.Status, content: `${m.content} → ${call.Status}` }
-          : m
-      ));
+      updateMessage(`agent-start-${call.Id}`, m => ({
+        ...m,
+        agentStatus: call.Status,
+        content: `${m.content} → ${call.Status}`,
+      }));
       // Also add a completion message
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `agent-end-${call.Id}`,
         type: 'agentResponse',
         content: call.OutputMessage || call.Output || call.Status,
@@ -336,13 +304,13 @@ export default function GameRoomPage() {
         agentFrom: getAgentLabel(call.ToAgent),
         agentAction: getActionLabel(call.Action),
         agentStatus: call.Status,
-      }]);
+      });
     });
 
     // ==================== Tool Call Events ====================
 
     on('ToolCallNotification', (event: any) => {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `tool-notif-${event.toolCallId}`,
         type: 'agentCall',
         content: `🔧 ${event.toolName}: ${event.outputMessage}`,
@@ -353,7 +321,7 @@ export default function GameRoomPage() {
         agentFrom: '🤖 AI-GM',
         agentAction: event.toolName,
         agentStatus: event.requiresConfirmation ? 'Waiting' : 'Running',
-      }]);
+      });
       refetchToolCalls();
     });
 
@@ -361,7 +329,7 @@ export default function GameRoomPage() {
       if (event.approved) {
         // Tool was approved — add result as narrative message
         if (event.outputMessage) {
-          setMessages(prev => [...prev, {
+          addMessage({
             id: `tool-confirm-${event.toolCallId}`,
             type: 'agentResponse',
             content: `✅ ${event.outputMessage}`,
@@ -372,26 +340,26 @@ export default function GameRoomPage() {
             agentFrom: '🤖 AI-GM',
             agentAction: event.toolName,
             agentStatus: 'Completed',
-          }]);
+          });
         }
         // If this was a narration, also post narrative to chat
         if (event.toolName === 'narrate' && event.result) {
           try {
             const parsed = JSON.parse(event.result as string);
             if (parsed.context) {
-              setMessages(prev => [...prev, {
+              addMessage({
                 id: `narrative-${Date.now()}`,
                 type: 'inGamePublic',
                 content: parsed.context,
                 senderName: '🤖 AI-GM',
                 senderRole: 'GM',
                 timestamp: new Date().toISOString(),
-              }]);
+              });
             }
           } catch { /* ignore parse errors */ }
         }
       } else {
-        setMessages(prev => [...prev, {
+        addMessage({
           id: `tool-denied-${event.toolCallId}`,
           type: 'system',
           content: `❌ ${event.toolName} denied by GM`,
@@ -399,7 +367,7 @@ export default function GameRoomPage() {
           senderRole: 'System',
           timestamp: new Date().toISOString(),
           isSystem: true,
-        }]);
+        });
       }
       refetchToolCalls();
     });
@@ -415,7 +383,7 @@ export default function GameRoomPage() {
     });
 
     on('PlayerRollConfirmed', (event: any) => {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `roll-confirm-${event.toolCallId}`,
         type: 'skillCheck',
         content: `${event.playerName} confirmed roll: ${event.formula} vs DC ${event.dc} (${event.skill})`,
@@ -426,11 +394,11 @@ export default function GameRoomPage() {
         skill: event.skill,
         skillDC: event.dc,
         skillResult: 'pending',
-      }]);
+      });
     });
 
     on('PlayerRollDeclined', (event: any) => {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `roll-declined-${event.toolCallId}`,
         type: 'system',
         content: `${event.playerName} declined to roll ${event.skill}`,
@@ -438,7 +406,7 @@ export default function GameRoomPage() {
         senderRole: 'System',
         timestamp: new Date().toISOString(),
         isSystem: true,
-      }]);
+      });
       refetchToolCalls();
     });
 
@@ -515,7 +483,7 @@ export default function GameRoomPage() {
           agentAction: getActionLabel(call.Action),
           agentStatus: call.Status,
         }));
-        setMessages(prev => [...prev, ...agentMsgs]);
+        agentMsgs.forEach(m => addMessage(m));
       }
     } catch (e) {
       // ignore
@@ -526,7 +494,7 @@ export default function GameRoomPage() {
     if (!selectedSession) return;
     try {
       const result = await invoke('RollDice', selectedSession, diceFormula, user?.id);
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `dice-${Date.now()}`,
         type: 'dice',
         content: `${result.Formula} → ${result.Total}`,
@@ -537,7 +505,7 @@ export default function GameRoomPage() {
         diceFormula: result.Formula,
         diceTotal: result.Total,
         diceRolls: result.Rolls,
-      }]);
+      });
       setShowDiceHistory(true);
       setOpenDiceDialog(false);
     } catch (e: any) {
@@ -630,7 +598,7 @@ export default function GameRoomPage() {
   const handleConfirmToolCall = async (toolCallId: string, approved: boolean) => {
     const result = await confirmToolCall(toolCallId, approved);
     if (result && approved && result.outputMessage) {
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `tool-result-${toolCallId}`,
         type: 'agentResponse',
         content: `✅ ${result.outputMessage}`,
@@ -641,7 +609,7 @@ export default function GameRoomPage() {
         agentFrom: '🤖 AI-GM',
         agentAction: 'Tool',
         agentStatus: 'Completed',
-      }]);
+      });
     }
   };
 
@@ -670,7 +638,7 @@ export default function GameRoomPage() {
     if (!selectedSession) return;
     try {
       const result = await invoke('RollDice', selectedSession, formula, user?.id);
-      setMessages(prev => [...prev, {
+      addMessage({
         id: `dice-${Date.now()}`,
         type: 'dice',
         content: `${result.Formula} → ${result.Total}`,
@@ -681,7 +649,7 @@ export default function GameRoomPage() {
         diceFormula: result.Formula,
         diceTotal: result.Total,
         diceRolls: result.Rolls,
-      }]);
+      });
       setShowDiceHistory(true);
       setShowRollDialog(false);
     } catch (e: any) {
@@ -906,6 +874,9 @@ export default function GameRoomPage() {
           {hash === 'chat' && (
             <UnifiedChatPanel
               messages={messages}
+              isLoadingMore={isLoadingMore}
+              hasMore={hasMore}
+              loadMoreOldest={loadMoreOldest}
               inputType={inputType}
               setInputType={setInputType}
               inputTarget={inputTarget}
@@ -1085,6 +1056,9 @@ function getActionLabel(action: number): string {
 
 interface UnifiedChatPanelProps {
   messages: UnifiedMessage[];
+  isLoadingMore: boolean;
+  hasMore: boolean;
+  loadMoreOldest: () => void;
   inputType: MessageInputType;
   setInputType: (t: MessageInputType) => void;
   inputTarget: MessageTarget;
@@ -1107,13 +1081,25 @@ interface UnifiedChatPanelProps {
 }
 
 function UnifiedChatPanel({
-  messages, inputType, setInputType, inputTarget, setInputTarget,
+  messages, isLoadingMore, hasMore, loadMoreOldest,
+  inputType, setInputType, inputTarget, setInputTarget,
   whisperTargetPlayer, setWhisperTargetPlayer, whisperInput, setWhisperInput,
   onSend, onDiceRoll, onSkillCheck, showDiceHistory, setShowDiceHistory: _setShowDiceHistory,
   messagesEndRef, players, isConnected: _isConnected, activeSession, isCreator, isMobile
 }: UnifiedChatPanelProps) {
   const [quickSkill, setQuickSkill] = useState('Perception');
   const [quickDC, setQuickDC] = useState(15);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll detection: load older messages when scrolling to the top
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    // Within 100px of the top, load more
+    if (el.scrollTop < 100 && hasMore && !isLoadingMore) {
+      loadMoreOldest();
+    }
+  }, [hasMore, isLoadingMore, loadMoreOldest]);
 
   const handleSend = () => {
     onSend();
@@ -1372,14 +1358,20 @@ function UnifiedChatPanel({
       </Collapse>
 
       {/* ===== Unified Messages ===== */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: isMobile ? 1 : 1.5 }}>
+      <Box sx={{ flex: 1, overflow: 'auto', p: isMobile ? 1 : 1.5 }} ref={scrollContainerRef} onScroll={handleScroll}>
+        {/* Loading indicator for older messages */}
+        {isLoadingMore && (
+          <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', py: 1, display: 'block' }}>
+            Loading older messages...
+          </Typography>
+        )}
         {messages.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 8 }}>
             No messages yet. Start the conversation!
           </Typography>
         ) : (
-          messages.map((msg, i) => (
-            <MessageBubble key={i} msg={msg} />
+          messages.map((msg) => (
+            <MessageBubble key={msg.id} msg={msg} />
           ))
         )}
         <div ref={messagesEndRef} />

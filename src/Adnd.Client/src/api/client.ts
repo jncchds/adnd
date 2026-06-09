@@ -669,9 +669,10 @@ class APIClient {
 
   // ==================== Messages (paginated) ====================
 
-  async getMessagesPaginated(gameId: string, sessionId: string, page = 1, pageSize = 50, type?: number) {
+  async getMessagesPaginated(gameId: string, sessionId: string, page = 1, pageSize = 50, type?: number, anchorId?: string) {
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
     if (type !== undefined) params.set('type', String(type));
+    if (anchorId) params.set('anchorId', anchorId);
     return this.request<MessagePaginationResponse>(`/admin/games/${gameId}/sessions/${sessionId}/messages?${params}`);
   }
 
@@ -1466,6 +1467,7 @@ export interface MessagePaginationResponse {
   pageSize: number;
   total: number;
   totalPages: number;
+  hasMore: boolean;
   messages: MessagePaginated[];
 }
 

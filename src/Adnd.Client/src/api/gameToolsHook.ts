@@ -1,5 +1,45 @@
 import { useState, useCallback } from 'react';
-import { api, SessionNote, DiceStatsResponse, PlayerDiceStatsResponse, MessagePaginationResponse, MessageSearchResponse, PromptTemplate } from './client';
+import { api, SessionNote, DiceStatsResponse, PlayerDiceStatsResponse, MessagePaginationResponse, MessageSearchResponse, PromptTemplate, MessagePaginated } from './client';
+
+// ==================== Unified Message Type ====================
+
+export type UnifiedMessageType =
+  | 'inGamePublic'
+  | 'inGameWhisper'
+  | 'oocPublic'
+  | 'oocWhisper'
+  | 'dice'
+  | 'skillCheck'
+  | 'attack'
+  | 'system'
+  | 'agentCall'
+  | 'agentResponse';
+
+export interface UnifiedMessage {
+  id: string | number;
+  type: UnifiedMessageType;
+  content: string;
+  senderName: string;
+  senderRole: string;
+  timestamp: string;
+  isSystem?: boolean;
+  isWhisper?: boolean;
+  whisperTo?: string;
+  diceFormula?: string;
+  diceTotal?: number;
+  diceRolls?: number[];
+  skill?: string;
+  skillDC?: number;
+  skillResult?: string;
+  attackWeapon?: string;
+  attackTarget?: string;
+  attackHit?: boolean;
+  attackDamage?: number;
+  agentFrom?: string;
+  agentAction?: string;
+  agentStatus?: string;
+  extra?: React.ReactNode;
+}
 
 // ==================== Session Notes Hook ====================
 
@@ -109,7 +149,8 @@ export function usePlayerDiceStats(gameId: string | undefined, playerId: string 
   };
 }
 
-// ==================== Messages Paginated Hook ====================
+// ==================== Messages Infinite Scroll Hook ====================
+// Loads newest messages first, then older ones when scrolling up.
 
 export function useMessagesPaginated(gameId: string | undefined, sessionId: string | undefined) {
   const [page, setPage] = useState(1);
@@ -148,6 +189,101 @@ export function useMessagesPaginated(gameId: string | undefined, sessionId: stri
     refetch: fetchMessages,
     loadMore,
     goToPage: fetchMessages,
+  };
+}
+
+// ==================== Messages Infinite Scroll Hook (newest first) ====================
+// Loads newest messages first, then older ones when scrolling up.
+// Returns UnifiedMessage[] for direct use in the chat panel.
+
+export function useMessagesInfiniteScroll(gameId: string | undefined, sessionId: string | undefined) {
+  const [pageSize] = useState(50);
+  const [messages, setMessages] = useState<UnifiedMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [oldestAnchorId, setOldestAnchorId] = useState<string | null>(null);
+  const totalMessages = messages.length;
+
+  // Convert MessagePaginated to UnifiedMessage
+  const toUnified = (msg: MessagePaginated): UnifiedMessage => ({
+    id: msg.id,
+    type: msg.isOOC ? 'oocPublic' : 'inGamePublic',
+    content: msg.content,
+    senderName: msg.playerName,
+    senderRole: msg.playerId ? 'Player' : 'System',
+    timestamp: msg.createdAt,
+  });
+
+  // Load the newest batch on mount
+  const loadInitial = useCallback(async () => {
+    if (!gameId || !sessionId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getMessagesPaginated(gameId, sessionId, 1, pageSize);
+      const unified = data.messages.map(toUnified);
+      setMessages(unified);
+      setHasMore(data.hasMore);
+      if (data.messages.length > 0) {
+        // Messages are newest-first; the last item is the oldest in this batch
+        setOldestAnchorId(data.messages[data.messages.length - 1].id);
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [gameId, sessionId, pageSize]);
+
+  // Load older messages when scrolling up
+  const loadMoreOldest = useCallback(async () => {
+    if (!gameId || !sessionId || !hasMore || !oldestAnchorId || isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const data = await api.getMessagesPaginated(gameId, sessionId, 1, pageSize, undefined, oldestAnchorId);
+      if (data.messages.length > 0) {
+        // Prepend older messages
+        const unified = data.messages.map(toUnified);
+        setMessages(prev => [...unified, ...prev]);
+        setHasMore(data.hasMore);
+        setOldestAnchorId(data.messages[data.messages.length - 1].id);
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [gameId, sessionId, hasMore, oldestAnchorId, isLoadingMore]);
+
+  // Add a single live message (from SignalR) to the newest end
+  const addMessage = useCallback((msg: UnifiedMessage) => {
+    setMessages(prev => [...prev, msg]);
+  }, []);
+
+  // Remove a message (e.g. if deleted)
+  const removeMessage = useCallback((msgId: string) => {
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+  }, []);
+
+  // Update a message by id (e.g. agent call status change)
+  const updateMessage = useCallback((msgId: string | number, updater: (msg: UnifiedMessage) => UnifiedMessage) => {
+    setMessages(prev => prev.map(m => m.id === msgId ? updater(m) : m));
+  }, []);
+
+  return {
+    messages,
+    totalMessages,
+    isLoading,
+    isLoadingMore,
+    hasMore,
+    error,
+    loadInitial,
+    loadMoreOldest,
+    addMessage,
+    updateMessage,
+    removeMessage,
   };
 }
 
