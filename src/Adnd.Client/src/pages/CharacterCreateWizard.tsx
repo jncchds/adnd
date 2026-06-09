@@ -15,6 +15,147 @@ import {
   Save as SaveIcon,
 } from '@mui/icons-material';
 
+// ==================== Background Templates ====================
+
+interface BackgroundTemplate {
+  id: string;
+  name: string;
+  description: string;
+  skillBonuses: string[]; // skill names that get +2
+  feature: string;
+  featureDescription: string;
+  languages: string[];
+  startingEquipment: { name: string; type: string; quantity: number }[];
+}
+
+const BACKGROUND_TEMPLATES: BackgroundTemplate[] = [
+  {
+    id: 'acolyte',
+    name: 'Acolyte',
+    description: 'You have spent your life in the service of a temple to a specific god or pantheon.',
+    skillBonuses: ['Insight', 'Religion'],
+    feature: 'Shelter of the Faithful',
+    featureDescription: 'You and your companions can rest and receive healing at temples of your faith.',
+    languages: [],
+    startingEquipment: [
+      { name: 'Holy symbol', type: 'Tool', quantity: 1 },
+      { name: 'Prayer book', type: 'Tool', quantity: 1 },
+      { name: 'Incense', type: 'Equipment', quantity: 5 },
+      { name: 'Vestments', type: 'Equipment', quantity: 1 },
+      { name: '5 sticks of incense', type: 'Equipment', quantity: 5 },
+    ],
+  },
+  {
+    id: 'criminal',
+    name: 'Criminal',
+    description: 'You were once deeply embedded in a criminal organization — thieves guild, mafia, pirate crew.',
+    skillBonuses: ['Deception', 'Stealth'],
+    feature: 'Criminal Contact',
+    featureDescription: 'You have a reliable and trustworthy contact within the criminal underworld.',
+    languages: [],
+    startingEquipment: [
+      { name: 'Blackmailer\'s list', type: 'Equipment', quantity: 1 },
+      { name: 'Crowbar', type: 'Tool', quantity: 1 },
+      { name: 'Set of dark clothes', type: 'Equipment', quantity: 1 },
+      { name: '15 gold pieces', type: 'Currency', quantity: 15 },
+    ],
+  },
+  {
+    id: 'soldier',
+    name: 'Soldier',
+    description: 'War has been a large part of your life — a professional soldier with military experience.',
+    skillBonuses: ['Athletics', 'Intimidation'],
+    feature: 'Military Rank',
+    featureDescription: 'You have a military rank from your time in an army, navy, or air force.',
+    languages: [],
+    startingEquipment: [
+      { name: 'Insignia of rank', type: 'Equipment', quantity: 1 },
+      { name: 'Trophy taken from a fallen enemy', type: 'Equipment', quantity: 1 },
+      { name: 'Bone dice', type: 'Tool', quantity: 1 },
+      { name: 'Pack', type: 'Equipment', quantity: 1 },
+      { name: '4 gold pieces', type: 'Currency', quantity: 4 },
+    ],
+  },
+  {
+    id: 'sage',
+    name: 'Sage',
+    description: 'You spent years learning the lore of the world — magic, geography, history, and more.',
+    skillBonuses: ['Arcana', 'History'],
+    feature: 'Researcher',
+    featureDescription: 'When you need information, you know where to find it in libraries and scholarly networks.',
+    languages: [],
+    startingEquipment: [
+      { name: 'Bottle of ink', type: 'Equipment', quantity: 1 },
+      { name: 'Ink pen', type: 'Tool', quantity: 1 },
+      { name: 'Letter from a dead colleague', type: 'Equipment', quantity: 1 },
+      { name: 'Pouch of sand', type: 'Equipment', quantity: 1 },
+      { name: '10 gold pieces', type: 'Currency', quantity: 10 },
+    ],
+  },
+  {
+    id: 'gladiator',
+    name: 'Gladiator',
+    description: 'You fought in arenas for the entertainment of crowds — as a free combatant or a slave.',
+    skillBonuses: ['Athletics', 'Performance'],
+    feature: 'By Popular Demand',
+    featureDescription: 'You can gain the aid of desperate people who look to you as a savior.',
+    languages: [],
+    startingEquipment: [
+      { name: 'Weapon from your arena', type: 'Weapon', quantity: 1 },
+      { name: 'Trophy from a rival', type: 'Equipment', quantity: 1 },
+      { name: 'Lucky charm', type: 'Equipment', quantity: 1 },
+      { name: 'Set of common clothes', type: 'Equipment', quantity: 1 },
+      { name: '15 gold pieces', type: 'Currency', quantity: 15 },
+    ],
+  },
+  {
+    id: 'folkhero',
+    name: 'Folk Hero',
+    description: 'You come from a humble social background but have achieved something notable back home.',
+    skillBonuses: ['Animal Handling', 'Survival'],
+    feature: 'Rustic Hospitality',
+    featureDescription: 'You can find shelter and sustenance among commoners who won\'t harm you.',
+    languages: [],
+    startingEquipment: [
+      { name: 'Iron pot', type: 'Equipment', quantity: 1 },
+      { name: 'Set of common clothes', type: 'Equipment', quantity: 1 },
+      { name: 'Trophy from a hobby', type: 'Equipment', quantity: 1 },
+      { name: '10 gold pieces', type: 'Currency', quantity: 10 },
+    ],
+  },
+  {
+    id: 'urchin',
+    name: 'Urchin',
+    description: 'You grew up on the streets alone, orphaned, destitute, and alone.',
+    skillBonuses: ['Sleight of Hand', 'Stealth'],
+    feature: 'City Secrets',
+    featureDescription: 'You know the secret passages and hidden places of the city you grew up in.',
+    languages: [],
+    startingEquipment: [
+      { name: 'Small knife', type: 'Weapon', quantity: 1 },
+      { name: 'Mat to sleep on', type: 'Equipment', quantity: 1 },
+      { name: 'Token of parents', type: 'Equipment', quantity: 1 },
+      { name: 'Common clothes', type: 'Equipment', quantity: 1 },
+      { name: '10 gold pieces', type: 'Currency', quantity: 10 },
+    ],
+  },
+  {
+    id: 'noble',
+    name: 'Noble',
+    description: 'You understand wealth, power, and privilege. You grew up privileged, knowing the rich and powerful.',
+    skillBonuses: ['History', 'Persuasion'],
+    feature: 'Position of Privilege',
+    featureDescription: 'Other nobles recognize your right to power and wealth. You can secure audience with nobles.',
+    languages: [],
+    startingEquipment: [
+      { name: 'Signet ring', type: 'Equipment', quantity: 1 },
+      { name: 'Scroll of pedigree', type: 'Equipment', quantity: 1 },
+      { name: 'Set of fine clothes', type: 'Equipment', quantity: 1 },
+      { name: '25 gold pieces', type: 'Currency', quantity: 25 },
+    ],
+  },
+];
+
 // ==================== Class Templates ====================
 
 interface ClassTemplate {
@@ -266,6 +407,11 @@ export default function CharacterCreateWizard({ open, onClose, onFinish }: { ope
   const [startingEquipment, setStartingEquipment] = useState<{ name: string; type: string; quantity: number }[]>([]);
   const [extraGold, setExtraGold] = useState(0);
 
+  // Background
+  const [selectedBackground, setSelectedBackground] = useState('');
+  const [backgroundSkills, setBackgroundSkills] = useState<string[]>([]);
+  const [backgroundLanguages, setBackgroundLanguages] = useState<string[]>([]);
+
   const selectedTemplate = CLASS_TEMPLATES.find(t => t.id === classId);
 
   // Reset when dialog opens
@@ -282,6 +428,9 @@ export default function CharacterCreateWizard({ open, onClose, onFinish }: { ope
       setStandardArrayOrder([]);
       setStartingEquipment([]);
       setExtraGold(0);
+      setSelectedBackground('');
+      setBackgroundSkills([]);
+      setBackgroundLanguages([]);
       setError(null);
       setSuccess(null);
     }
@@ -332,6 +481,13 @@ export default function CharacterCreateWizard({ open, onClose, onFinish }: { ope
       currentHP: selectedTemplate ? selectedTemplate.hitDie + Math.floor((attributes.CON - 10) / 2) : 10,
       startingEquipment,
       gold: extraGold,
+      // Background
+      background: selectedBackground,
+      backgroundSkills: backgroundSkills,
+      backgroundLanguages: backgroundLanguages,
+      backgroundFeatures: selectedBackground
+        ? [BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.feature ?? ''].filter(Boolean)
+        : [],
     };
 
     setSuccess(`Character '${name}' created!`);
@@ -363,7 +519,7 @@ export default function CharacterCreateWizard({ open, onClose, onFinish }: { ope
     return mod >= 0 ? `+${mod}` : `${mod}`;
   };
 
-  const stepLabels = ['Name & Class', 'Attributes', 'Equipment', 'Review'];
+  const stepLabels = ['Name & Class', 'Attributes', 'Background', 'Equipment', 'Review'];
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -602,8 +758,88 @@ export default function CharacterCreateWizard({ open, onClose, onFinish }: { ope
                       </Box>
                     )}
 
-                    {/* ===== Step 2: Equipment ===== */}
+                    {/* ===== Step 2: Background ===== */}
                     {step === 2 && (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <Typography variant="subtitle2">Select a background for your character:</Typography>
+                        <Grid container spacing={1}>
+                          {BACKGROUND_TEMPLATES.map(bg => (
+                            <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={bg.id}>
+                              <Card
+                                variant="outlined"
+                                onClick={() => {
+                                  setSelectedBackground(bg.id);
+                                  setBackgroundSkills(bg.skillBonuses);
+                                  setBackgroundLanguages(bg.languages);
+                                }}
+                                sx={{
+                                  cursor: 'pointer',
+                                  bgcolor: selectedBackground === bg.id ? 'primary.light' : 'inherit',
+                                  borderColor: selectedBackground === bg.id ? 'primary.main' : 'divider',
+                                  transition: 'all 0.2s',
+                                  '&:hover': { borderColor: 'primary.main' },
+                                }}
+                              >
+                                <CardContent sx={{ p: 1.5 }}>
+                                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{bg.name}</Typography>
+                                    <Chip label="Background" size="small" color="info" variant="outlined" />
+                                  </Box>
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                    {bg.description}
+                                  </Typography>
+                                  <Box sx={{ mb: 0.5 }}>
+                                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>Skill Bonuses:</Typography>
+                                    <Box sx={{ display: 'flex', gap: 0.25, flexWrap: 'wrap', mt: 0.25 }}>
+                                      {bg.skillBonuses.map(s => (
+                                        <Chip key={s} label={`+2 ${s}`} size="small" color="success" variant="filled" sx={{ fontSize: 10, height: 18 }} />
+                                      ))}
+                                    </Box>
+                                  </Box>
+                                  <Box>
+                                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>Feature:</Typography>
+                                    <Typography variant="caption" color="primary.main" sx={{ display: 'block' }}>
+                                      {bg.feature}: {bg.featureDescription}
+                                    </Typography>
+                                  </Box>
+                                  {bg.languages.length > 0 && (
+                                    <Box sx={{ mt: 0.5 }}>
+                                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>Languages:</Typography>
+                                      <Box sx={{ display: 'flex', gap: 0.25, flexWrap: 'wrap', mt: 0.25 }}>
+                                        {bg.languages.map(l => (
+                                          <Chip key={l} label={l} size="small" color="default" variant="outlined" sx={{ fontSize: 10, height: 18 }} />
+                                        ))}
+                                      </Box>
+                                    </Box>
+                                  )}
+                                </CardContent>
+                              </Card>
+                            </Grid>
+                          ))}
+                        </Grid>
+
+                        {selectedBackground && (
+                          <Paper sx={{ p: 2, bgcolor: 'background.default' }}>
+                            <Typography variant="subtitle2" gutterBottom>Selected: {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.name}</Typography>
+                            <Typography variant="subtitle2" gutterBottom>Starting Equipment:</Typography>
+                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                              {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.startingEquipment.map((item, i) => (
+                                <Chip
+                                  key={i}
+                                  label={`${item.quantity > 1 ? `${item.quantity}x ` : ''}${item.name}`}
+                                  size="small"
+                                  variant="outlined"
+                                  color="info"
+                                />
+                              ))}
+                            </Box>
+                          </Paper>
+                        )}
+                      </Box>
+                    )}
+
+                    {/* ===== Step 3: Equipment ===== */}
+                    {step === 3 && (
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                         {selectedTemplate && (
                           <>
@@ -677,8 +913,8 @@ export default function CharacterCreateWizard({ open, onClose, onFinish }: { ope
                       </Box>
                     )}
 
-                    {/* ===== Step 3: Review ===== */}
-                    {step === 3 && selectedTemplate && (
+                    {/* ===== Step 4: Review ===== */}
+                    {step === 4 && selectedTemplate && (
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                         <Paper sx={{ p: 2 }}>
                           <Typography variant="h6" gutterBottom>{name}</Typography>
@@ -738,6 +974,26 @@ export default function CharacterCreateWizard({ open, onClose, onFinish }: { ope
                             ))}
                           </Box>
                         </Paper>
+
+                        {selectedBackground && (
+                          <Paper sx={{ p: 2 }}>
+                            <Typography variant="subtitle2" gutterBottom>Background: {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.name}</Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                              {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.description}
+                            </Typography>
+                            <Typography variant="subtitle2" gutterBottom>Background Skill Bonuses:</Typography>
+                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
+                              {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.skillBonuses.map(s => (
+                                <Chip key={s} label={`+2 ${s}`} size="small" color="success" variant="filled" sx={{ fontSize: 10, height: 18 }} />
+                              ))}
+                            </Box>
+                            <Typography variant="subtitle2" gutterBottom>Background Feature:</Typography>
+                            <Typography variant="body2" color="primary.main">
+                              <strong>{BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.feature}:</strong>{' '}
+                              {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.featureDescription}
+                            </Typography>
+                          </Paper>
+                        )}
                       </Box>
                     )}
                   </Box>

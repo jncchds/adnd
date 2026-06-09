@@ -635,6 +635,7 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string;
+  role?: string; // Current game role (Creator, Player, Spectator, Observer)
   createdAt: string;
 }
 

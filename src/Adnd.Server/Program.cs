@@ -213,6 +213,14 @@ builder.Services.AddScoped<IGameManagementService, GameManagementService>();
 builder.Services.AddScoped<ISessionManagementService, SessionManagementService>();
 builder.Services.AddScoped<IPlayerManagementService, PlayerManagementService>();
 
+// Player disconnect detector (background service)
+builder.Services.AddHostedService<PlayerDisconnectDetector>(sp => new PlayerDisconnectDetector(
+    sp,
+    sp.GetRequiredService<ILogger<PlayerDisconnectDetector>>(),
+    interval: TimeSpan.FromSeconds(30),
+    timeout: TimeSpan.FromSeconds(60)
+));
+
 var app = builder.Build();
 
 // Apply migrations on startup

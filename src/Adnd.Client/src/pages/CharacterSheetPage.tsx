@@ -7,7 +7,7 @@ import {
   Divider, Dialog, DialogTitle, DialogContent, DialogActions,
   List, ListItem, ListItemText,
   MenuItem, Select, FormControl, InputLabel,
-  Slider
+  Slider, Grid
 } from '@mui/material';
 import {
   Add as AddIcon, Delete as DeleteIcon,
@@ -15,7 +15,8 @@ import {
   ArrowBack as BackIcon, Healing as HPIcon,
   Shield as ShieldIcon, AutoFixHigh as StatsIcon,
   MenuBook as MenuBookIcon, ShoppingCart as InvIcon, AutoStories as SpellIcon,
-  Warning as CondIcon
+  Warning as CondIcon,
+  Remove as RemoveIcon
 } from '@mui/icons-material';
 
 export default function CharacterSheetPage() {
@@ -599,7 +600,110 @@ function SkillsTab({ skills, setSkills: _setSkills, proficiency, setProficiency,
   );
 }
 
-function SpellsTab({ spells, setSpells, isEditMode, onOpenDialog }: any) {
+function SpellSlotTracker({ spellSlots, onSlotChange, canEdit }: any) {
+  const spellLevels = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+  const handleSlotChange = (level: number, type: 'total' | 'remaining', value: number) => {
+    if (!spellSlots) return;
+    const current = spellSlots[level] || { total: 0, remaining: 0 };
+    const updated = { ...current, [type]: Math.max(0, Math.min(type === 'total' ? current.total : current.total, value)) };
+    if (type === 'remaining' && updated.remaining > updated.total) {
+      updated.remaining = updated.total;
+    }
+    onSlotChange(level, updated);
+  };
+
+  const hasSlots = spellLevels.some(l => (spellSlots?.[l]?.total || 0) > 0);
+
+  if (!hasSlots) return null;
+
+  return (
+    <Paper sx={{ p: 2, mb: 2, bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
+      <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        📜 Spell Slots
+      </Typography>
+      <Grid container spacing={1}>
+        {spellLevels.filter(l => (spellSlots?.[l]?.total || 0) > 0).map(level => (
+          <Grid size={{ xs: 4, sm: 3, md: 2 }} key={level}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary">
+                {level === 1 ? `${level}st` : level === 2 ? `${level}nd` : level === 3 ? `${level}rd` : `${level}th`}
+              </Typography>
+              {canEdit ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, my: 0.5 }}>
+                  <IconButton
+                    size="small"
+                    disabled={(spellSlots?.[level]?.remaining || 0) <= 0}
+                    onClick={() => handleSlotChange(level, 'remaining', (spellSlots[level]?.remaining || 0) - 1)}
+                  >
+                    <RemoveIcon fontSize="small" />
+                  </IconButton>
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      color: (spellSlots?.[level]?.remaining || 0) === 0 ? 'error.main' :
+                             (spellSlots?.[level]?.remaining || 0) < (spellSlots?.[level]?.total || 0) ? 'warning.main' :
+                             'success.main',
+                      minWidth: 24,
+                    }}
+                  >
+                    {spellSlots[level]?.remaining || 0}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">/</Typography>
+                  <Typography
+                    variant="h6"
+                    sx={{ minWidth: 24 }}
+                  >
+                    {spellSlots[level]?.total || 0}
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    disabled={(spellSlots?.[level]?.remaining || 0) >= (spellSlots?.[level]?.total || 0)}
+                    onClick={() => handleSlotChange(level, 'remaining', (spellSlots[level]?.remaining || 0) + 1)}
+                  >
+                    <AddIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              ) : (
+                <Typography
+                  variant="h6"
+                  sx={{
+                    color: (spellSlots?.[level]?.remaining || 0) === 0 ? 'error.main' :
+                           (spellSlots?.[level]?.remaining || 0) < (spellSlots?.[level]?.total || 0) ? 'warning.main' :
+                           'success.main',
+                  }}
+                >
+                  {spellSlots[level]?.remaining || 0}/{spellSlots[level]?.total || 0}
+                </Typography>
+              )}
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
+      {canEdit && (
+        <Box sx={{ mt: 1, display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+          <Button
+            size="small"
+            variant="outlined"
+            color="success"
+            onClick={() => {
+              if (!spellSlots) return;
+              const refreshed: any = { ...spellSlots };
+              spellLevels.forEach(l => {
+                if (spellSlots[l]) refreshed[l] = { total: spellSlots[l].total, remaining: spellSlots[l].total };
+              });
+              onSlotChange('_refresh', refreshed);
+            }}
+          >
+            Refresh All
+          </Button>
+        </Box>
+      )}
+    </Paper>
+  );
+}
+
+function SpellsTab({ spells, setSpells, isEditMode, onOpenDialog, spellSlots, onSlotChange }: any) {
   const spellLevels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
   const groupedSpells = spellLevels.reduce((acc: any, level) => {
@@ -613,10 +717,10 @@ function SpellsTab({ spells, setSpells, isEditMode, onOpenDialog }: any) {
   const totalSpells = spells.length;
   const preparedSpells = spells.filter((s: any) => s.prepared).length;
 
-  if (totalSpells === 0) {
+  if (totalSpells === 0 && (!spellSlots || Object.keys(spellSlots).length === 0)) {
     return (
       <Box sx={{ textAlign: 'center', py: 4 }}>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>No spells defined.</Typography>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>No spells or spell slots defined.</Typography>
         {isEditMode && (
           <Button variant="outlined" startIcon={<AddIcon />} onClick={onOpenDialog}>
             Add Spell
@@ -628,6 +732,13 @@ function SpellsTab({ spells, setSpells, isEditMode, onOpenDialog }: any) {
 
   return (
     <Box>
+      {spellSlots && Object.keys(spellSlots).length > 0 && (
+        <SpellSlotTracker
+          spellSlots={spellSlots}
+          onSlotChange={onSlotChange}
+          canEdit={isEditMode}
+        />
+      )}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="body2" color="text.secondary">
           {preparedSpells} / {totalSpells} spells prepared

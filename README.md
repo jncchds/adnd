@@ -22,8 +22,12 @@
 - **Real-time multiplayer** — SignalR hub for chat, dice rolls, skill checks, and combat
 - **Private whispers** — Player-to-player, player-to-creator, creator-to-player, and group whispers
 - **Creator story sway** — Creators can nudge the AI-GM's narrative direction in real-time
-- **Character management** — Full character sheets, creation wizard, and proficiency tracking
-- **Combat system** — Initiative, attacks, skill checks, and per-system resolution
+- **Character management** — Full character sheets, creation wizard (8 backgrounds), spell slot tracking, and proficiency tracking
+- **Combat system** — Initiative, attacks, skill checks, per-system resolution, action economy (actions/bonus actions/reactions/movements), and condition management
+- **Player roll negotiation** — GM can request rolls from players; players confirm/decline with dice dialog
+- **Spell slot management** — Visual slot tracker with +/- controls, color-coded by remaining count
+- **Condition manager** — Visual condition tracking with emoji icons, duration countdown, and quick-add chip bar
+- **Disconnected player detection** — Background service auto-detects stale connections, broadcasts reconnection events
 - **JWT authentication** — Register, login, refresh tokens with role-based game access
 - **Docker-first deployment** — One-command setup with PostgreSQL + pgvector + Hangfire
 
@@ -178,6 +182,22 @@ All API endpoints are under `/api/`. Swagger docs are available at `/swagger`.
 | `RollDice` / `SkillCheck` / `Attack` | `AttackResult`, `PlayerJoined`/`Left` |
 | `SendWhisper` / `SendCreatorWhisper` | `AgentCallStarted`/`Completed` |
 | `CallAgent` | `Error` |
+| `SendHeartbeat` | — |
+| `StartCombat` / `EndCombat` | `CombatStarted`, `CombatEnded`, `CombatLogUpdated` |
+| `AddParticipant` / `RollInitiative` | `CombatParticipantAdded`, `InitiativeRolled` |
+| `CombatAttack` / `CombatSaveThrow` | `CombatAttack`, `CombatSaveThrow` |
+| `CombatApplyCondition` | `ConditionApplied`, `ConditionRemoved` |
+| `SpendAction` / `RefreshActions` | `ActionSpent`, `ActionsRefreshed` |
+| `ConfirmPlayerRoll` / `DeclinePlayerRoll` | `PlayerRollRequested`, `PlayerRollConfirmed`, `PlayerRollDeclined` |
+| `ConfirmToolCall` | `ToolCallConfirmed` |
+| `SendHeartbeat` | — |
+| `StartCombat` / `EndCombat` | `CombatStarted`, `CombatEnded`, `CombatLogUpdated` |
+| `AddParticipant` / `RollInitiative` | `CombatParticipantAdded`, `InitiativeRolled` |
+| `CombatAttack` / `CombatSaveThrow` | `CombatAttack`, `CombatSaveThrow` |
+| `CombatApplyCondition` | `ConditionApplied`, `ConditionRemoved` |
+| `SpendAction` / `RefreshActions` | `ActionSpent`, `ActionsRefreshed` |
+| `ConfirmPlayerRoll` / `DeclinePlayerRoll` | `PlayerRollRequested`, `PlayerRollConfirmed`, `PlayerRollDeclined` |
+| `ConfirmToolCall` | `ToolCallConfirmed` |
 
 ## 🗄️ Dice Formula Support
 
@@ -194,9 +214,9 @@ All API endpoints are under `/api/`. Swagger docs are available at `/swagger`.
 │   │   ├── Agent/            # Per-game GameAgent + GameAgentManager
 │   │   ├── Controllers/      # Auth, Games, Admin REST endpoints
 │   │   ├── Data/             # DbContext, migrations, auto-migration service
-│   │   ├── Events/           # MediatR event types (25+)
+│   │   ├── Events/           # MediatR event types (30+)
 │   │   ├── Handlers/         # MediatR event handlers + PlotWeaverHandler
-│   │   ├── Hubs/             # SignalR GameHub
+│   │   ├── Hubs/             # SignalR GameHub (partial classes by concern)
 │   │   ├── Models/           # EF Core entities (User, Game, Character, etc.)
 │   │   ├── Services/         # GameEngine, LLMProvider, RAG, AgentBus, etc.
 │   │   └── Program.cs        # DI, auth, Swagger, CORS, SPA middleware

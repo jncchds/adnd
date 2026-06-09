@@ -100,6 +100,15 @@ public interface ICombatService
     Task<Combat> ApplySANRecoveryAsync(Guid combatId, Guid participantId, int sanRecovery);
     Task<SanityCheckResult> MakeSANCheckAsync(Guid combatId, Guid participantId, int dc);
 
+    // Action economy
+    Task<Combat> SpendActionAsync(Guid combatId, Guid participantId);
+    Task<Combat> SpendBonusActionAsync(Guid combatId, Guid participantId);
+    Task<Combat> SpendReactionAsync(Guid combatId, Guid participantId);
+    Task<Combat> SpendMovementAsync(Guid combatId, Guid participantId);
+    Task<Combat> RefreshActionsAsync(Guid combatId, Guid participantId);
+    Task<Combat> SetActionsAsync(Guid combatId, Guid participantId, int actions, int bonusActions, int reactions, int movements);
+    Task<CombatParticipant> GetActionEconomyAsync(Guid combatId, Guid participantId);
+
     // Queries
     Task<CombatLog> GetCombatLogAsync(Guid combatId);
     Task<Combat?> GetCombatAsync(Guid combatId);
@@ -374,5 +383,140 @@ public class CombatService : ICombatService
                 ?? new Dictionary<string, int>();
         }
         return new Dictionary<string, int>();
+    }
+
+    // ===== Action Economy =====
+    public async Task<Combat> SpendActionAsync(Guid combatId, Guid participantId)
+    {
+        var combat = await _query.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId)
+            ?? throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        if (participant.ActionsRemaining <= 0)
+            throw new InvalidOperationException("No actions remaining.");
+
+        participant.ActionsRemaining--;
+        await _context.SaveChangesAsync();
+
+        await AddCombatEvent(combat, combat.CurrentRound, combat.CurrentTurnIndex,
+            CombatEventType.RoundStart, participant.DisplayName, "Action",
+            $"Used 1 action ({participant.ActionsRemaining} remaining)");
+
+        return combat;
+    }
+
+    public async Task<Combat> SpendBonusActionAsync(Guid combatId, Guid participantId)
+    {
+        var combat = await _query.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId)
+            ?? throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        if (participant.BonusActionsRemaining <= 0)
+            throw new InvalidOperationException("No bonus actions remaining.");
+
+        participant.BonusActionsRemaining--;
+        await _context.SaveChangesAsync();
+
+        await AddCombatEvent(combat, combat.CurrentRound, combat.CurrentTurnIndex,
+            CombatEventType.RoundStart, participant.DisplayName, "Bonus Action",
+            $"Used 1 bonus action ({participant.BonusActionsRemaining} remaining)");
+
+        return combat;
+    }
+
+    public async Task<Combat> SpendReactionAsync(Guid combatId, Guid participantId)
+    {
+        var combat = await _query.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId)
+            ?? throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        if (participant.ReactionsRemaining <= 0)
+            throw new InvalidOperationException("No reactions remaining.");
+
+        participant.ReactionsRemaining--;
+        await _context.SaveChangesAsync();
+
+        await AddCombatEvent(combat, combat.CurrentRound, combat.CurrentTurnIndex,
+            CombatEventType.RoundStart, participant.DisplayName, "Reaction",
+            $"Used 1 reaction ({participant.ReactionsRemaining} remaining)");
+
+        return combat;
+    }
+
+    public async Task<Combat> SpendMovementAsync(Guid combatId, Guid participantId)
+    {
+        var combat = await _query.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId)
+            ?? throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        if (participant.MovementsRemaining <= 0)
+            throw new InvalidOperationException("No movements remaining.");
+
+        participant.MovementsRemaining--;
+        await _context.SaveChangesAsync();
+
+        await AddCombatEvent(combat, combat.CurrentRound, combat.CurrentTurnIndex,
+            CombatEventType.RoundStart, participant.DisplayName, "Movement",
+            $"Used 1 movement ({participant.MovementsRemaining} remaining)");
+
+        return combat;
+    }
+
+    public async Task<Combat> RefreshActionsAsync(Guid combatId, Guid participantId)
+    {
+        var combat = await _query.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId)
+            ?? throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        // D&D 5e defaults: 1 action, 0 bonus actions, 1 reaction per turn
+        participant.ActionsRemaining = 1;
+        participant.BonusActionsRemaining = 0;
+        participant.ReactionsRemaining = 1;
+        participant.MovementsRemaining = 1;
+        await _context.SaveChangesAsync();
+
+        await AddCombatEvent(combat, combat.CurrentRound, combat.CurrentTurnIndex,
+            CombatEventType.RoundStart, participant.DisplayName, "System",
+            "Actions refreshed for new turn");
+
+        return combat;
+    }
+
+    public async Task<Combat> SetActionsAsync(Guid combatId, Guid participantId, int actions, int bonusActions, int reactions, int movements)
+    {
+        var combat = await _query.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId)
+            ?? throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        participant.ActionsRemaining = actions;
+        participant.BonusActionsRemaining = bonusActions;
+        participant.ReactionsRemaining = reactions;
+        participant.MovementsRemaining = movements;
+        await _context.SaveChangesAsync();
+
+        return combat;
+    }
+
+    public async Task<CombatParticipant> GetActionEconomyAsync(Guid combatId, Guid participantId)
+    {
+        var combat = await _query.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId)
+            ?? throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        return participant;
     }
 }

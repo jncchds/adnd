@@ -79,7 +79,9 @@ public class GameLifecycleHandler :
 /// </summary>
 public class PlayerHandler :
     INotificationHandler<PlayerJoined>,
-    INotificationHandler<PlayerLeft>
+    INotificationHandler<PlayerLeft>,
+    INotificationHandler<PlayerDisconnected>,
+    INotificationHandler<PlayerReconnected>
 {
     private readonly ILogger<PlayerHandler> _logger;
 
@@ -97,6 +99,20 @@ public class PlayerHandler :
     public Task Handle(PlayerLeft notification, CancellationToken ct)
     {
         _logger.LogInformation("Player left game {GameId}: {PlayerId}", notification.GameId, notification.PlayerId);
+        return Task.CompletedTask;
+    }
+
+    public Task Handle(PlayerDisconnected notification, CancellationToken ct)
+    {
+        _logger.LogInformation("Player disconnected from game {GameId}: {CharacterName} ({UserId}) at {DisconnectedAt}",
+            notification.GameId, notification.CharacterName, notification.UserId, notification.DisconnectedAt);
+        return Task.CompletedTask;
+    }
+
+    public Task Handle(PlayerReconnected notification, CancellationToken ct)
+    {
+        _logger.LogInformation("Player reconnected to game {GameId}: {CharacterName} ({UserId})",
+            notification.GameId, notification.CharacterName, notification.UserId);
         return Task.CompletedTask;
     }
 }

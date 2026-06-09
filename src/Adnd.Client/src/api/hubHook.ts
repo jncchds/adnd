@@ -218,6 +218,24 @@ export interface CombatLogUpdatedEvent {
   combatLog: CombatLog;
 }
 
+// ==================== Player Disconnection Events ====================
+
+export interface PlayerDisconnectedEvent {
+  playerId: string;
+  userId: string;
+  characterName: string;
+  gameId: string;
+  message: string;
+  disconnectedAt: string;
+}
+
+export interface PlayerReconnectedEvent {
+  playerId: string;
+  userId: string;
+  characterName: string;
+  message: string;
+}
+
 export interface CombatLog {
   combatId: string;
   name?: string;
@@ -652,6 +670,34 @@ export function useGameHub() {
     },
     combatMakeSANCheck: async (combatId: string, participantId: string, dc: number) => {
       return hubRef.current?.invoke('CombatMakeSANCheck', combatId, participantId, dc);
+    },
+
+    // ==================== Action Economy ====================
+    combatSpendAction: async (combatId: string, participantId: string) => {
+      return hubRef.current?.invoke('CombatSpendAction', combatId, participantId);
+    },
+    combatSpendBonusAction: async (combatId: string, participantId: string) => {
+      return hubRef.current?.invoke('CombatSpendBonusAction', combatId, participantId);
+    },
+    combatSpendReaction: async (combatId: string, participantId: string) => {
+      return hubRef.current?.invoke('CombatSpendReaction', combatId, participantId);
+    },
+    combatSpendMovement: async (combatId: string, participantId: string) => {
+      return hubRef.current?.invoke('CombatSpendMovement', combatId, participantId);
+    },
+    combatRefreshActions: async (combatId: string, participantId: string) => {
+      return hubRef.current?.invoke('CombatRefreshActions', combatId, participantId);
+    },
+    combatSetActions: async (combatId: string, participantId: string, actions: number, bonusActions: number, reactions: number, movements: number) => {
+      return hubRef.current?.invoke('CombatSetActions', combatId, participantId, actions, bonusActions, reactions, movements);
+    },
+    combatGetActionEconomy: async (combatId: string, participantId: string) => {
+      return hubRef.current?.invoke('CombatGetActionEconomy', combatId, participantId);
+    },
+
+    // ==================== Heartbeat / Disconnection ====================
+    sendHeartbeat: async (gameId: string) => {
+      return hubRef.current?.invoke('SendHeartbeat', gameId);
     },
   };
 }

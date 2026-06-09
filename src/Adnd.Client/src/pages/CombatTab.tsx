@@ -8,7 +8,7 @@ import {
   TextField, Chip, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Alert, Collapse, MenuItem, Select,
   FormControl, InputLabel, Grid, Divider, Avatar,
-  Tooltip, List, ListItem, ListItemText,
+  Tooltip, List, ListItem, ListItemText, ListItemAvatar,
   Slider,
 } from '@mui/material';
 import {
@@ -26,6 +26,7 @@ import {
   Book as SheetIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import {
   type CombatLog, type CombatParticipantSummary,
@@ -160,6 +161,276 @@ function DeathSaveTracker({ participant }: { participant: CombatParticipantSumma
   );
 }
 
+// ==================== Action Economy Tracker ====================
+
+interface ActionEconomyTrackerProps {
+  participant: CombatParticipantSummary;
+  actionsRemaining?: number;
+  bonusActionsRemaining?: number;
+  reactionsRemaining?: number;
+  movementsRemaining?: number;
+  onSpendAction?: () => void;
+  onSpendBonusAction?: () => void;
+  onSpendReaction?: () => void;
+  onSpendMovement?: () => void;
+  onRefresh?: () => void;
+  isEditable?: boolean;
+}
+
+function ActionEconomyTracker({
+  participant: _participant, actionsRemaining, bonusActionsRemaining, reactionsRemaining, movementsRemaining,
+  onSpendAction, onSpendBonusAction, onSpendReaction, onSpendMovement, onRefresh, isEditable = false,
+}: ActionEconomyTrackerProps) {
+  const a = actionsRemaining ?? 1;
+  const b = bonusActionsRemaining ?? 0;
+  const r = reactionsRemaining ?? 1;
+  const m = movementsRemaining ?? 1;
+
+  const ActionChip = ({ count, max, label, color, onClick }: {
+    count: number; max: number; label: string; color: string; onClick?: () => void;
+  }) => (
+    <Box sx={{
+      display: 'flex', alignItems: 'center', gap: 0.25,
+      bgcolor: count === 0 ? 'rgba(244,67,54,0.1)' : 'rgba(0,0,0,0.05)',
+      border: '1px solid',
+      borderColor: count === 0 ? 'error.light' : `${color}.light`,
+      borderRadius: 1,
+      px: 0.75,
+      py: 0.25,
+      cursor: onClick && isEditable ? 'pointer' : 'default',
+      opacity: onClick && isEditable ? 1 : 0.7,
+      transition: 'all 0.15s',
+      '&:hover': onClick && isEditable ? { bgcolor: `${color}.lighter` } : {},
+    }}
+      onClick={onClick}
+    >
+      <Typography variant="caption" sx={{ color: count === 0 ? 'error.main' : `${color}.main`, fontWeight: 'bold' }}>
+        {count}
+      </Typography>
+      <Typography variant="caption" color="text.secondary">/</Typography>
+      <Typography variant="caption" color="text.secondary">{max}</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ ml: 0.25 }}>{label}</Typography>
+    </Box>
+  );
+
+  return (
+    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
+      <ActionChip count={a} max={1} label="A" color="primary" onClick={isEditable && onSpendAction ? onSpendAction : undefined} />
+      {b > 0 && <ActionChip count={b} max={b} label="BA" color="warning" onClick={isEditable && onSpendBonusAction ? onSpendBonusAction : undefined} />}
+      <ActionChip count={r} max={1} label="R" color="info" onClick={isEditable && onSpendReaction ? onSpendReaction : undefined} />
+      <ActionChip count={m} max={1} label="M" color="success" onClick={isEditable && onSpendMovement ? onSpendMovement : undefined} />
+      {isEditable && onRefresh && (
+        <Tooltip title="Refresh actions">
+          <IconButton size="small" onClick={onRefresh} sx={{ color: 'text.secondary' }}>
+            <RefreshIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Box>
+  );
+}
+
+// ==================== Condition Manager ====================
+
+interface ConditionManagerProps {
+  participant: CombatParticipantSummary | null;
+  open: boolean;
+  onClose: () => void;
+  onRemoveCondition: (participantId: string, conditionName: string) => void;
+  onAddCondition: (participantId: string, conditionName: string, duration: number, description?: string) => void;
+  isEditable: boolean;
+  onCloseDialog?: () => void;
+}
+
+function ConditionManager({ participant, open, onClose, onRemoveCondition, onAddCondition, isEditable, onCloseDialog }: ConditionManagerProps) {
+  const [newConditionName, setNewConditionName] = useState('');
+  const [newConditionDuration, setNewConditionDuration] = useState(1);
+  const [newConditionDesc, setNewConditionDesc] = useState('');
+
+  if (!participant) return null;
+
+  const commonConditions = [
+    'Blinded', 'Deafened', 'Frightened', 'Grappled', 'Paralyzed', 'Petrified',
+    'Poisoned', 'Prone', 'Restrained', 'Stunned', 'Unconscious', 'Invisible',
+    'Ensnared', 'Exhaustion', 'Charmed', 'Confused', 'Incapacitated',
+  ];
+
+  const getConditionColor = (name: string): string => {
+    const colors: Record<string, string> = {
+      Blinded: 'grey', Deafened: 'grey', Frightened: 'warning', Grappled: 'warning',
+      Paralyzed: 'error', Petrified: 'grey', Poisoned: 'success', Prone: 'default',
+      Restrained: 'warning', Stunned: 'error', Unconscious: 'grey', Invisible: 'info',
+      Ensnared: 'warning', Charmed: 'info', Confused: 'warning', Incapacitated: 'error',
+    };
+    return colors[name] || 'default';
+  };
+
+  const getConditionIcon = (name: string): string => {
+    const icons: Record<string, string> = {
+      Blinded: '👁️‍🗨️', Deafened: '👂', Frightened: '😨', Grappled: '🤜',
+      Paralyzed: '🗿', Petrified: '🗿', Poisoned: '☠️', Prone: '🛌',
+      Restrained: '🔗', Stunned: '💫', Unconscious: '😴', Invisible: '👻',
+      Ensnared: '🌿', Charmed: '💖', Confused: '🌀', Incapacitated: '🚫',
+    };
+    return icons[name] || '🏷️';
+  };
+
+  const formatDuration = (duration: number): string => {
+    if (duration <= 0) return '∞';
+    if (duration === 1) return '1 round';
+    return `${duration} rounds`;
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ConditionIcon color="warning" />
+          <Typography variant="h6">Conditions: {participant.displayName}</Typography>
+          <Chip label={`${participant.conditions?.length || 0} active`} size="small" color="warning" />
+        </Box>
+      </DialogTitle>
+      <DialogContent sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {/* Current conditions */}
+        {participant.conditions && participant.conditions.length > 0 ? (
+          <List dense>
+            {participant.conditions.map((c: ConditionEntry, i: number) => (
+              <ListItem
+                key={i}
+                sx={{
+                  bgcolor: 'background.paper',
+                  borderRadius: 1,
+                  mb: 0.5,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                <ListItemAvatar>
+                  <Avatar sx={{ bgcolor: getConditionColor(c.name) + '.main', width: 32, height: 32, fontSize: 16 }}>
+                    {getConditionIcon(c.name)}
+                  </Avatar>
+                </ListItemAvatar>
+                <ListItemText
+                  primary={
+                    <Typography variant="body2" fontWeight={600}>
+                      {c.name}
+                    </Typography>
+                  }
+                  secondary={
+                    <Typography variant="caption" color="text.secondary">
+                      Duration: <strong>{formatDuration(c.duration)}</strong>
+                      {c.description && <> · {c.description}</>}
+                    </Typography>
+                  }
+                />
+                {isEditable && (
+                  <Box sx={{ display: 'flex', gap: 0.5 }}>
+                    <Tooltip title="Remove condition">
+                      <IconButton size="small" color="error" onClick={() => onRemoveCondition(participant.id, c.name)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Reduce duration by 1">
+                      <IconButton size="small" onClick={() => {
+                        if (c.duration > 0) {
+                          onAddCondition(participant.id, c.name, c.duration - 1, c.description);
+                          onRemoveCondition(participant.id, c.name);
+                        }
+                      }} disabled={c.duration <= 0}>
+                        <RemoveIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                )}
+              </ListItem>
+            ))}
+          </List>
+        ) : (
+          <Typography color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+            No active conditions on this participant.
+          </Typography>
+        )}
+
+        {/* Add condition */}
+        {isEditable && (
+          <Paper sx={{ p: 2, bgcolor: 'background.default' }}>
+            <Typography variant="subtitle2" gutterBottom>Add Condition:</Typography>
+            <Grid container spacing={1}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Condition Name"
+                  value={newConditionName}
+                  onChange={e => setNewConditionName(e.target.value)}
+                  placeholder="e.g., Poisoned, Grappled, Frightened"
+                  autoFocus
+                />
+              </Grid>
+              <Grid size={{ xs: 4 }}>
+                <TextField
+                  fullWidth
+                  label="Duration (rounds, 0=∞)"
+                  type="number"
+                  value={newConditionDuration}
+                  onChange={e => setNewConditionDuration(parseInt(e.target.value) || 0)}
+                  inputProps={{ min: 0 }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <TextField
+                  fullWidth
+                  label="Description (optional)"
+                  value={newConditionDesc}
+                  onChange={e => setNewConditionDesc(e.target.value)}
+                  size="small"
+                />
+              </Grid>
+              <Grid size={12}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  Quick add:
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                  {commonConditions.map(c => (
+                    <Chip
+                      key={c}
+                      label={c}
+                      size="small"
+                      clickable
+                      onClick={() => setNewConditionName(c)}
+                      color={getConditionColor(c) as any}
+                      variant={newConditionName === c ? 'filled' : 'outlined'}
+                      sx={{ fontSize: 10 }}
+                    />
+                  ))}
+                </Box>
+              </Grid>
+            </Grid>
+          </Paper>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+        {isEditable && newConditionName && (
+          <Button
+            variant="contained"
+            color="warning"
+            startIcon={<ConditionIcon />}
+            onClick={() => {
+              onAddCondition(participant.id, newConditionName, newConditionDuration, newConditionDesc || undefined);
+              setNewConditionName('');
+              setNewConditionDuration(1);
+              setNewConditionDesc('');
+              onCloseDialog?.();
+            }}
+          >
+            Add Condition
+          </Button>
+        )}
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 function CharacterSheetPopup({ participant, open, onClose, onHeal, onDamage }: {
   participant: CombatParticipantSummary | null; open: boolean; onClose: () => void;
   onHeal: (id: string, amount: number) => void; onDamage: (id: string, amount: number) => void;
@@ -278,6 +549,7 @@ export default function CombatTab({ gameId }: { gameId: string }) {
   const [showAttackDialog, setShowAttackDialog] = useState(false);
   const [showSaveThrowDialog, setShowSaveThrowDialog] = useState(false);
   const [showConditionDialog, setShowConditionDialog] = useState(false);
+  const [showConditionManager, setShowConditionManager] = useState(false);
   const [showDeathSaveDialog, setShowDeathSaveDialog] = useState(false);
   const [showHealDialog, setShowHealDialog] = useState(false);
   const [showRollInitiative, setShowRollInitiative] = useState(false);
@@ -289,6 +561,11 @@ export default function CombatTab({ gameId }: { gameId: string }) {
   const [showSANDialog, setShowSANDialog] = useState(false);
   const [showCharSheet, setShowCharSheet] = useState(false);
   const [selectedCharSheet, setSelectedCharSheet] = useState<CombatParticipantSummary | null>(null);
+
+  // Action economy state
+  const [actionEconomy, setActionEconomy] = useState<Record<string, {
+    actions: number; bonusActions: number; reactions: number; movements: number;
+  }>>({});
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -403,12 +680,111 @@ export default function CombatTab({ gameId }: { gameId: string }) {
     on('CombatItemRemoved', () => loadActiveCombat());
     on('CombatItemEquipped', () => loadActiveCombat());
     on('CombatItemUnequipped', () => loadActiveCombat());
+    on('ActionSpent', (data: any) => {
+      setActionEconomy(prev => ({
+        ...prev,
+        [data.participantId]: { ...prev[data.participantId], actions: data.actionsRemaining ?? 0 }
+      }));
+      loadActiveCombat();
+    });
+    on('BonusActionSpent', (data: any) => {
+      setActionEconomy(prev => ({
+        ...prev,
+        [data.participantId]: { ...prev[data.participantId], bonusActions: data.bonusActionsRemaining ?? 0 }
+      }));
+      loadActiveCombat();
+    });
+    on('ReactionSpent', (data: any) => {
+      setActionEconomy(prev => ({
+        ...prev,
+        [data.participantId]: { ...prev[data.participantId], reactions: data.reactionsRemaining ?? 0 }
+      }));
+      loadActiveCombat();
+    });
+    on('MovementSpent', (data: any) => {
+      setActionEconomy(prev => ({
+        ...prev,
+        [data.participantId]: { ...prev[data.participantId], movements: data.movementsRemaining ?? 0 }
+      }));
+      loadActiveCombat();
+    });
+    on('ActionsRefreshed', (data: any) => {
+      setActionEconomy(prev => ({
+        ...prev,
+        [data.participantId]: {
+          actions: data.actionsRemaining ?? 1,
+          bonusActions: data.bonusActionsRemaining ?? 0,
+          reactions: data.reactionsRemaining ?? 1,
+          movements: data.movementsRemaining ?? 1,
+        }
+      }));
+      loadActiveCombat();
+    });
+    on('ActionsSet', (data: any) => {
+      setActionEconomy(prev => ({
+        ...prev,
+        [data.participantId]: {
+          actions: data.actionsRemaining ?? 1,
+          bonusActions: data.bonusActionsRemaining ?? 0,
+          reactions: data.reactionsRemaining ?? 1,
+          movements: data.movementsRemaining ?? 1,
+        }
+      }));
+      loadActiveCombat();
+    });
     on('CombatGridSet', () => loadActiveCombat());
     on('CombatPositionSet', () => loadActiveCombat());
     on('CombatMove', () => loadActiveCombat());
     on('CombatAutoResolved', () => loadActiveCombat());
     return () => {};
   }, [isConnected, on, loadActiveCombat]);
+
+  // ==================== Action Economy Handlers ====================
+
+  const handleSpendAction = async (participantId: string) => {
+    if (!activeCombat) return;
+    try {
+      await invoke('CombatSpendAction', activeCombat.combatId, participantId);
+      setSuccess('Action spent');
+      setTimeout(() => setSuccess(null), 1500);
+    } catch (e: any) { setError(e.message); }
+  };
+
+  const handleSpendBonusAction = async (participantId: string) => {
+    if (!activeCombat) return;
+    try {
+      await invoke('CombatSpendBonusAction', activeCombat.combatId, participantId);
+      setSuccess('Bonus action spent');
+      setTimeout(() => setSuccess(null), 1500);
+    } catch (e: any) { setError(e.message); }
+  };
+
+  const handleSpendReaction = async (participantId: string) => {
+    if (!activeCombat) return;
+    try {
+      await invoke('CombatSpendReaction', activeCombat.combatId, participantId);
+      setSuccess('Reaction spent');
+      setTimeout(() => setSuccess(null), 1500);
+    } catch (e: any) { setError(e.message); }
+  };
+
+  const handleSpendMovement = async (participantId: string) => {
+    if (!activeCombat) return;
+    try {
+      await invoke('CombatSpendMovement', activeCombat.combatId, participantId);
+      setSuccess('Movement spent');
+      setTimeout(() => setSuccess(null), 1500);
+    } catch (e: any) { setError(e.message); }
+  };
+
+  const handleRefreshActions = async (participantId: string) => {
+    if (!activeCombat) return;
+    try {
+      await invoke('CombatRefreshActions', activeCombat.combatId, participantId);
+      setSuccess('Actions refreshed');
+      setTimeout(() => setSuccess(null), 1500);
+    } catch (e: any) { setError(e.message); }
+  };
 
   // ==================== Handlers ====================
 
@@ -664,6 +1040,7 @@ export default function CombatTab({ gameId }: { gameId: string }) {
         <Button size="small" variant="outlined" startIcon={<GridIcon />} onClick={() => setShowGridDialog(true)}>Grid</Button>
         <Button size="small" variant="outlined" startIcon={<InventoryIcon />} onClick={() => setShowInventoryDialog(true)}>Inventory</Button>
         <Button size="small" variant="outlined" startIcon={<StarIcon />} onClick={() => setShowSANDialog(true)}>SAN</Button>
+        <Button size="small" variant="outlined" startIcon={<ConditionIcon />} onClick={() => setShowConditionManager(true)}>Conditions</Button>
       </Paper>
 
       <Grid container spacing={2}>
@@ -678,7 +1055,7 @@ export default function CombatTab({ gameId }: { gameId: string }) {
                 <TableHead>
                   <TableRow>
                     <TableCell>Order</TableCell><TableCell>Participant</TableCell><TableCell>HP</TableCell>
-                    <TableCell>AC</TableCell><TableCell>Init</TableCell><TableCell>Conditions</TableCell>
+                    <TableCell>AC</TableCell><TableCell>Init</TableCell><TableCell>Actions</TableCell><TableCell>Conditions</TableCell>
                     <TableCell sx={{ textAlign: 'right' }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
@@ -710,6 +1087,21 @@ export default function CombatTab({ gameId }: { gameId: string }) {
                       </TableCell>
                       <TableCell><Typography variant="body2">{p.ac}</Typography></TableCell>
                       <TableCell><Typography variant="body2">{p.initiative}</Typography></TableCell>
+                      <TableCell>
+                        <ActionEconomyTracker
+                          participant={p}
+                          actionsRemaining={actionEconomy[p.id]?.actions}
+                          bonusActionsRemaining={actionEconomy[p.id]?.bonusActions}
+                          reactionsRemaining={actionEconomy[p.id]?.reactions}
+                          movementsRemaining={actionEconomy[p.id]?.movements}
+                          onSpendAction={() => handleSpendAction(p.id)}
+                          onSpendBonusAction={() => handleSpendBonusAction(p.id)}
+                          onSpendReaction={() => handleSpendReaction(p.id)}
+                          onSpendMovement={() => handleSpendMovement(p.id)}
+                          onRefresh={() => handleRefreshActions(p.id)}
+                          isEditable={user?.role === 'Creator'}
+                        />
+                      </TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', gap: 0.25, flexWrap: 'wrap' }}>
                           {p.conditions.map((c: ConditionEntry, ci: number) => (
@@ -1097,6 +1489,24 @@ export default function CombatTab({ gameId }: { gameId: string }) {
         </DialogContent>
         <DialogActions><Button onClick={() => setShowSANDialog(false)}>Close</Button></DialogActions>
       </Dialog>
+
+      {/* Condition Manager */}
+      <ConditionManager
+        participant={selectedCharSheet}
+        open={showConditionManager}
+        onClose={() => setShowConditionManager(false)}
+        onCloseDialog={() => setShowConditionManager(false)}
+        onRemoveCondition={(pid, name) => handleRemoveCondition(pid, name)}
+        onAddCondition={(pid, name, duration, desc) => {
+          if (desc) {
+            invoke('CombatApplyCondition', activeCombat?.combatId, pid, name, duration, desc);
+          } else {
+            invoke('CombatApplyCondition', activeCombat?.combatId, pid, name, duration);
+          }
+          loadActiveCombat();
+        }}
+        isEditable={user?.role === 'Creator'}
+      />
 
       {/* Character Sheet Popup */}
       {selectedCharSheet && (

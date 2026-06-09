@@ -20,6 +20,10 @@ public record PlayerJoined(Guid GameId, Guid PlayerId, Guid UserId, string Chara
 
 public record PlayerLeft(Guid GameId, Guid PlayerId) : INotification;
 
+public record PlayerDisconnected(Guid GameId, Guid PlayerId, Guid UserId, string CharacterName, DateTime? DisconnectedAt) : INotification;
+
+public record PlayerReconnected(Guid GameId, Guid PlayerId, Guid UserId, string CharacterName) : INotification;
+
 public record PlayerRoleChanged(Guid GameId, Guid PlayerId, string NewRole) : INotification;
 
 // ==================== Session Events ====================

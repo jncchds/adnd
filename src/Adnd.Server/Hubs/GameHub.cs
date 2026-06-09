@@ -49,7 +49,112 @@ public partial class GameHub : Hub
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         _logger.LogInformation("Client disconnected: {ConnectionId}", Context.ConnectionId);
+
+        // Find all players connected via this connection and mark as disconnected
+        var disconnectedPlayers = await _context.Players
+            .Where(p => p.Status == PlayerStatus.Active)
+            .ToListAsync();
+
+        foreach (var player in disconnectedPlayers)
+        {
+            var connectionId = _playerConnections.GetValueOrDefault(player.Id.ToString());
+            if (connectionId == Context.ConnectionId)
+            {
+                player.Status = PlayerStatus.Disconnected;
+                player.LeftAt = DateTime.UtcNow;
+            }
+        }
+
+        await _context.SaveChangesAsync();
+
+        // Broadcast disconnection events for each affected player
+        foreach (var player in disconnectedPlayers.Where(p => p.Status == PlayerStatus.Disconnected && p.LeftAt.HasValue))
+        {
+            await Clients.Group(player.GameId.ToString()).SendAsync("PlayerDisconnected", new
+            {
+                PlayerId = player.Id,
+                UserId = player.UserId,
+                CharacterName = player.CharacterName,
+                GameId = player.GameId,
+                Message = $"{player.CharacterName} has been disconnected",
+                DisconnectedAt = player.LeftAt
+            });
+        }
+
         await base.OnDisconnectedAsync(exception);
+    }
+
+    // ==================== Heartbeat / Disconnection Detection ====================
+
+    /// <summary>
+    /// Check for players who have been disconnected (no heartbeat within timeout period).
+    /// Call this periodically from a background service or timer.
+    /// </summary>
+    public async Task CheckDisconnectedPlayersAsync(TimeSpan? timeout = null)
+    {
+        timeout ??= TimeSpan.FromSeconds(60);
+
+        var stalePlayers = await _context.Players
+            .Where(p => p.Status == PlayerStatus.Active)
+            .ToListAsync();
+
+        foreach (var player in stalePlayers)
+        {
+            var connectionId = _playerConnections.GetValueOrDefault(player.Id.ToString());
+            if (connectionId == null)
+            {
+                // Player has no active connection — mark as disconnected
+                player.Status = PlayerStatus.Disconnected;
+                player.LeftAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                await Clients.Group(player.GameId.ToString()).SendAsync("PlayerDisconnected", new
+                {
+                    PlayerId = player.Id,
+                    UserId = player.UserId,
+                    CharacterName = player.CharacterName,
+                    GameId = player.GameId,
+                    Message = $"{player.CharacterName} has been disconnected",
+                    DisconnectedAt = player.LeftAt
+                });
+
+                _logger.LogInformation("Player {CharacterName} ({UserId}) disconnected (no active connection) in game {GameId}",
+                    player.CharacterName, player.UserId, player.GameId);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Player sends a heartbeat to indicate they are still connected.
+    /// Resets their last-seen timestamp.
+    /// </summary>
+    public async Task SendHeartbeat(Guid gameId)
+    {
+        var userId = Context.UserIdentifier;
+        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var uid))
+            return;
+
+        var player = await _context.Players
+            .FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == uid && p.Status == PlayerStatus.Disconnected);
+
+        if (player != null)
+        {
+            // Reconnect a previously disconnected player
+            player.Status = PlayerStatus.Active;
+            player.LeftAt = null;
+            await _context.SaveChangesAsync();
+
+            await Clients.Group(gameId.ToString()).SendAsync("PlayerReconnected", new
+            {
+                PlayerId = player.Id,
+                UserId = player.UserId,
+                CharacterName = player.CharacterName,
+                Message = $"{player.CharacterName} has reconnected"
+            });
+
+            _logger.LogInformation("Player {CharacterName} ({UserId}) reconnected to game {GameId}",
+                player.CharacterName, player.UserId, gameId);
+        }
     }
 
     /// <summary>

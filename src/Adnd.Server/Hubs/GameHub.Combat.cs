@@ -473,4 +473,156 @@ public partial class GameHub
         }).ToList();
     }
 
+    // ==================== Action Economy ====================
+
+    public async Task<CombatLogResponse> SpendAction(Guid combatId, Guid participantId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.SpendActionAsync(combatId, participantId);
+        var participant = result.Participants.FirstOrDefault(p => p.Id == participantId);
+        if (participant == null) throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("ActionSpent", new
+        {
+            participantId,
+            displayName = participant.DisplayName,
+            actionsRemaining = participant.ActionsRemaining,
+            bonusActionsRemaining = participant.BonusActionsRemaining,
+            reactionsRemaining = participant.ReactionsRemaining,
+            movementsRemaining = participant.MovementsRemaining
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> SpendBonusAction(Guid combatId, Guid participantId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.SpendBonusActionAsync(combatId, participantId);
+        var participant = result.Participants.FirstOrDefault(p => p.Id == participantId);
+        if (participant == null) throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("BonusActionSpent", new
+        {
+            participantId,
+            displayName = participant.DisplayName,
+            bonusActionsRemaining = participant.BonusActionsRemaining
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> SpendReaction(Guid combatId, Guid participantId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.SpendReactionAsync(combatId, participantId);
+        var participant = result.Participants.FirstOrDefault(p => p.Id == participantId);
+        if (participant == null) throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("ReactionSpent", new
+        {
+            participantId,
+            displayName = participant.DisplayName,
+            reactionsRemaining = participant.ReactionsRemaining
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> SpendMovement(Guid combatId, Guid participantId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.SpendMovementAsync(combatId, participantId);
+        var participant = result.Participants.FirstOrDefault(p => p.Id == participantId);
+        if (participant == null) throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("MovementSpent", new
+        {
+            participantId,
+            displayName = participant.DisplayName,
+            movementsRemaining = participant.MovementsRemaining
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> RefreshActions(Guid combatId, Guid participantId)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.RefreshActionsAsync(combatId, participantId);
+        var participant = result.Participants.FirstOrDefault(p => p.Id == participantId);
+        if (participant == null) throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("ActionsRefreshed", new
+        {
+            participantId,
+            displayName = participant.DisplayName,
+            actionsRemaining = participant.ActionsRemaining,
+            bonusActionsRemaining = participant.BonusActionsRemaining,
+            reactionsRemaining = participant.ReactionsRemaining,
+            movementsRemaining = participant.MovementsRemaining
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<CombatLogResponse> SetActions(Guid combatId, Guid participantId,
+        int actions, int bonusActions, int reactions, int movements)
+    {
+        var combat = await _combatService.GetCombatAsync(combatId)
+            ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        var result = await _combatService.SetActionsAsync(combatId, participantId, actions, bonusActions, reactions, movements);
+        var participant = result.Participants.FirstOrDefault(p => p.Id == participantId);
+        if (participant == null) throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        await Clients.Group(combat.GameId.ToString()).SendAsync("ActionsSet", new
+        {
+            participantId,
+            displayName = participant.DisplayName,
+            actionsRemaining = participant.ActionsRemaining,
+            bonusActionsRemaining = participant.BonusActionsRemaining,
+            reactionsRemaining = participant.ReactionsRemaining,
+            movementsRemaining = participant.MovementsRemaining
+        });
+
+        return BuildCombatLog(result);
+    }
+
+    public async Task<ActionEconomyResponse> GetActionEconomy(Guid combatId, Guid participantId)
+    {
+        var participant = await _combatService.GetActionEconomyAsync(combatId, participantId);
+        return new ActionEconomyResponse
+        {
+            ParticipantId = participant.Id,
+            DisplayName = participant.DisplayName,
+            ActionsRemaining = participant.ActionsRemaining,
+            BonusActionsRemaining = participant.BonusActionsRemaining,
+            ReactionsRemaining = participant.ReactionsRemaining,
+            MovementsRemaining = participant.MovementsRemaining
+        };
+    }
+
+    // ==================== Action Economy Response DTOs ====================
+
+    public class ActionEconomyResponse
+    {
+        public Guid ParticipantId { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public int ActionsRemaining { get; set; }
+        public int BonusActionsRemaining { get; set; }
+        public int ReactionsRemaining { get; set; }
+        public int MovementsRemaining { get; set; }
+    }
+
 }

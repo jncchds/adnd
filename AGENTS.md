@@ -11,6 +11,11 @@
 - Per-game GameAgent with Hangfire persistence
 - Creator/AI-GM split architecture
 - Pluggable LLM provider system with agentic framework
+- Player roll negotiation (GM requests rolls, players confirm/decline)
+- Action economy (actions/bonus actions/reactions/movements tracking)
+- Spell slot management with visual tracker
+- Condition manager with emoji icons and duration countdown
+- Disconnected player detection via background service + heartbeat
 
 ## Directory Structure
 
@@ -29,18 +34,21 @@ src/
 │   │   ├── GameExtensions.cs       # EF query helpers for games
 │   │   └── Migrations/             # EF Core migrations
 │   ├── Events/               # MediatR events
-│   │   └── GameEvents.cs     # 25+ game event types
+│   │   └── GameEvents.cs     # 30+ game event types (added PlayerDisconnected, PlayerReconnected)
 │   ├── Handlers/             # MediatR event handlers
-│   │   ├── GameEventHandlers.cs  # GameLifecycle, GameAction, Chat, Plot, Session
+│   │   ├── GameEventHandlers.cs  # GameLifecycle, GameAction, Chat, Plot, Session, Player
 │   │   └── PlotWeaverHandler.cs  # PlotWeaver event handler
 │   ├── Hubs/
-│   │   └── GameHub.cs        # SignalR: chat, dice, skill checks, attacks, whispers
+│   │   ├── GameHub.cs            # SignalR: chat, dice, skill checks, attacks, whispers
+│   │   ├── GameHub.Combat.cs     # Combat hub methods (incl. action economy)
+│   │   └── GameHub.ToolCalls.cs  # Tool call confirmation (roll negotiation)
 │   ├── Models/
 │   │   ├── User.cs, Player.cs, Game.cs, GameSession.cs
 │   │   ├── Character.cs, Message.cs, NPC.cs, PlotThread.cs
 │   │   ├── CustomSystemDefinition.cs, RefreshToken.cs, AuthResponse.cs
 │   │   ├── AgentCall.cs, Whisper.cs, LLMPreset.cs, LLMInteractionLog.cs
-│   │   ├── Combat.cs (initiative, attack, skill check entities)
+│   │   ├── Combat.cs (initiative, attack, skill check entities + action economy fields)
+│   │   ├── GMTool.cs (GM tool calls, tool call status enum)
 │   │   └── PlotReview.cs
 │   ├── Services/
 │   │   ├── AuthService.cs                # JWT + refresh tokens
@@ -69,6 +77,17 @@ src/
 │   │   ├── PlotMilestoneSpawning.cs
 │   │   ├── PlotOpportunityDetection.cs
 │   │   ├── PlotSharedTypes.cs
+│   │   ├── PlayerDisconnectDetector.cs   # Background service for disconnected player detection
+│   │   ├── ISystemRules.cs               # Strategy pattern: DnD5eRules, PF2eRules, CoC7eRules
+│   │   ├── ICharacterCreation.cs         # Strategy pattern: DnD5eCharacterCreation, PF2eCharacterCreation, CoC7eCharacterCreation
+│   │   ├── IGameStart.cs                 # Game start + narrative generation strategies
+│   │   ├── IGameJoin.cs                  # Game join strategies
+│   │   ├── ICombatActions.cs             # Combat action factory
+│   │   ├── ICombatState.cs               # Combat state domain services
+│   │   ├── ICombatDomain.cs              # Combat domain services
+│   │   ├── ICombatData.cs                # Combat data services
+│   │   ├── ICombatQuery.cs               # Combat query service
+│   │   └── ICombatService.cs             # Combat service facade
 │   └── Program.cs            # DI, auth, Swagger, CORS, SPA, MediatR, GameAgent recovery
 └── Adnd.Client/              # Frontend (React 19 + TS + MUI)
     ├── src/
@@ -121,6 +140,11 @@ src/
 - **Hangfire + PostgreSQL** provides persistent job queue (survives restarts, future external broker replacement).
 - **Creator/GM split**: Creator defines plot seed/tone/LLM preset; AI-GM runs the game autonomously.
 - **PlotWeaver** handles dynamic plot generation with `PlotWeaver.cs` service and `PlotWeaverHandler.cs` event handler.
+- **PlayerDisconnectDetector** runs as a background service, checking for stale connections every 30s.
+- **Action economy** tracks actions/bonus actions/reactions/movements per combat participant.
+- **Spell slot management** is stored as JSON in the Character model with a visual tracker in the UI.
+- **Character creation wizard** includes 8 backgrounds (Acolyte, Criminal, Soldier, Sage, Gladiator, Folk Hero, Urchin, Noble).
+- **Player roll negotiation** uses `GMToolCall` model with `WaitingConfirmation` status and `ConfirmPlayerRoll`/`DeclinePlayerRoll` hub methods.
 
 ### Frontend (React)
 
@@ -165,10 +189,27 @@ src/
 | `src/Adnd.Server/Services/PlotSharedTypes.cs` | Shared types (StoryOpportunity, etc.) |
 | `src/Adnd.Server/Services/IGameAgent.cs` | IGameAgent + IGameAgentManager interfaces |
 | `src/Adnd.Server/Agent/GameAgent.cs` | GameAgent (per-game) + GameAgentManager (singleton) |
-| `src/Adnd.Server/Events/GameEvents.cs` | 25+ MediatR event types |
-| `src/Adnd.Server/Handlers/GameEventHandlers.cs` | MediatR notification handlers |
+| `src/Adnd.Server/Events/GameEvents.cs` | 30+ MediatR event types (added PlayerDisconnected, PlayerReconnected) |
+| `src/Adnd.Server/Handlers/GameEventHandlers.cs` | MediatR notification handlers (added PlayerHandler) |
 | `src/Adnd.Server/Handlers/PlotWeaverHandler.cs` | PlotWeaver event handler |
 | `src/Adnd.Server/Hubs/GameHub.cs` | SignalR hub — publishes events via IMediator |
+| `src/Adnd.Server/Hubs/GameHub.Combat.cs` | Combat hub methods (incl. action economy) |
+| `src/Adnd.Server/Hubs/GameHub.ToolCalls.cs` | Player roll negotiation (confirm/decline) |
+| `src/Adnd.Server/Services/PlayerDisconnectDetector.cs` | Background service for disconnected player detection |
+| `src/Adnd.Server/Services/ISystemRules.cs` | Strategy pattern: DnD5eRules, PF2eRules, CoC7eRules |
+| `src/Adnd.Server/Services/ICharacterCreation.cs` | Strategy pattern: character creation per system |
+| `src/Adnd.Server/Services/IGameStart.cs` | Game start + narrative generation strategies |
+| `src/Adnd.Server/Services/IGameJoin.cs` | Game join strategies |
+| `src/Adnd.Server/Services/ICombatActions.cs` | Combat action factory |
+| `src/Adnd.Server/Services/ICombatState.cs` | Combat state domain services |
+| `src/Adnd.Server/Services/ICombatDomain.cs` | Combat domain services |
+| `src/Adnd.Server/Services/ICombatData.cs` | Combat data services |
+| `src/Adnd.Server/Services/ICombatQuery.cs` | Combat query service |
+| `src/Adnd.Server/Services/ICombatService.cs` | Combat service facade |
+| `src/Adnd.Server/Models/GMTool.cs` | GM tool calls, tool call status enum |
+| `src/Adnd.Client/src/components/ToolCallBanner.tsx` | Tool call notification + roll request UI |
+| `src/Adnd.Client/src/components/PlayerRollDialog.tsx` | Player dice roll dialog |
+| `src/Adnd.Client/src/api/toolCallsHook.ts` | Tool call state management hook |
 | `src/Adnd.Server/Controllers/AdminController.cs` | NPCs, plots, characters, LLM presets, systems, GM agent |
 | `src/Adnd.Server/Controllers/GamesController.cs` | Games, sessions, players CRUD |
 | `src/Adnd.Client/src/api/client.ts` | API client — all backend calls |

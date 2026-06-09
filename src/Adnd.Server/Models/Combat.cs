@@ -43,6 +43,13 @@ public class CombatParticipant
     public JsonElement? SavingThrows { get; set; } // { "fortitude": 3, "reflex": 1, "will": -1 }
     public JsonElement? DeathSaveState { get; set; } // { "successes": 0, "failures": 0 }
     public JsonElement? Notes { get; set; } // GM notes about this participant
+
+    // Action economy (D&D 5e)
+    public int ActionsRemaining { get; set; } = 1;
+    public int BonusActionsRemaining { get; set; } = 0;
+    public int ReactionsRemaining { get; set; } = 1;
+    public int MovementsRemaining { get; set; } = 1;
+    public JsonElement? FreeActions { get; set; } // { "used": 0, "max": 0 } or custom count
 }
 
 public class CombatEvent

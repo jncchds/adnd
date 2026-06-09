@@ -19,5 +19,18 @@ public class Character
     public JsonElement Spells { get; set; }      // Spells
     public JsonElement Conditions { get; set; }  // Active conditions
     public JsonElement CustomFields { get; set; } // Anything else
+
+    // Background / Archetype
+    public string? Background { get; set; }
+    public JsonElement? BackgroundSkills { get; set; } // Selected background skills
+    public JsonElement? BackgroundProficiencies { get; set; } // Additional proficiencies
+    public JsonElement? BackgroundFeatures { get; set; } // Background features/traits
+
+    // Spell slot tracking (D&D 5e style)
+    public JsonElement? SpellSlots { get; set; } // { "1": { "total": 4, "remaining": 4 }, "2": { ... }, ... }
+    public JsonElement? SpellcastingAbility { get; set; } // Which attribute is used for spellcasting
+    public int? SpellSaveDC { get; set; }
+    public int? SpellAttackBonus { get; set; }
+
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
