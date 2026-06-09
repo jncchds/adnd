@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Adnd.Server.Models;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using System.Text.Json;
@@ -6,11 +7,11 @@ using System.Text.Json;
 namespace Adnd.Server.Data;
 
 // Value converter for PGVector float[]? <-> JSON string
-public class VectorValueConverter : Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<float[]?, string>
+public class VectorValueConverter : Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<float[]?, string?>
 {
     public VectorValueConverter() : base(
-        v => v == null ? "null" : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-        v => string.IsNullOrEmpty(v) || v == "null" ? null! : JsonSerializer.Deserialize<float[]>(v) ?? Array.Empty<float>()) { }
+        v => v == null ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+        v => string.IsNullOrEmpty(v) ? null! : JsonSerializer.Deserialize<float[]>(v) ?? Array.Empty<float>()) { }
 }
 
 public class AppDbContext : DbContext
@@ -45,16 +46,19 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // Configure PGVector for embeddings (variable length)
+        // Value converter for Message Metadata (JsonElement)
         modelBuilder.Entity<Message>()
-            .Property(m => m.Embedding)
-            .HasConversion(new VectorValueConverter())
-            .HasColumnType("vector");
-
-        modelBuilder.Entity<PlotThread>()
-            .Property(p => p.Embedding)
-            .HasConversion(new VectorValueConverter())
-            .HasColumnType("vector");
+            .Property(m => m.Metadata)
+            .HasConversion(
+                v => v.ValueKind == JsonValueKind.Undefined ? "{}" : v.GetRawText(),
+                v => string.IsNullOrEmpty(v) || v == "{}" ? default : JsonDocument.Parse(v).RootElement,
+                new ValueComparer<JsonElement>(
+                    (a, b) => (a.ValueKind == JsonValueKind.Undefined && b.ValueKind == JsonValueKind.Undefined) ||
+                              (a.ValueKind != JsonValueKind.Undefined && b.ValueKind != JsonValueKind.Undefined && a.GetRawText() == b.GetRawText()),
+                    v => v.ValueKind == JsonValueKind.Undefined ? 0 : v.GetRawText().GetHashCode(),
+                    v => v.ValueKind == JsonValueKind.Undefined ? default : JsonDocument.Parse(v.GetRawText()).RootElement
+                ))
+            .HasColumnType("jsonb");
 
         // PlotThread new fields
         modelBuilder.Entity<PlotThread>()

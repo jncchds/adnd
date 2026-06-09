@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Adnd.Server.Models;
 
@@ -24,7 +25,8 @@ public class Message
     public Player? WhisperTo { get; set; }
     public string? WhisperTarget { get; set; } // "all", "player:{userId}", "group:{groupName}"
 
-    // PGVector embedding
+    // PGVector embedding (stored as JSON text, converted by RAG service)
+    [NotMapped]
     public float[]? Embedding { get; set; }
 }
 

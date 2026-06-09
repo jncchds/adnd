@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace Adnd.Server.Models;
 
 public class PlotThread
@@ -35,7 +37,8 @@ public class PlotThread
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 
-    // PGVector embedding
+    // PGVector embedding (stored as JSON text, converted by RAG service)
+    [NotMapped]
     public float[]? Embedding { get; set; }
 }
 

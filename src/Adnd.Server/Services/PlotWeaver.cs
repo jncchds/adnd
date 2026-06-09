@@ -110,6 +110,24 @@ public class PlotWeaver : IPlotWeaver
         _logger = logger;
     }
 
+    /// <summary>
+    /// Get an LLM provider — first from registry (built-in), then from preset.
+    /// </summary>
+    private ILLMProvider GetProvider(LLMPreset preset)
+    {
+        var provider = _llmRegistry.GetProvider(preset.ProviderType);
+        if (provider != null) return provider;
+
+        return preset.ProviderType switch
+        {
+            "ollama" => new OllamaLLMProviderFromPreset(preset),
+            "lmstudio" => new LmStudioLLMProviderFromPreset(preset),
+            "openai" => new OpenAILLMProviderFromPreset(preset),
+            "google" => new GoogleAIStudioLLMProviderFromPreset(preset),
+            _ => null
+        };
+    }
+
     public async Task<bool> HasInitialThreadsAsync(Guid gameId)
     {
         return await _context.PlotThreads.AnyAsync(t => t.GameId == gameId);
@@ -128,7 +146,7 @@ public class PlotWeaver : IPlotWeaver
         if (game.LLMPreset == null)
             throw new InvalidOperationException("Cannot generate threads: no LLM preset configured.");
 
-        var provider = _llmRegistry.GetProvider(game.LLMPreset.ProviderType);
+        var provider = GetProvider(game.LLMPreset);
         if (provider == null)
             throw new InvalidOperationException($"LLM provider '{game.LLMPreset.ProviderType}' not available.");
 
@@ -234,7 +252,7 @@ public class PlotWeaver : IPlotWeaver
         if (game.LLMPreset == null)
             throw new InvalidOperationException("Cannot review: no LLM preset configured.");
 
-        var provider = _llmRegistry.GetProvider(game.LLMPreset.ProviderType);
+        var provider = GetProvider(game.LLMPreset);
         if (provider == null)
             throw new InvalidOperationException($"LLM provider '{game.LLMPreset.ProviderType}' not available.");
 
@@ -463,7 +481,7 @@ Only include threads that need changes. Threads not listed keep their current va
             return texts.Select(_ => new float[1536]).ToList(); // Fallback: random-ish vectors
         }
 
-        var provider = _llmRegistry.GetProvider(preset.ProviderType);
+        var provider = GetProvider(preset);
         if (provider == null)
         {
             _logger.LogWarning("LLM provider '{Provider}' not available for embeddings.", preset.ProviderType);
@@ -501,7 +519,7 @@ Only include threads that need changes. Threads not listed keep their current va
         if (game.LLMPreset == null)
             throw new InvalidOperationException("Cannot generate threads: no LLM preset configured.");
 
-        var provider = _llmRegistry.GetProvider(game.LLMPreset.ProviderType);
+        var provider = GetProvider(game.LLMPreset);
         if (provider == null)
             throw new InvalidOperationException($"LLM provider '{game.LLMPreset.ProviderType}' not available.");
 
@@ -611,7 +629,7 @@ Only generate threads that are genuinely new and relevant to the current game st
         if (game.LLMPreset == null)
             throw new InvalidOperationException("Cannot spawn milestones: no LLM preset configured.");
 
-        var provider = _llmRegistry.GetProvider(game.LLMPreset.ProviderType);
+        var provider = GetProvider(game.LLMPreset);
         if (provider == null)
             throw new InvalidOperationException($"LLM provider '{game.LLMPreset.ProviderType}' not available.");
 
@@ -723,7 +741,7 @@ The milestone should be a specific event (not a vague suggestion). Example: "The
         if (game.LLMPreset == null)
             throw new InvalidOperationException("Cannot detect opportunities: no LLM preset configured.");
 
-        var provider = _llmRegistry.GetProvider(game.LLMPreset.ProviderType);
+        var provider = GetProvider(game.LLMPreset);
         if (provider == null)
             throw new InvalidOperationException($"LLM provider '{game.LLMPreset.ProviderType}' not available.");
 

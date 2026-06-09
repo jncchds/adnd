@@ -115,6 +115,21 @@ public class AgentBus : IAgentBus
         _logger = logger;
     }
 
+    private ILLMProvider? GetProvider(LLMPreset preset)
+    {
+        var provider = _llmRegistry.GetProvider(preset.ProviderType);
+        if (provider != null) return provider;
+
+        return preset.ProviderType switch
+        {
+            "ollama" => new OllamaLLMProviderFromPreset(preset),
+            "lmstudio" => new LmStudioLLMProviderFromPreset(preset),
+            "openai" => new OpenAILLMProviderFromPreset(preset),
+            "google" => new GoogleAIStudioLLMProviderFromPreset(preset),
+            _ => null
+        };
+    }
+
     public async Task<AgentCall> SendCallAsync(AgentCall call)
     {
         call.Status = AgentCallStatus.Pending;
@@ -290,12 +305,12 @@ public class AgentBus : IAgentBus
             .FirstOrDefaultAsync(g => g.Id == call.GameId);
 
         string? providerType = null;
+        ILLMProvider? provider = null;
         if (game?.LLMPreset != null)
         {
             providerType = game.LLMPreset.ProviderType;
+            provider = GetProvider(game.LLMPreset);
         }
-
-        var provider = providerType != null ? _llmRegistry.GetProvider(providerType) : null;
         if (provider == null)
         {
             return $"LLM provider not available (tried: {providerType ?? "none"}).";
@@ -662,7 +677,7 @@ public class AgentBus : IAgentBus
             if (game.LLMPreset == null)
                 return "No LLM preset configured for this game.";
 
-            var provider = _llmRegistry.GetProvider(game.LLMPreset.ProviderType);
+            var provider = GetProvider(game.LLMPreset);
             if (provider == null)
                 return $"LLM provider '{game.LLMPreset.ProviderType}' not available.";
 
@@ -752,7 +767,7 @@ public class AgentBus : IAgentBus
             if (game.LLMPreset == null)
                 return "No LLM preset configured for this game.";
 
-            var provider = _llmRegistry.GetProvider(game.LLMPreset.ProviderType);
+            var provider = GetProvider(game.LLMPreset);
             if (provider == null)
                 return $"LLM provider '{game.LLMPreset.ProviderType}' not available.";
 

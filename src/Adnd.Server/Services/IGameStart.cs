@@ -69,7 +69,28 @@ public class DefaultNarrativeGenerator : INarrativeGenerationStrategy
 
     public async Task<string> GenerateOpeningNarrative(Game game)
     {
-        var provider = _providerRegistry.GetProvider(game.LLMPreset.ProviderType);
+        var llp = game.LLMPreset;
+        if (llp == null)
+        {
+            return "The adventure begins...";
+        }
+
+        // Try to get from registry first (built-in providers)
+        var provider = _providerRegistry.GetProvider(llp.ProviderType);
+
+        // If not in registry, create from the preset (for user-configured presets)
+        if (provider == null)
+        {
+            provider = llp.ProviderType switch
+            {
+                "ollama" => new OllamaLLMProviderFromPreset(llp),
+                "lmstudio" => new LmStudioLLMProviderFromPreset(llp),
+                "openai" => new OpenAILLMProviderFromPreset(llp),
+                "google" => new GoogleAIStudioLLMProviderFromPreset(llp),
+                _ => null
+            };
+        }
+
         if (provider == null)
         {
             return "The adventure begins...";
@@ -149,12 +170,14 @@ public class NarrativeGenerationFactory : INarrativeGenerationFactory
         if (_strategies.TryGetValue(providerType, out var strategy))
             return strategy;
 
-        // If we have an LLM provider, use the default generator
+        // If we have an LLM provider (built-in), use the default generator
         if (_providerRegistry.GetProvider(providerType) != null)
             return _strategies["default"];
 
-        // Fall back to template generator
-        return _strategies["template"];
+        // For preset-based providers (e.g., lmstudio, openai, google),
+        // the provider is created dynamically from the LLMPreset at runtime.
+        // Use the default generator which will create the provider from the preset.
+        return _strategies["default"];
     }
 
     public void RegisterStrategy(INarrativeGenerationStrategy strategy)

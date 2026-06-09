@@ -148,7 +148,7 @@ builder.Services.AddScoped<IWhisperService, WhisperService>();
 builder.Services.AddHttpClient();
 
 // Register the LLMProviderRegistry and auto-populate it with configured providers
-builder.Services.AddScoped<ILLMProviderRegistry>(sp =>
+builder.Services.AddSingleton<ILLMProviderRegistry>(sp =>
 {
     var registry = new LLMProviderRegistry(sp.GetRequiredService<ILogger<LLMProviderRegistry>>());
     var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
