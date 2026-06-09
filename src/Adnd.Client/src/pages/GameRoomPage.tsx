@@ -1,37 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
-import { useGame, useSessions, usePlayers, useCharacters, useGMStatus, useSway } from '../api/gameHooks';
+import { useGame, useSessions, usePlayers, useGMStatus, useSway } from '../api/gameHooks';
 import { useGameHub } from '../api/hubHook';
 import { useToolCalls } from '../api/toolCallsHook';
 import { useMessagesInfiniteScroll, UnifiedMessage, UnifiedMessageType } from '../api/gameToolsHook';
 import { api } from '../api/client';
-import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
+import { WhisperType, AgentType, AgentAction } from '../types';
 import CombatTab from './CombatTab';
 import CharacterCreateWizard from './CharacterCreateWizard';
-import DiceHistoryTab from './DiceHistoryTab';
-import CombatLogViewerPage from './CombatLogViewerPage';
-import GMToolPanel from './GMToolPanel';
 import ToolCallBanner from '../components/ToolCallBanner';
 import PlayerRollDialog from '../components/PlayerRollDialog';
 import {
   Box, Typography, Paper, TextField, Button,
-  List, ListItem, ListItemText, ListItemAvatar, Avatar, Chip,
+  List, ListItem, ListItemText, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions,
   IconButton, Divider, Alert, AlertTitle, Collapse,
   InputAdornment, MenuItem, Select, FormControl,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+
   InputLabel, useMediaQuery, useTheme
 } from '@mui/material';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { Send as SendIcon, SportsEsports as DiceIcon,
-  People as PeopleIcon, Replay as ReplayIcon, ExitToApp as LeaveIcon,
-  Article as SheetIcon } from '@mui/icons-material';
+  Replay as ReplayIcon, ExitToApp as LeaveIcon } from '@mui/icons-material';
 
 // ==================== Markdown Support ====================
 
 /** Message types that render with markdown */
-const MARKDOWN_TYPES = new Set<UnifiedMessageType>(['inGamePublic', 'inGameWhisper', 'oocPublic', 'oocWhisper']);
+const MARKDOWN_TYPES = new Set<UnifiedMessageType>([
+  'inGamePublic', 'inGameWhisper', 'oocPublic', 'oocWhisper',
+  'narration', 'gm', 'plotReview', 'consistencyCheck', 'suggestion'
+]);
 
 /** Check if content contains markdown syntax */
 function hasMarkdownSyntax(content: string): boolean {
@@ -48,16 +47,91 @@ const MESSAGE_STYLES: Record<UnifiedMessageType, {
   chipLabel: string;
   chipIcon: string;
 }> = {
-  inGamePublic:   { bg: 'rgba(103, 194, 58, 0.06)',   border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: 'In-Game', chipIcon: '🎮' },
-  inGameWhisper:  { bg: 'rgba(255, 193, 7, 0.08)',    border: 'rgba(255, 193, 7, 0.35)',  chipColor: 'warning', chipLabel: 'Whisper', chipIcon: '🤫' },
-  oocPublic:      { bg: 'rgba(33, 150, 243, 0.06)',   border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info',    chipLabel: 'OOC', chipIcon: '📢' },
-  oocWhisper:     { bg: 'rgba(156, 39, 176, 0.06)',   border: 'rgba(156, 39, 176, 0.25)',  chipColor: 'info', chipLabel: 'OOC Whisper', chipIcon: '🤫' },
-  dice:           { bg: 'rgba(255, 152, 0, 0.05)',    border: 'rgba(255, 152, 0, 0.20)',  chipColor: 'default', chipLabel: '🎲 Dice', chipIcon: '🎲' },
-  skillCheck:     { bg: 'rgba(156, 39, 176, 0.05)',   border: 'rgba(156, 39, 176, 0.20)',  chipColor: 'info', chipLabel: '📋 Check', chipIcon: '📋' },
-  attack:         { bg: 'rgba(244, 67, 54, 0.05)',    border: 'rgba(244, 67, 54, 0.20)',  chipColor: 'error', chipLabel: '⚔️ Attack', chipIcon: '⚔️' },
-  system:         { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: 'System', chipIcon: '⚙️' },
-  agentCall:      { bg: 'rgba(121, 85, 72, 0.05)',    border: 'rgba(121, 85, 72, 0.20)',  chipColor: 'default', chipLabel: '🤖 Agent', chipIcon: '🤖' },
-  agentResponse:  { bg: 'rgba(76, 175, 80, 0.05)',    border: 'rgba(76, 175, 80, 0.20)',  chipColor: 'success', chipLabel: '🤖 Reply', chipIcon: '🤖' },
+  // Chat messages
+  inGamePublic:    { bg: 'rgba(103, 194, 58, 0.06)',   border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: 'In-Game', chipIcon: '🎮' },
+  inGameWhisper:   { bg: 'rgba(255, 193, 7, 0.08)',    border: 'rgba(255, 193, 7, 0.35)',  chipColor: 'warning', chipLabel: 'Whisper', chipIcon: '🤫' },
+  oocPublic:       { bg: 'rgba(33, 150, 243, 0.06)',   border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info',    chipLabel: 'OOC', chipIcon: '📢' },
+  oocWhisper:      { bg: 'rgba(156, 39, 176, 0.06)',   border: 'rgba(156, 39, 176, 0.25)',  chipColor: 'info', chipLabel: 'OOC Whisper', chipIcon: '🤫' },
+  // Game actions
+  dice:            { bg: 'rgba(255, 152, 0, 0.05)',    border: 'rgba(255, 152, 0, 0.20)',  chipColor: 'default', chipLabel: '🎲 Dice', chipIcon: '🎲' },
+  skillCheck:      { bg: 'rgba(156, 39, 176, 0.05)',   border: 'rgba(156, 39, 176, 0.20)',  chipColor: 'info', chipLabel: '📋 Check', chipIcon: '📋' },
+  attack:          { bg: 'rgba(244, 67, 54, 0.05)',    border: 'rgba(244, 67, 54, 0.20)',  chipColor: 'error', chipLabel: '⚔️ Attack', chipIcon: '⚔️' },
+  spellCast:       { bg: 'rgba(156, 39, 176, 0.08)',   border: 'rgba(156, 39, 176, 0.30)',  chipColor: 'info', chipLabel: '✨ Spell', chipIcon: '✨' },
+  // Combat
+  combatStart:     { bg: 'rgba(244, 67, 54, 0.08)',    border: 'rgba(244, 67, 54, 0.30)',  chipColor: 'error', chipLabel: '⚔️ Combat', chipIcon: '⚔️' },
+  combatEnd:       { bg: 'rgba(76, 175, 80, 0.08)',    border: 'rgba(76, 175, 80, 0.30)',  chipColor: 'success', chipLabel: '⚔️ End', chipIcon: '✅' },
+  combatPause:     { bg: 'rgba(255, 193, 7, 0.06)',    border: 'rgba(255, 193, 7, 0.25)',  chipColor: 'warning', chipLabel: '⏸️ Pause', chipIcon: '⏸️' },
+  combatResume:    { bg: 'rgba(76, 175, 80, 0.06)',    border: 'rgba(76, 175, 80, 0.25)',  chipColor: 'success', chipLabel: '▶️ Resume', chipIcon: '▶️' },
+  initiative:      { bg: 'rgba(255, 152, 0, 0.05)',    border: 'rgba(255, 152, 0, 0.20)',  chipColor: 'default', chipLabel: '🎲 Init', chipIcon: '🎲' },
+  initiativeComplete: { bg: 'rgba(255, 152, 0, 0.05)', border: 'rgba(255, 152, 0, 0.20)',  chipColor: 'default', chipLabel: '📊 Init Order', chipIcon: '📊' },
+  turnAdvanced:    { bg: 'rgba(33, 150, 243, 0.05)',   border: 'rgba(33, 150, 243, 0.20)',  chipColor: 'info', chipLabel: '⏩ Turn', chipIcon: '⏩' },
+  turnRetreated:   { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '↩️ Retreat', chipIcon: '↩️' },
+  turnSet:         { bg: 'rgba(33, 150, 243, 0.05)',   border: 'rgba(33, 150, 243, 0.20)',  chipColor: 'info', chipLabel: '🎯 Set Turn', chipIcon: '🎯' },
+  damage:          { bg: 'rgba(244, 67, 54, 0.08)',    border: 'rgba(244, 67, 54, 0.30)',  chipColor: 'error', chipLabel: '💥 Damage', chipIcon: '💥' },
+  heal:            { bg: 'rgba(76, 175, 80, 0.08)',    border: 'rgba(76, 175, 80, 0.30)',  chipColor: 'success', chipLabel: '💚 Heal', chipIcon: '💚' },
+  deathSave:       { bg: 'rgba(244, 67, 54, 0.06)',    border: 'rgba(244, 67, 54, 0.25)',  chipColor: 'error', chipLabel: '💀 Death Save', chipIcon: '💀' },
+  conditionApplied: { bg: 'rgba(244, 67, 54, 0.06)',   border: 'rgba(244, 67, 54, 0.25)',  chipColor: 'error', chipLabel: '🔴 Condition', chipIcon: '🔴' },
+  conditionRemoved: { bg: 'rgba(76, 175, 80, 0.06)',   border: 'rgba(76, 175, 80, 0.25)',  chipColor: 'success', chipLabel: '🟢 Condition', chipIcon: '🟢' },
+  xpGranted:       { bg: 'rgba(255, 193, 7, 0.06)',    border: 'rgba(255, 193, 7, 0.25)',  chipColor: 'warning', chipLabel: '⭐ XP', chipIcon: '⭐' },
+  levelUp:         { bg: 'rgba(255, 193, 7, 0.08)',    border: 'rgba(255, 193, 7, 0.30)',  chipColor: 'warning', chipLabel: '🆙 Level Up', chipIcon: '🆙' },
+  sanLoss:         { bg: 'rgba(103, 194, 58, 0.06)',   border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '🧠 SAN Loss', chipIcon: '🧠' },
+  sanRecovery:     { bg: 'rgba(33, 150, 243, 0.06)',   border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info', chipLabel: '🧠 SAN Rec', chipIcon: '🧠' },
+  sanCheck:        { bg: 'rgba(156, 39, 176, 0.06)',   border: 'rgba(156, 39, 176, 0.25)',  chipColor: 'info', chipLabel: '🧠 SAN Check', chipIcon: '🧠' },
+  // Action economy
+  actionSpent:     { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '🎯 Action', chipIcon: '🎯' },
+  bonusActionSpent: { bg: 'rgba(158, 158, 158, 0.05)', border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '⚡ Bonus', chipIcon: '⚡' },
+  reactionSpent:   { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '🔄 Reaction', chipIcon: '🔄' },
+  movementSpent:   { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '🚶 Move', chipIcon: '🚶' },
+  actionsRefreshed: { bg: 'rgba(76, 175, 80, 0.06)',   border: 'rgba(76, 175, 80, 0.25)',  chipColor: 'success', chipLabel: '🔄 Refresh', chipIcon: '🔄' },
+  // Combat state
+  participantAdded: { bg: 'rgba(103, 194, 58, 0.06)',  border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '➕ Join', chipIcon: '➕' },
+  participantRemoved: { bg: 'rgba(158, 158, 158, 0.05)', border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '➖ Leave', chipIcon: '➖' },
+  gridSet:         { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '🗺️ Grid', chipIcon: '🗺️' },
+  positionSet:     { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '📍 Position', chipIcon: '📍' },
+  combatMove:      { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '🚶 Move', chipIcon: '🚶' },
+  itemAdded:       { bg: 'rgba(33, 150, 243, 0.05)',   border: 'rgba(33, 150, 243, 0.20)',  chipColor: 'info', chipLabel: '📦 Item', chipIcon: '📦' },
+  itemRemoved:     { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '🗑️ Item', chipIcon: '🗑️' },
+  itemEquipped:    { bg: 'rgba(76, 175, 80, 0.05)',    border: 'rgba(76, 175, 80, 0.20)',  chipColor: 'success', chipLabel: '⚔️ Equip', chipIcon: '⚔️' },
+  itemUnequipped:  { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '📦 Unequip', chipIcon: '📦' },
+  // Player lifecycle
+  playerJoined:    { bg: 'rgba(103, 194, 58, 0.06)',   border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '👤 Joined', chipIcon: '👤' },
+  playerLeft:      { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '👤 Left', chipIcon: '👤' },
+  playerDisconnected: { bg: 'rgba(255, 152, 0, 0.06)', border: 'rgba(255, 152, 0, 0.25)',  chipColor: 'warning', chipLabel: '⚠️ Disconnected', chipIcon: '⚠️' },
+  playerReconnected: { bg: 'rgba(103, 194, 58, 0.06)', border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '✅ Reconnected', chipIcon: '✅' },
+  playerRoleChanged: { bg: 'rgba(33, 150, 243, 0.06)', border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info', chipLabel: '🔄 Role', chipIcon: '🔄' },
+  // Character lifecycle
+  characterCreated: { bg: 'rgba(103, 194, 58, 0.06)',  border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '📝 Character', chipIcon: '📝' },
+  characterUpdated: { bg: 'rgba(33, 150, 243, 0.06)',  border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info', chipLabel: '📝 Updated', chipIcon: '📝' },
+  // Session/Game lifecycle
+  sessionCreated:  { bg: 'rgba(33, 150, 243, 0.06)',   border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info', chipLabel: '📋 Session', chipIcon: '📋' },
+  sessionClosed:   { bg: 'rgba(158, 158, 158, 0.06)',  border: 'rgba(158, 158, 158, 0.25)', chipColor: 'default', chipLabel: '📋 Closed', chipIcon: '📋' },
+  gameStarted:     { bg: 'rgba(103, 194, 58, 0.08)',   border: 'rgba(103, 194, 58, 0.30)',  chipColor: 'success', chipLabel: '🎮 Started', chipIcon: '🎮' },
+  gamePaused:      { bg: 'rgba(255, 193, 7, 0.06)',    border: 'rgba(255, 193, 7, 0.25)',  chipColor: 'warning', chipLabel: '⏸️ Paused', chipIcon: '⏸️' },
+  gameResumed:     { bg: 'rgba(103, 194, 58, 0.06)',   border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '▶️ Resumed', chipIcon: '▶️' },
+  gameArchived:    { bg: 'rgba(158, 158, 158, 0.06)',  border: 'rgba(158, 158, 158, 0.25)', chipColor: 'default', chipLabel: '📦 Archived', chipIcon: '📦' },
+  // GM / AI
+  gm:              { bg: 'rgba(121, 85, 72, 0.08)',    border: 'rgba(121, 85, 72, 0.30)',  chipColor: 'warning', chipLabel: '🤖 GM', chipIcon: '🤖' },
+  narration:       { bg: 'rgba(121, 85, 72, 0.06)',    border: 'rgba(121, 85, 72, 0.25)',  chipColor: 'warning', chipLabel: '🎬 Narration', chipIcon: '🎬' },
+  suggestion:      { bg: 'rgba(255, 193, 7, 0.06)',    border: 'rgba(255, 193, 7, 0.25)',  chipColor: 'warning', chipLabel: '💡 Suggestion', chipIcon: '💡' },
+  consistencyCheck: { bg: 'rgba(33, 150, 243, 0.06)',  border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info', chipLabel: '🔍 Check', chipIcon: '🔍' },
+  plotReview:      { bg: 'rgba(156, 39, 176, 0.06)',   border: 'rgba(156, 39, 176, 0.25)',  chipColor: 'info', chipLabel: '📋 Review', chipIcon: '📋' },
+  plotThreadCreated: { bg: 'rgba(156, 39, 176, 0.06)', border: 'rgba(156, 39, 176, 0.25)',  chipColor: 'info', chipLabel: '📖 Plot', chipIcon: '📖' },
+  plotThreadUpdated: { bg: 'rgba(156, 39, 176, 0.06)', border: 'rgba(156, 39, 176, 0.25)',  chipColor: 'info', chipLabel: '📖 Plot', chipIcon: '📖' },
+  npcEvent:        { bg: 'rgba(121, 85, 72, 0.06)',    border: 'rgba(121, 85, 72, 0.25)',  chipColor: 'default', chipLabel: '🧙 NPC', chipIcon: '🧙' },
+  // System / meta
+  system:          { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '⚙️ System', chipIcon: '⚙️' },
+  agentCall:       { bg: 'rgba(121, 85, 72, 0.05)',    border: 'rgba(121, 85, 72, 0.20)',  chipColor: 'default', chipLabel: '🤖 Agent', chipIcon: '🤖' },
+  agentResponse:   { bg: 'rgba(76, 175, 80, 0.05)',    border: 'rgba(76, 175, 80, 0.20)',  chipColor: 'success', chipLabel: '🤖 Reply', chipIcon: '🤖' },
+  toolCall:        { bg: 'rgba(255, 152, 0, 0.06)',    border: 'rgba(255, 152, 0, 0.25)',  chipColor: 'warning', chipLabel: '🔧 Tool', chipIcon: '🔧' },
+  toolCallConfirmed: { bg: 'rgba(76, 175, 80, 0.06)',  border: 'rgba(76, 175, 80, 0.25)',  chipColor: 'success', chipLabel: '✅ Tool', chipIcon: '✅' },
+  toolCallDenied:  { bg: 'rgba(244, 67, 54, 0.06)',    border: 'rgba(244, 67, 54, 0.25)',  chipColor: 'error', chipLabel: '❌ Tool', chipIcon: '❌' },
+  playerRollRequest: { bg: 'rgba(255, 193, 7, 0.06)',  border: 'rgba(255, 193, 7, 0.25)',  chipColor: 'warning', chipLabel: '🎲 Roll?', chipIcon: '🎲' },
+  playerRollConfirmed: { bg: 'rgba(103, 194, 58, 0.06)', border: 'rgba(103, 194, 58, 0.25)', chipColor: 'success', chipLabel: '✅ Roll', chipIcon: '✅' },
+  playerRollDeclined: { bg: 'rgba(158, 158, 158, 0.06)', border: 'rgba(158, 158, 158, 0.25)', chipColor: 'default', chipLabel: '❌ Roll', chipIcon: '❌' },
+  playerRollResult: { bg: 'rgba(255, 152, 0, 0.06)',   border: 'rgba(255, 152, 0, 0.25)',  chipColor: 'warning', chipLabel: '🎲 Result', chipIcon: '🎲' },
+  stateChange:     { bg: 'rgba(158, 158, 158, 0.06)',  border: 'rgba(158, 158, 158, 0.25)', chipColor: 'default', chipLabel: '🔄 State', chipIcon: '🔄' },
+  aiCombatSuggestion: { bg: 'rgba(33, 150, 243, 0.06)', border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info', chipLabel: '🤖 AI', chipIcon: '🤖' },
+  aiCombatAutoResolve: { bg: 'rgba(76, 175, 80, 0.06)', border: 'rgba(76, 175, 80, 0.25)',  chipColor: 'success', chipLabel: '⚡ Auto', chipIcon: '⚡' },
 };
 
 // ==================== Message Input Types ====================
@@ -74,7 +148,7 @@ export default function GameRoomPage() {
   const { game, isLoading } = useGame(id);
   const { sessions, refetch: refetchSessions } = useSessions(id);
   const { players, refetch: refetchPlayers } = usePlayers(id);
-  const { characters } = useCharacters(id);
+
   const { status: gmStatus, refetch: refetchGMStatus, pause: pauseGM, resume: resumeGM } = useGMStatus(id);
   const { sway, lastSway, isLoading: swayLoading } = useSway(id);
   const { isConnected, connect, on, invoke, disconnect, waitForConnection } = useGameHub();
@@ -89,7 +163,9 @@ export default function GameRoomPage() {
   }, []);
 
   useEffect(() => {
-    const tabMap: Record<string, number> = { 'chat': 0, 'combat': 1, 'players': 2, 'characters': 3, 'actions': 4, 'dice-history': 5, 'combat-log': 6, 'gm-tools': 7, 'agent-calls': 8, 'settings': 9 };
+    // Unified chat is the main interface — everything appears in chat
+    // Combat and Settings are secondary views
+    const tabMap: Record<string, number> = { 'chat': 0, 'combat': 1, 'settings': 2 };
     setActiveTab(tabMap[hash] ?? 0);
   }, [hash]);
 
@@ -164,7 +240,7 @@ export default function GameRoomPage() {
     on('NewMessage', (msg: any) => {
       addMessage({
         id: msg.Id,
-        type: 'inGamePublic',
+        type: msg.IsOOC ? 'oocPublic' : 'inGamePublic',
         content: msg.Content,
         senderName: msg.PlayerId ? 'Player' : 'AI-GM',
         senderRole: msg.PlayerId ? 'Player' : 'GM',
@@ -215,7 +291,7 @@ export default function GameRoomPage() {
       addMessage({
         id: `dice-${Date.now()}`,
         type: 'dice',
-        content: `${result.Formula} → ${result.Total}`,
+        content: `🎲 **${result.Formula}** → **${result.Total}**${result.FinalRolls?.length ? ` (kept: [${result.FinalRolls.join(',')}])` : ''}${result.Modifier ? ` (modifier: ${result.Modifier})` : ''}`,
         senderName: result.PlayerId ? 'Player' : 'System',
         senderRole: result.PlayerId ? 'Player' : 'System',
         timestamp: result.Timestamp,
@@ -239,7 +315,7 @@ export default function GameRoomPage() {
       addMessage({
         id: `skill-${Date.now()}`,
         type: 'skillCheck',
-        content: `${result.Skill}: d20(${result.DiceRoll})+${result.Modifier}=${result.Total} vs DC ${result.DC} → ${result.Success ? '✓ SUCCESS' : '✗ FAILURE'}`,
+        content: `📋 **${result.Skill} Check** vs DC ${result.DC}: d20(${result.DiceRoll})+${result.Modifier >= 0 ? '+' : ''}${result.Modifier} = **${result.Total}** → ${result.Success ? '✅ Success' : '❌ Failure'}`,
         senderName: 'System',
         senderRole: 'System',
         timestamp: result.RolledAt,
@@ -254,7 +330,7 @@ export default function GameRoomPage() {
       addMessage({
         id: `attack-${Date.now()}`,
         type: 'attack',
-        content: `${result.Weapon} vs ${result.Target}: ${result.Hit ? `HIT! ${result.DamageTotal} damage` : 'MISS'}`,
+        content: `⚔️ **${result.Weapon}** vs **${result.Target}**: d20(${result.AttackRoll}) vs AC ${result.AC} → ${result.Hit ? `✅ **HIT!** ${result.DamageTotal} damage` : '❌ **MISS**'}`,
         senderName: 'System',
         senderRole: 'System',
         timestamp: result.RolledAt,
@@ -263,6 +339,319 @@ export default function GameRoomPage() {
         attackTarget: result.Target,
         attackHit: result.Hit,
         attackDamage: result.DamageTotal,
+      });
+    });
+
+    // ==================== Combat Events ====================
+
+    on('CombatStarted', (event: any) => {
+      addMessage({
+        id: `combat-start-${event.combatId}`,
+        type: 'combatStart',
+        content: `⚔️ **Combat Started**: ${event.name || 'An unexpected encounter!'} (${event.participants?.length || 0} participants)`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: event.startedAt || new Date().toISOString(),
+        isSystem: true,
+        combatName: event.name,
+      });
+    });
+
+    on('CombatEnded', (event: any) => {
+      addMessage({
+        id: `combat-end-${event.combatId}`,
+        type: 'combatEnd',
+        content: `⚔️ **Combat Ended**: ${event.result || 'No result'}`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: event.endedAt || new Date().toISOString(),
+        isSystem: true,
+      });
+    });
+
+    on('CombatPaused', () => {
+      addMessage({
+        id: `combat-pause-${Date.now()}`,
+        type: 'combatPause',
+        content: '⏸️ Combat paused',
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+      });
+    });
+
+    on('CombatResumed', () => {
+      addMessage({
+        id: `combat-resume-${Date.now()}`,
+        type: 'combatResume',
+        content: '▶️ Combat resumed',
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+      });
+    });
+
+    on('CombatParticipantAdded', (event: any) => {
+      addMessage({
+        id: `participant-${event.participantId}-${Date.now()}`,
+        type: 'participantAdded',
+        content: `➕ **${event.displayName}** (${event.participantType}) joins combat — HP: ${event.currentHP}/${event.maxHP}, AC: ${event.ac}`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+        participantType: event.participantType,
+        hp: event.currentHP,
+        maxHP: event.maxHP,
+        ac: event.ac,
+      });
+    });
+
+    on('CombatParticipantRemoved', (event: any) => {
+      addMessage({
+        id: `participant-removed-${event.participantId}-${Date.now()}`,
+        type: 'participantRemoved',
+        content: '➖ Participant removed from combat',
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+      });
+    });
+
+    on('InitiativeRolled', (event: any) => {
+      addMessage({
+        id: `initiative-${event.participantId}-${Date.now()}`,
+        type: 'initiative',
+        content: `🎲 **${event.displayName}** rolls initiative: **${event.initiative}**`,
+        senderName: event.displayName,
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+        initiative: event.initiative,
+        diceRolls: event.rolls,
+      });
+    });
+
+    on('InitiativeComplete', (event: any) => {
+      addMessage({
+        id: `initiative-complete-${Date.now()}`,
+        type: 'initiativeComplete',
+        content: `📊 **Initiative order**: ${event.turnOrder}`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+      });
+    });
+
+    on('TurnAdvanced', (event: any) => {
+      addMessage({
+        id: `turn-${Date.now()}`,
+        type: 'turnAdvanced',
+        content: `⏩ **Turn ${event.currentRound}**: ${event.displayName}'s turn`,
+        senderName: event.displayName,
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+        hp: event.currentHP,
+        maxHP: event.maxHP,
+        ac: event.ac,
+        initiative: event.initiative,
+      });
+    });
+
+    on('TurnRetreated', (event: any) => {
+      addMessage({
+        id: `turn-retreat-${Date.now()}`,
+        type: 'turnRetreated',
+        content: `↩️ **Turn Retreated**: ${event.displayName}'s turn`,
+        senderName: event.displayName,
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+      });
+    });
+
+    on('CombatDamage', (event: any) => {
+      addMessage({
+        id: `damage-${Date.now()}`,
+        type: 'damage',
+        content: `💥 **Damage**: ${event.damage}${event.source ? ` from ${event.source}` : ''} — HP: ${event.hp}/${event.maxHP}`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+        damage: event.damage,
+        hp: event.hp,
+        maxHP: event.maxHP,
+      });
+    });
+
+    on('CombatHeal', (event: any) => {
+      addMessage({
+        id: `heal-${Date.now()}`,
+        type: 'heal',
+        content: `💚 **Heal**: ${event.amount} HP${event.source ? ` from ${event.source}` : ''} — HP: ${event.hp}/${event.maxHP}`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+        healAmount: event.amount,
+        hp: event.hp,
+        maxHP: event.maxHP,
+      });
+    });
+
+    on('ConditionApplied', (event: any) => {
+      addMessage({
+        id: `condition-${Date.now()}`,
+        type: 'conditionApplied',
+        content: `🔴 **Condition Applied**: ${event.conditionName}${event.duration ? ` (duration: ${event.duration})` : ''}`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        conditionName: event.conditionName,
+        conditionDuration: event.duration,
+      });
+    });
+
+    on('ConditionRemoved', (event: any) => {
+      addMessage({
+        id: `condition-removed-${Date.now()}`,
+        type: 'conditionRemoved',
+        content: `🟢 **Condition Removed**: ${event.conditionName}`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        conditionName: event.conditionName,
+      });
+    });
+
+    on('CombatDeathSave', (event: any) => {
+      addMessage({
+        id: `death-save-${Date.now()}`,
+        type: 'deathSave',
+        content: `💀 **Death Save**: ${event.participant} — ${event.successes} successes, ${event.failures} failures${event.isStabilized ? ' — Stabilized!' : event.isDead ? ' — Dead!' : ''}`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.participant,
+      });
+    });
+
+    on('ActionSpent', (event: any) => {
+      addMessage({
+        id: `action-${Date.now()}`,
+        type: 'actionSpent',
+        content: `🎯 **Action spent**: ${event.displayName} has ${event.actionsRemaining} actions remaining`,
+        senderName: event.displayName,
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+        actionsRemaining: event.actionsRemaining,
+        bonusActionsRemaining: event.bonusActionsRemaining,
+        reactionsRemaining: event.reactionsRemaining,
+        movementsRemaining: event.movementsRemaining,
+      });
+    });
+
+    on('BonusActionSpent', (event: any) => {
+      addMessage({
+        id: `bonus-action-${Date.now()}`,
+        type: 'bonusActionSpent',
+        content: `⚡ **Bonus Action spent**: ${event.displayName} has ${event.bonusActionsRemaining} remaining`,
+        senderName: event.displayName,
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+        bonusActionsRemaining: event.bonusActionsRemaining,
+      });
+    });
+
+    on('ReactionSpent', (event: any) => {
+      addMessage({
+        id: `reaction-${Date.now()}`,
+        type: 'reactionSpent',
+        content: `🔄 **Reaction spent**: ${event.displayName} has ${event.reactionsRemaining} remaining`,
+        senderName: event.displayName,
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+        reactionsRemaining: event.reactionsRemaining,
+      });
+    });
+
+    on('MovementSpent', (event: any) => {
+      addMessage({
+        id: `movement-${Date.now()}`,
+        type: 'movementSpent',
+        content: `🚶 **Movement spent**: ${event.displayName} has ${event.movementsRemaining} remaining`,
+        senderName: event.displayName,
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+        movementsRemaining: event.movementsRemaining,
+      });
+    });
+
+    on('ActionsRefreshed', (event: any) => {
+      addMessage({
+        id: `actions-refreshed-${Date.now()}`,
+        type: 'actionsRefreshed',
+        content: `🔄 **Actions refreshed**: ${event.displayName} — Actions: ${event.actionsRemaining}, Bonus: ${event.bonusActionsRemaining}, Reactions: ${event.reactionsRemaining}, Movement: ${event.movementsRemaining}`,
+        senderName: event.displayName,
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.displayName,
+        actionsRemaining: event.actionsRemaining,
+        bonusActionsRemaining: event.bonusActionsRemaining,
+        reactionsRemaining: event.reactionsRemaining,
+        movementsRemaining: event.movementsRemaining,
+      });
+    });
+
+    // ==================== Player Lifecycle ====================
+
+    on('PlayerDisconnected', (event: any) => {
+      addMessage({
+        id: `disconnect-${event.playerId}-${Date.now()}`,
+        type: 'playerDisconnected',
+        content: `⚠️ **${event.characterName}** has been disconnected`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: event.disconnectedAt || new Date().toISOString(),
+        isSystem: true,
+        participantName: event.characterName,
+      });
+    });
+
+    on('PlayerReconnected', (event: any) => {
+      addMessage({
+        id: `reconnect-${event.playerId}-${Date.now()}`,
+        type: 'playerReconnected',
+        content: `✅ **${event.characterName}** has reconnected`,
+        senderName: 'System',
+        senderRole: 'System',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        participantName: event.characterName,
       });
     });
 
@@ -465,30 +854,7 @@ export default function GameRoomPage() {
     }
   };
 
-  const handleRefreshAgentCalls = async () => {
-    if (!id) return;
-    try {
-      const calls = await invoke('GetAgentCallHistory', id);
-      if (calls) {
-        // Add agent calls as messages
-        const agentMsgs: UnifiedMessage[] = calls.map((call: any) => ({
-          id: `agent-${call.Id}`,
-          type: call.Status === 'Running' ? 'agentCall' : 'agentResponse',
-          content: `${getAgentLabel(call.FromAgent)} → ${getAgentLabel(call.ToAgent)}: ${getActionLabel(call.Action)} → ${call.Status}`,
-          senderName: 'Agent Framework',
-          senderRole: 'System',
-          timestamp: call.CreatedAt,
-          isSystem: true,
-          agentFrom: getAgentLabel(call.FromAgent),
-          agentAction: getActionLabel(call.Action),
-          agentStatus: call.Status,
-        }));
-        agentMsgs.forEach(m => addMessage(m));
-      }
-    } catch (e) {
-      // ignore
-    }
-  };
+
 
   const handleDiceRoll = async () => {
     if (!selectedSession) return;
@@ -522,14 +888,7 @@ export default function GameRoomPage() {
     }
   };
 
-  const handleAttack = async (weapon: string, target: string) => {
-    if (!selectedSession) return;
-    try {
-      await invoke('Attack', selectedSession, weapon, target, user?.id);
-    } catch (e: any) {
-      setErrorState(e.message);
-    }
-  };
+
 
   const handleCreateSession = async () => {
     if (!id || !sessionTitle.trim()) return;
@@ -903,36 +1262,9 @@ export default function GameRoomPage() {
             <CombatTab gameId={id || ''} />
           )}
 
-          {hash === 'players' && (
-            <PlayersTab players={players} currentUserId={user?.id} />
-          )}
-
-          {hash === 'characters' && (
-            <CharactersTab characters={characters} currentUserName={user?.displayName} currentUserId={user?.id} currentEmail={user?.email} onCreateCharacter={() => setShowCharacterWizard(true)} />
-          )}
-
-          {hash === 'actions' && (
-            <ActionsTab onSkillCheck={handleSkillCheck} onAttack={handleAttack} onDiceRoll={() => setOpenDiceDialog(true)} />
-          )}
-
-          {hash === 'agent-calls' && (
-            <AgentCallsTab
-              calls={[]}
-              onRefresh={handleRefreshAgentCalls}
-            />
-          )}
-
-          {hash === 'dice-history' && (
-            <DiceHistoryTab />
-          )}
-
-          {hash === 'combat-log' && (
-            <CombatLogViewerPage />
-          )}
-
-          {hash === 'gm-tools' && (
-            <GMToolPanel />
-          )}
+          {/* Note: Players, Characters, Actions, Dice History, Combat Log, GM Tools, and Agent Calls
+              are all visible in the unified chat above. Use the chat to see everything.
+              Quick links to detailed views are available in the side panel. */}
 
           {hash === 'settings' && (
             <SettingsTab
@@ -1441,18 +1773,39 @@ function UnifiedChatPanel({
 function MessageBubble({ msg }: { msg: UnifiedMessage }) {
   const style = MESSAGE_STYLES[msg.type];
   const isWhisper = msg.isWhisper || msg.type === 'inGameWhisper' || msg.type === 'oocWhisper';
-  const isSystem = msg.isSystem || msg.type === 'dice' || msg.type === 'skillCheck' || msg.type === 'attack';
+  const isSystem = msg.isSystem || ['dice', 'skillCheck', 'attack', 'spellCast', 'combatStart', 'combatEnd', 'combatPause', 'combatResume',
+    'initiative', 'initiativeComplete', 'turnAdvanced', 'turnRetreated', 'turnSet', 'damage', 'heal', 'deathSave',
+    'conditionApplied', 'conditionRemoved', 'xpGranted', 'levelUp', 'sanLoss', 'sanRecovery', 'sanCheck',
+    'actionSpent', 'bonusActionSpent', 'reactionSpent', 'movementSpent', 'actionsRefreshed', 'participantAdded',
+    'participantRemoved', 'gridSet', 'positionSet', 'combatMove', 'itemAdded', 'itemRemoved', 'itemEquipped',
+    'itemUnequipped', 'playerJoined', 'playerLeft', 'playerDisconnected', 'playerReconnected', 'playerRoleChanged',
+    'characterCreated', 'characterUpdated', 'sessionCreated', 'sessionClosed', 'gameStarted', 'gamePaused',
+    'gameResumed', 'gameArchived', 'system', 'agentCall', 'agentResponse', 'toolCall', 'toolCallConfirmed',
+    'toolCallDenied', 'playerRollRequest', 'playerRollConfirmed', 'playerRollDeclined', 'playerRollResult',
+    'stateChange', 'aiCombatSuggestion', 'aiCombatAutoResolve'].includes(msg.type);
+
+  // Determine if this is a system/notification message (rendered more subtly)
+  const isNotification = ['combatStart', 'combatEnd', 'combatPause', 'combatResume', 'initiative', 'initiativeComplete',
+    'turnAdvanced', 'turnRetreated', 'turnSet', 'participantAdded', 'participantRemoved', 'playerJoined', 'playerLeft',
+    'playerDisconnected', 'playerReconnected', 'playerRoleChanged', 'characterCreated', 'characterUpdated',
+    'sessionCreated', 'sessionClosed', 'gameStarted', 'gamePaused', 'gameResumed', 'gameArchived', 'stateChange',
+    'gridSet', 'positionSet', 'combatMove', 'itemAdded', 'itemRemoved', 'itemEquipped', 'itemUnequipped',
+    'actionSpent', 'bonusActionSpent', 'reactionSpent', 'movementSpent', 'actionsRefreshed', 'xpGranted', 'levelUp',
+    'sanLoss', 'sanRecovery', 'sanCheck', 'deathSave', 'conditionApplied', 'conditionRemoved',
+    'toolCall', 'toolCallConfirmed', 'toolCallDenied', 'playerRollRequest', 'playerRollConfirmed', 'playerRollDeclined',
+    'aiCombatSuggestion', 'aiCombatAutoResolve'].includes(msg.type);
 
   return (
     <Box sx={{
-      mb: 1,
-      p: 1.5,
+      mb: isNotification ? 0.5 : 1,
+      p: isNotification ? 0.75 : 1.5,
       borderRadius: 2,
       bgcolor: style.bg,
       borderLeft: `3px solid ${style.border}`,
+      opacity: isNotification ? 0.85 : 1,
     }}>
       {/* Header: Type chip + sender + time */}
-      <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
+      <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap', mb: isNotification ? 0.25 : 0.5 }}>
         <Chip
           label={`${style.chipIcon} ${style.chipLabel}`}
           size="small"
@@ -1494,12 +1847,14 @@ function MessageBubble({ msg }: { msg: UnifiedMessage }) {
         </Typography>
       )}
 
-      {/* Extra info for dice/skill/attack */}
+      {/* Extra info for dice */}
       {msg.type === 'dice' && msg.diceRolls && (
         <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
           Rolls: [{msg.diceRolls.join(', ')}]
         </Typography>
       )}
+
+      {/* Extra info for skill checks */}
       {msg.type === 'skillCheck' && msg.skillResult && (
         <Chip
           label={msg.skillResult === 'success' ? '✓ Success' : '✗ Failure'}
@@ -1508,6 +1863,8 @@ function MessageBubble({ msg }: { msg: UnifiedMessage }) {
           sx={{ mt: 0.5, height: 20, fontSize: 10 }}
         />
       )}
+
+      {/* Extra info for attacks */}
       {msg.type === 'attack' && (
         <Box sx={{ mt: 0.5 }}>
           <Chip
@@ -1526,6 +1883,49 @@ function MessageBubble({ msg }: { msg: UnifiedMessage }) {
           )}
         </Box>
       )}
+
+      {/* Extra info for combat participants */}
+      {msg.type === 'participantAdded' && msg.participantType && (
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+          Type: {msg.participantType}{msg.hp != null ? ` · HP: ${msg.hp}/${msg.maxHP}` : ''}{msg.ac != null ? ` · AC: ${msg.ac}` : ''}
+        </Typography>
+      )}
+
+      {/* Extra info for initiative */}
+      {msg.type === 'initiative' && msg.diceRolls && (
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+          Rolls: [{msg.diceRolls.join(', ')}]
+        </Typography>
+      )}
+
+      {/* Extra info for conditions */}
+      {msg.type === 'conditionApplied' && msg.conditionDuration != null && (
+        <Chip
+          label={`Duration: ${msg.conditionDuration}`}
+          size="small"
+          color="warning"
+          sx={{ mt: 0.5, height: 20, fontSize: 10 }}
+        />
+      )}
+
+      {/* Extra info for damage/heal */}
+      {(msg.type === 'damage' || msg.type === 'heal') && msg.hp != null && (
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+          HP: {msg.hp}/{msg.maxHP}
+        </Typography>
+      )}
+
+      {/* Extra info for action economy */}
+      {(msg.type === 'actionSpent' || msg.type === 'bonusActionSpent' || msg.type === 'reactionSpent' || msg.type === 'movementSpent') && (
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+          {msg.actionsRemaining != null ? `Actions: ${msg.actionsRemaining} ` : ''}
+          {msg.bonusActionsRemaining != null ? `Bonus: ${msg.bonusActionsRemaining} ` : ''}
+          {msg.reactionsRemaining != null ? `Reactions: ${msg.reactionsRemaining} ` : ''}
+          {msg.movementsRemaining != null ? `Movement: ${msg.movementsRemaining}` : ''}
+        </Typography>
+      )}
+
+      {/* Extra info for agent calls */}
       {msg.type === 'agentCall' && msg.agentStatus && (
         <Chip
           label={msg.agentStatus}
@@ -1534,127 +1934,21 @@ function MessageBubble({ msg }: { msg: UnifiedMessage }) {
           sx={{ mt: 0.5, height: 20, fontSize: 10 }}
         />
       )}
+
+      {/* Extra info for player roll */}
+      {msg.type === 'playerRollRequest' && msg.skill && (
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+          Skill: {msg.skill} · DC: {msg.skillDC}
+        </Typography>
+      )}
     </Box>
   );
 }
 
 // ==================== Sub-Components ====================
 
-function PlayersTab({ players, currentUserId }: { players: any[]; currentUserId?: string }) {
-  const filteredPlayers = players.filter(p => p.id !== currentUserId);
-  const isCreator = players.some(p => p.role === 'Creator');
-  return (
-    <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>{isCreator ? 'Players' : 'Other Players'} ({filteredPlayers.length})</Typography>
-      {filteredPlayers.length === 0 ? (
-        <Typography color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
-          {isCreator ? 'No other players yet. Share your invite code to get players!' : 'No other players yet.'}
-        </Typography>
-      ) : (
-        <List>
-          {filteredPlayers.map((p: any) => (
-            <ListItem key={p.id} sx={{ px: 0 }}>
-              <ListItemAvatar>
-                <Avatar sx={{ bgcolor: p.role === 'Creator' ? 'warning.main' : p.role === 'Spectator' ? 'info.main' : 'primary.main' }}>
-                  {p.role === 'Creator' ? '🎬' : p.role === 'Spectator' ? '👁️' : '👤'}
-                </Avatar>
-              </ListItemAvatar>
-              <ListItemText
-                primary={p.userName || p.characterName}
-                secondary={p.characterName}
-              />
-              <Chip label={p.role} size="small" color={p.role === 'Creator' ? 'warning' : p.role === 'Spectator' ? 'info' : 'default'} variant="outlined" />
-              <Chip label={p.status} size="small" color={p.status === 'Active' ? 'success' : 'default'} />
-            </ListItem>
-          ))}
-        </List>
-      )}
-    </Paper>
-  );
-}
-
-function CharactersTab({ characters, currentUserName, currentUserId, currentEmail, onCreateCharacter }: { characters: any[]; currentUserName?: string; currentUserId?: string; currentEmail?: string; onCreateCharacter?: () => void }) {
-  const navigate = useNavigate();
-  const myCharacter = characters.find(c =>
-    c.playerName === currentUserName ||
-    c.playerUserId === currentUserId ||
-    c.playerEmail === currentEmail
-  );
-  return (
-    <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>My Character</Typography>
-      {!currentUserName ? (
-        <Typography color="text.secondary">Unable to identify your character.</Typography>
-      ) : myCharacter ? (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Paper variant="outlined" sx={{ p: 2 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-              <Typography variant="h6">{myCharacter.name}</Typography>
-              <Chip label={`${myCharacter.class} Lv.${myCharacter.level}`} size="small" />
-            </Box>
-            <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-              <Chip label={`HP: ${myCharacter.currentHP}/${myCharacter.maxHP}`} size="small" color={myCharacter.currentHP < myCharacter.maxHP * 0.3 ? 'error' : 'default'} />
-            </Box>
-            <Typography variant="caption" color="text.secondary">
-              Last updated: {new Date(myCharacter.updatedAt).toLocaleString()}
-            </Typography>
-            <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
-              <Button size="small" variant="outlined" startIcon={<SheetIcon />}
-                onClick={() => navigate(`/character/${myCharacter.id}`)}>
-                View Sheet
-              </Button>
-            </Box>
-          </Paper>
-        </Box>
-      ) : (
-        <>
-          <Typography color="text.secondary" sx={{ mb: 2 }}>No character found. Create one below.</Typography>
-          <Button variant="contained" startIcon={<PeopleIcon />} onClick={onCreateCharacter}>Create Character</Button>
-        </>
-      )}
-    </Paper>
-  );
-}
-
-function ActionsTab({ onSkillCheck, onAttack, onDiceRoll }: any) {
-  const [skill, setSkill] = useState('Perception');
-  const [dc, setDc] = useState(15);
-  const [weapon, setWeapon] = useState('Longsword');
-  const [target, setTarget] = useState('');
-
-  return (
-    <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>Quick Actions</Typography>
-
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle1" gutterBottom>🎲 Dice Roller</Typography>
-        <Button variant="contained" onClick={onDiceRoll}>Open Dice Roller</Button>
-      </Box>
-
-      <Divider sx={{ my: 2 }} />
-
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="subtitle1" gutterBottom>📋 Skill Check</Typography>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          <TextField size="small" label="Skill" value={skill} onChange={e => setSkill(e.target.value)} sx={{ minWidth: 150 }} />
-          <TextField size="small" label="DC" type="number" value={dc} onChange={e => setDc(parseInt(e.target.value) || 0)} sx={{ width: 80 }} />
-          <Button variant="outlined" onClick={() => onSkillCheck(skill, dc)}>Roll {skill}</Button>
-        </Box>
-      </Box>
-
-      <Divider sx={{ my: 2 }} />
-
-      <Box>
-        <Typography variant="subtitle1" gutterBottom>⚔️ Attack</Typography>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          <TextField size="small" label="Weapon" value={weapon} onChange={e => setWeapon(e.target.value)} sx={{ minWidth: 150 }} />
-          <TextField size="small" label="Target" value={target} onChange={e => setTarget(e.target.value)} placeholder="Target name" />
-          <Button variant="outlined" color="error" onClick={() => onAttack(weapon, target || 'target')}>Attack</Button>
-        </Box>
-      </Box>
-    </Paper>
-  );
-}
+// Note: Players, Characters, Actions, Dice History, Combat Log, GM Tools, and Agent Calls
+// are all visible in the unified chat above. No separate tabs needed.
 
 function SettingsTab({ game, sessions, onNewSession, isCreator, gameId, onTriggerNarrate, onTriggerSuggest, onTriggerConsistency, onTriggerReview }: any) {
   const navigate = useNavigate();
@@ -1816,109 +2110,6 @@ function SettingsTab({ game, sessions, onNewSession, isCreator, gameId, onTrigge
           </List>
         ) : (
           <Typography color="text.secondary" variant="body2">No sessions yet. Create one to start tracking your game.</Typography>
-        )}
-      </Box>
-    </Paper>
-  );
-}
-
-// ==================== Agent Calls Tab ====================
-
-function AgentCallsTab({ calls, onRefresh }: any) {
-  const getStatusColor = (status: number) => {
-    switch (status) {
-      case AgentCallStatus.Running: return 'warning';
-      case AgentCallStatus.Completed: return 'success';
-      case AgentCallStatus.Failed: return 'error';
-      case AgentCallStatus.Pending: return 'default';
-      default: return 'default';
-    }
-  };
-
-  const getAgentLabel = (agent: number) => {
-    switch (agent) {
-      case AgentType.Creator: return '🎬 Creator';
-      case AgentType.GM: return '🤖 AI-GM';
-      case AgentType.LLM: return '🤖 LLM';
-      case AgentType.Dice: return '🎲 Dice';
-      case AgentType.RAG: return '📚 RAG';
-      case AgentType.NPC: return '🧙 NPC';
-      case AgentType.Player: return '👤 Player';
-      case AgentType.System: return '⚙️ System';
-      default: return '❓ Unknown';
-    }
-  };
-
-  const getActionLabel = (action: number) => {
-    switch (action) {
-      case AgentAction.Query: return 'Query';
-      case AgentAction.Generate: return 'Generate';
-      case AgentAction.Roll: return 'Roll';
-      case AgentAction.Check: return 'Check';
-      case AgentAction.Narrate: return 'Narrate';
-      case AgentAction.Suggest: return 'Suggest';
-      case AgentAction.Execute: return 'Execute';
-      case AgentAction.Notify: return 'Notify';
-      case AgentAction.Recall: return 'Recall';
-      case AgentAction.ManageState: return 'State';
-      case AgentAction.Nudge: return 'Nudge';
-      default: return 'Unknown';
-    }
-  };
-
-  return (
-    <Paper sx={{ height: '70vh', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">Agent Call History ({calls.length})</Typography>
-        <Button size="small" variant="outlined" onClick={onRefresh} startIcon={<ReplayIcon fontSize="small" />}>
-          Refresh
-        </Button>
-      </Box>
-      <Divider />
-      <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-        {calls.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 8 }}>
-            No agent calls yet. Agent calls are made internally by the game system.
-          </Typography>
-        ) : (
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>From</TableCell>
-                  <TableCell>To</TableCell>
-                  <TableCell>Action</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Duration</TableCell>
-                  <TableCell>Time</TableCell>
-                  <TableCell>Output</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {calls.map((call: any, i: number) => (
-                  <TableRow key={i} sx={{ '&:nth-of-type(odd)': { bgcolor: 'action.hover' } }}>
-                    <TableCell>{getAgentLabel(call.fromAgent)}</TableCell>
-                    <TableCell>{getAgentLabel(call.toAgent)}</TableCell>
-                    <TableCell>{getActionLabel(call.action)}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={call.status}
-                        size="small"
-                        color={getStatusColor(call.status) as any}
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell>{call.durationMs}ms</TableCell>
-                    <TableCell>{new Date(call.createdAt).toLocaleTimeString()}</TableCell>
-
-                    <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {call.outputMessage || call.output || '-'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
         )}
       </Box>
     </Paper>

@@ -109,7 +109,8 @@ public partial class AdminController
     // ==================== Message Pagination ====================
 
     /// <summary>
-    /// Paginated messages for a session.
+    /// Paginated messages for a session — unified chat that includes ALL game events.
+    /// Returns messages of ALL types (chat, combat, dice, agent calls, etc.) sorted chronologically.
     /// </summary>
     [HttpGet("games/{gameId}/sessions/{sessionId}/messages")]
     public async Task<IActionResult> GetMessagesPaginated(
@@ -128,6 +129,8 @@ public partial class AdminController
             .Include(m => m.Session)
             .Where(m => m.SessionId == sessionId);
 
+        // type filter is optional — when not specified, returns ALL message types
+        // This enables the unified chat to show everything in one place
         if (type.HasValue)
             query = query.Where(m => m.Type == type.Value);
 
@@ -155,7 +158,7 @@ public partial class AdminController
                 m.Id,
                 m.SessionId,
                 PlayerId = m.PlayerId,
-                PlayerName = m.Player != null ? (m.Player.CharacterName ?? "Unknown") : "System",
+                PlayerName = m.Player != null ? m.Player.CharacterName ?? "System" : "System",
                 Content = m.Content,
                 Type = m.Type,
                 IsOOC = m.IsOOC,

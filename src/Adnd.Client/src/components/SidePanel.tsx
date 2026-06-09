@@ -22,25 +22,22 @@ import {
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
   SportsEsports as GameIcon,
-  SportsEsports as SportsEsportsIcon,
   Shield as ShieldIcon,
-  Build as BuildIcon,
   ArrowBack as BackIcon,
   Chat as ChatIcon,
   DirectionsRun as CombatIcon,
+  Settings as SettingsIcon,
+  Add as AddIcon,
+  PlayArrow as PlayArrowIcon,
   People as PeopleIcon,
   Article as SheetIcon,
-  Build as ActionIcon,
-  Mic as MicIcon,
-  Settings as SettingsIcon,
   Book as BookIcon,
   Lightbulb as BulbIcon,
   History as HistoryIcon,
   AutoFixHigh as ConsistencyIcon,
   ChatBubble as ChatBubbleIcon,
   BarChart as BarChartIcon,
-  Add as AddIcon,
-  PlayArrow as PlayArrowIcon,
+  Mic as MicIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../api/authHook';
 import type { GameListItem } from '../api/client';
@@ -319,15 +316,9 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
             {open && (
               <>
                 <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
-                {[{ key: 'chat', label: 'Chat', icon: <ChatIcon fontSize="small" /> },
+                {/* Unified chat is the main interface — all game events appear in chat */}
+                {[{ key: 'chat', label: 'Chat (All Events)', icon: <ChatIcon fontSize="small" /> },
                   { key: 'combat', label: 'Combat', icon: <CombatIcon fontSize="small" /> },
-                  { key: 'players', label: 'Players', icon: <PeopleIcon fontSize="small" /> },
-                  { key: 'characters', label: 'Characters', icon: <SheetIcon fontSize="small" /> },
-                  { key: 'actions', label: 'Actions', icon: <ActionIcon fontSize="small" /> },
-                  { key: 'dice-history', label: 'Dice History', icon: <SportsEsportsIcon fontSize="small" /> },
-                  { key: 'combat-log', label: 'Combat Log', icon: <HistoryIcon fontSize="small" /> },
-                  { key: 'gm-tools', label: 'GM Tools', icon: <BuildIcon fontSize="small" /> },
-                  { key: 'agent-calls', label: 'Agent Calls', icon: <MicIcon fontSize="small" /> },
                   { key: 'settings', label: 'Settings', icon: <SettingsIcon fontSize="small" /> }].map(tab => (
                   <ListItemButton key={tab.key} onClick={() => { window.location.hash = tab.key; }} sx={{ ...buttonBaseSx, bgcolor: activeGameTab === tab.key ? 'rgba(145,71,255,0.15)' : 'transparent', color: activeGameTab === tab.key ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
                     <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}>{tab.icon}</ListItemIcon>

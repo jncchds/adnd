@@ -23,6 +23,14 @@ public partial class GameHub
 
         var result = await _gameEngine.RollDiceAsync(sessionId, formula, playerId);
 
+        // Persist as unified chat message
+        var metadata = JsonDocument.Parse($"{{\"formula\":\"{result.Formula}\",\"total\":{result.Total},\"rolls\":[{string.Join(",", result.Rolls)}]}}").RootElement;
+        await PersistGameEventAsync(
+            session.GameId, sessionId, playerId,
+            playerId.HasValue ? "Player" : "System",
+            $"🎲 **{result.Formula}** → **{result.Total}**{(result.FinalRolls != null && result.FinalRolls.Any() ? $" (kept: [{string.Join(",", result.FinalRolls)})" : "")}{(result.Modifier != 0 ? $" (modifier: {result.Modifier:+#;-#;0})" : "")}",
+            Adnd.Server.Models.MessageType.Dice, metadata);
+
         // Publish event for game agent processing
         await _mediator.Publish(new DiceRolled(session.GameId, sessionId, formula, playerId));
 
@@ -55,6 +63,14 @@ public partial class GameHub
 
         var result = await _gameEngine.SkillCheckAsync(sessionId, skill, playerId, dc);
 
+        // Persist as unified chat message
+        var metadata = JsonDocument.Parse($"{{\"skill\":\"{result.Skill}\",\"dc\":{result.DC},\"success\":{result.Success.ToString().ToLower()},\"diceRoll\":{result.DiceRoll},\"modifier\":{result.Modifier},\"total\":{result.Total}}}").RootElement;
+        await PersistGameEventAsync(
+            session.GameId, sessionId, playerId,
+            "System",
+            $"📋 **{result.Skill} Check** vs DC {result.DC}: d20({result.DiceRoll})+{result.Modifier:+#;-#;0} = **{result.Total}** → {(result.Success ? "✅ Success" : "❌ Failure")}",
+            Adnd.Server.Models.MessageType.SkillCheck, metadata);
+
         // Publish event for game agent processing
         await _mediator.Publish(new SkillCheckRequested(session.GameId, sessionId, skill, playerId, dc));
 
@@ -83,6 +99,15 @@ public partial class GameHub
         }
 
         var result = await _gameEngine.AttackAsync(sessionId, weapon, targetName, playerId);
+
+        // Persist as unified chat message
+        var metadata = JsonDocument.Parse($"{{\"weapon\":\"{result.Weapon}\",\"target\":\"{result.Target}\",\"hit\":{result.Hit.ToString().ToLower()},\"attackRoll\":{result.AttackRoll},\"ac\":{result.AC},\"damageTotal\":{result.DamageTotal}}}").RootElement;
+        var attackResult = result.Hit ? $"✅ **HIT!** {result.DamageTotal} damage" : "❌ **MISS**";
+        await PersistGameEventAsync(
+            session.GameId, sessionId, playerId,
+            "System",
+            $"⚔️ **{result.Weapon}** vs **{result.Target}**: d20({result.AttackRoll}) vs AC {result.AC} → {attackResult}",
+            Adnd.Server.Models.MessageType.Attack, metadata);
 
         // Publish event for game agent processing
         await _mediator.Publish(new AttackRequested(session.GameId, sessionId, weapon, targetName, playerId));

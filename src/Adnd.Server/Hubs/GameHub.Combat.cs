@@ -25,6 +25,13 @@ public partial class GameHub
 
         var combat = await _combatService.StartCombatAsync(gameId, sessionId, name);
 
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            gameId, sessionId, null,
+            "System",
+            $"⚔️ **Combat Started**: {combat.Name ?? "An unexpected encounter!"}{combat.Participants.Count} participants",
+            Adnd.Server.Models.MessageType.CombatStart);
+
         // Publish event for game agent processing
         await _mediator.Publish(new CombatStarted(gameId, sessionId, name));
 
@@ -47,6 +54,13 @@ public partial class GameHub
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var endedCombat = await _combatService.EndCombatAsync(combatId, result);
+
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            "System",
+            $"⚔️ **Combat Ended**: {result ?? "No result"}",
+            Adnd.Server.Models.MessageType.CombatEnd);
 
         // Publish event for game agent processing
         await _mediator.Publish(new CombatEnded(combat.GameId, combatId, result));
@@ -85,6 +99,13 @@ public partial class GameHub
         var participant = await _combatService.AddParticipantAsync(
             combatId, participantType, playerId, npcId, displayName, ac, currentHP, maxHP);
 
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, playerId,
+            displayName,
+            $"➕ **{displayName}** ({participantType}) joins combat — HP: {currentHP}/{maxHP}, AC: {ac}",
+            Adnd.Server.Models.MessageType.ParticipantAdded);
+
         // Publish event for game agent processing
         await _mediator.Publish(new ParticipantAdded(
             combat.GameId, combatId, participantType, displayName, ac, currentHP, maxHP, playerId, npcId));
@@ -109,6 +130,12 @@ public partial class GameHub
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var result = await _combatService.RemoveParticipantAsync(combatId, participantId);
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            "System",
+            $"➖ Participant removed from combat",
+            Adnd.Server.Models.MessageType.ParticipantRemoved);
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatParticipantRemoved", new { participantId });
         return BuildCombatLog(result);
     }
@@ -119,6 +146,14 @@ public partial class GameHub
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var (participant, rolls) = await _combatService.RollInitiativeAsync(combatId, participantId, formula);
+
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            participant.DisplayName,
+            $"🎲 **{participant.DisplayName}** rolls initiative: **{participant.Initiative}** ({formula})",
+            Adnd.Server.Models.MessageType.Initiative,
+            JsonDocument.Parse($"{{\"formula\":\"{formula}\",\"initiative\":{participant.Initiative},\"rolls\":[{string.Join(",", rolls)}]}}").RootElement);
 
         await Clients.Group(combat.GameId.ToString()).SendAsync("InitiativeRolled", new
         {
@@ -139,7 +174,14 @@ public partial class GameHub
 
         var result = await _combatService.RollInitiativeForAllAsync(combatId, formula);
 
+        // Persist as unified chat message
         var turnOrder = string.Join(", ", result.Participants.Select(p => $"{p.DisplayName} ({p.Initiative})"));
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            "System",
+            $"🎲 **Initiative rolled for all** ({formula}): {turnOrder}",
+            Adnd.Server.Models.MessageType.InitiativeComplete,
+            JsonDocument.Parse($"{{\"formula\":\"{formula}\",\"turnOrder\":\"{turnOrder}\"}}").RootElement);
         await Clients.Group(combat.GameId.ToString()).SendAsync("InitiativeComplete", new
         {
             turnOrder,
@@ -166,6 +208,13 @@ public partial class GameHub
         var result = await _combatService.AdvanceTurnAsync(combatId);
         var currentTurn = await _combatService.GetCurrentTurnParticipantAsync(combatId);
 
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            "System",
+            $"⏩ **Turn {result.CurrentRound}**: {currentTurn.DisplayName}'s turn",
+            Adnd.Server.Models.MessageType.TurnAdvanced);
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("TurnAdvanced", new
         {
             result.CurrentRound,
@@ -187,6 +236,13 @@ public partial class GameHub
 
         var result = await _combatService.RetreatTurnAsync(combatId);
         var currentTurn = await _combatService.GetCurrentTurnParticipantAsync(combatId);
+
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            "System",
+            $"↩️ **Turn Retreated**: {currentTurn.DisplayName}'s turn",
+            Adnd.Server.Models.MessageType.TurnRetreated);
 
         await Clients.Group(combat.GameId.ToString()).SendAsync("TurnRetreated", new
         {
@@ -232,6 +288,14 @@ public partial class GameHub
         var result = await _combatService.ExecuteAttackAsync(
             combatId, attackerName, weapon, targetId, attackFormula,
             attackBonus, damageFormula, damageBonus, description);
+
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            attackerName,
+            $"⚔️ **{attackerName}** attacks **{result.Target}** with **{result.Weapon}**: {(result.Hit ? $"✅ HIT! {result.DamageTotal} damage" : "❌ MISS")}{(result.IsCritical == true ? " (CRITICAL!)" : result.IsFumble == true ? " (FUMBLE!)" : "")}",
+            Adnd.Server.Models.MessageType.Attack,
+            JsonDocument.Parse($"{{\"attacker\":\"{result.Attacker}\",\"weapon\":\"{result.Weapon}\",\"target\":\"{result.Target}\",\"hit\":{result.Hit.ToString().ToLower()},\"attackRoll\":{result.AttackRoll},\"ac\":{result.AC},\"damageTotal\":{result.DamageTotal},\"isCritical\":{result.IsCritical.ToString().ToLower()},\"isFumble\":{result.IsFumble.ToString().ToLower()}}}").RootElement);
 
         // Update target HP on the character sheet if it's a player
         if (result.TargetHP != result.TargetMaxHP)
@@ -295,6 +359,15 @@ public partial class GameHub
         var result = await _combatService.ExecuteSaveThrowAsync(
             combatId, participantName, participantId, saveType, saveFormula, dc);
 
+        // Persist as unified chat message
+        var saveResult = result.Success ? "✅ Success" : "❌ Failure";
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            participantName,
+            $"🛡️ **{participantName}** saves vs **{result.SaveType}** (DC {result.DC}): d20({result.DiceRoll}) → {saveResult}",
+            Adnd.Server.Models.MessageType.SkillCheck,
+            JsonDocument.Parse($"{{\"participant\":\"{result.Participant}\",\"saveType\":\"{result.SaveType}\",\"dc\":{result.DC},\"diceRoll\":{result.DiceRoll},\"success\":{result.Success.ToString().ToLower()}}}").RootElement);
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatSaveThrow", new
         {
             result.Participant,
@@ -324,6 +397,13 @@ public partial class GameHub
         var result = await _combatService.ApplyConditionAsync(
             combatId, participantId, conditionName, duration, description);
 
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            "System",
+            $"🔴 **Condition Applied**: {conditionName}{(duration.HasValue ? $" (duration: {duration})" : "")}",
+            Adnd.Server.Models.MessageType.ConditionApplied);
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("ConditionApplied", new
         {
             participantId,
@@ -341,6 +421,13 @@ public partial class GameHub
 
         var result = await _combatService.RemoveConditionAsync(combatId, participantId, conditionName);
 
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            "System",
+            $"🟢 **Condition Removed**: {conditionName}",
+            Adnd.Server.Models.MessageType.ConditionRemoved);
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("ConditionRemoved", new
         {
             participantId,
@@ -357,8 +444,19 @@ public partial class GameHub
 
         var result = await _combatService.DealDamageAsync(combatId, participantId, damage, source);
 
-        // Update character HP if it's a player
+        // Get participant info for display
         var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId);
+
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            "System",
+            $"💥 **Damage**: {damage} to participant{(source != null ? $" from {source}" : "")} — HP: {participant?.CurrentHP}/{participant?.MaxHP}",
+            Adnd.Server.Models.MessageType.DamageDealt,
+            JsonDocument.Parse($"{{\"damage\":{damage},\"source\":\"{source ?? ""}\",\"currentHP\":{participant?.CurrentHP ?? 0},\"maxHP\":{participant?.MaxHP ?? 0}}}").RootElement);
+
+        // Update character HP if it's a player
+        if (participant?.PlayerId.HasValue == true)
         if (participant?.PlayerId.HasValue == true)
         {
             var player = await _context.Players.FindAsync(participant.PlayerId.Value);
@@ -390,7 +488,16 @@ public partial class GameHub
 
         var result = await _combatService.HealAsync(combatId, participantId, amount, source);
 
+        // Get participant info for display
         var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId);
+
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            "System",
+            $"💚 **Heal**: {amount} HP to participant{(source != null ? $" from {source}" : "")} — HP: {participant?.CurrentHP}/{participant?.MaxHP}",
+            Adnd.Server.Models.MessageType.Healed,
+            JsonDocument.Parse($"{{\"amount\":{amount},\"source\":\"{source ?? ""}\",\"currentHP\":{participant?.CurrentHP ?? 0},\"maxHP\":{participant?.MaxHP ?? 0}}}").RootElement);
         if (participant?.PlayerId.HasValue == true)
         {
             var player = await _context.Players.FindAsync(participant.PlayerId.Value);
@@ -483,6 +590,13 @@ public partial class GameHub
         var result = await _combatService.SpendActionAsync(combatId, participantId);
         var participant = result.Participants.FirstOrDefault(p => p.Id == participantId);
         if (participant == null) throw new KeyNotFoundException($"Participant {participantId} not found.");
+
+        // Persist as unified chat message
+        await PersistGameEventAsync(
+            combat.GameId, combat.SessionId, null,
+            participant.DisplayName,
+            $"🎯 **Action spent**: {participant.DisplayName} has {participant.ActionsRemaining} actions remaining",
+            Adnd.Server.Models.MessageType.ActionSpent);
 
         await Clients.Group(combat.GameId.ToString()).SendAsync("ActionSpent", new
         {

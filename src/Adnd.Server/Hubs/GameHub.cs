@@ -178,4 +178,49 @@ public partial class GameHub : Hub
             _logger.LogWarning(ex, "Failed to generate embedding for message {MessageId} in game {GameId}", messageId, gameId);
         }
     }
+
+    // ==================== Unified Message Persistence ====================
+
+    /// <summary>
+    /// Persist a game event as a Message record in the database for unified chat history.
+    /// This enables all game events (combat, dice, agent calls, etc.) to appear in the chat.
+    /// </summary>
+    private async Task PersistGameEventAsync(
+        Guid gameId,
+        Guid? sessionId,
+        Guid? playerId,
+        string senderName,
+        string content,
+        Adnd.Server.Models.MessageType messageType,
+        JsonElement? metadata = null,
+        bool isOOC = false)
+    {
+        try
+        {
+            var message = new Adnd.Server.Models.Message
+            {
+                Id = Guid.NewGuid(),
+                SessionId = sessionId ?? Guid.Empty,
+                PlayerId = playerId,
+                Content = content,
+                Type = messageType,
+                IsOOC = isOOC,
+                Metadata = metadata ?? JsonDocument.Parse("{}").RootElement,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.Messages.Add(message);
+            await _context.SaveChangesAsync();
+
+            // Generate embedding for narrative-influencing messages
+            if (!isOOC && !string.IsNullOrEmpty(content))
+            {
+                await EmbedMessageAsync(gameId, message.Id, content);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist game event of type {MessageType} in game {GameId}", messageType, gameId);
+        }
+    }
 }
