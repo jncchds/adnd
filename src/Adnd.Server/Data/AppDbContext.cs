@@ -46,6 +46,12 @@ public class AppDbContext : DbContext
     public DbSet<CombatParticipant> CombatParticipants => Set<CombatParticipant>();
     public DbSet<CombatEvent> CombatEvents => Set<CombatEvent>();
 
+    // Session Notes
+    public DbSet<SessionNote> SessionNotes => Set<SessionNote>();
+
+    // Prompt Templates
+    public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -317,5 +323,35 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Message>()
             .HasIndex(m => new { m.SessionId, m.CreatedAt })
             .IsDescending(new[] { false, true });
+
+        // Session Notes
+        modelBuilder.Entity<SessionNote>()
+            .HasOne(sn => sn.Session)
+            .WithMany()
+            .HasForeignKey(sn => sn.SessionId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<SessionNote>()
+            .HasOne(sn => sn.Creator)
+            .WithMany()
+            .HasForeignKey(sn => sn.CreatorId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<SessionNote>()
+            .HasIndex(sn => new { sn.SessionId, sn.CreatedAt })
+            .IsDescending(new[] { false, true });
+
+        // Prompt Templates: game + type + name
+        modelBuilder.Entity<PromptTemplate>()
+            .HasOne(pt => pt.Game)
+            .WithMany()
+            .HasForeignKey(pt => pt.GameId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PromptTemplate>()
+            .HasOne(pt => pt.User)
+            .WithMany()
+            .HasForeignKey(pt => pt.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PromptTemplate>()
+            .HasIndex(pt => new { pt.GameId, pt.Type, pt.Name })
+            .IsUnique();
     }
 }

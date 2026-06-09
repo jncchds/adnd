@@ -628,6 +628,89 @@ class APIClient {
       method: 'DELETE',
     });
   }
+
+  // ==================== Session Notes ====================
+
+  async getSessionNotes(gameId: string, sessionId: string) {
+    return this.request<{ gameId: string; sessionId: string; notes: SessionNote[] }>(`/admin/games/${gameId}/sessions/${sessionId}/notes`);
+  }
+
+  async createSessionNote(gameId: string, sessionId: string, title: string, content: string) {
+    return this.request<SessionNote>(`/admin/games/${gameId}/sessions/${sessionId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ title, content }),
+    });
+  }
+
+  async updateSessionNote(gameId: string, noteId: string, title: string, content: string) {
+    return this.request<SessionNote>(`/admin/games/${gameId}/notes/${noteId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ title, content }),
+    });
+  }
+
+  async deleteSessionNote(gameId: string, noteId: string) {
+    return this.request<{ message: string }>(`/admin/games/${gameId}/notes/${noteId}`, { method: 'DELETE' });
+  }
+
+  // ==================== Dice Statistics ====================
+
+  async getDiceStats(gameId: string, sessionId?: string) {
+    const params = new URLSearchParams();
+    if (sessionId) params.set('sessionId', sessionId);
+    return this.request<DiceStatsResponse>(`/admin/games/${gameId}/dice-stats?${params}`);
+  }
+
+  async getPlayerDiceStats(gameId: string, playerId: string, sessionId?: string) {
+    const params = new URLSearchParams();
+    if (sessionId) params.set('sessionId', sessionId);
+    return this.request<PlayerDiceStatsResponse>(`/admin/games/${gameId}/dice-stats/player/${playerId}?${params}`);
+  }
+
+  // ==================== Messages (paginated) ====================
+
+  async getMessagesPaginated(gameId: string, sessionId: string, page = 1, pageSize = 50, type?: number) {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    if (type !== undefined) params.set('type', String(type));
+    return this.request<MessagePaginationResponse>(`/admin/games/${gameId}/sessions/${sessionId}/messages?${params}`);
+  }
+
+  // ==================== Message Search ====================
+
+  async searchMessages(gameId: string, sessionId: string, query: string, queryEmbedding: number[], limit = 10) {
+    return this.request<MessageSearchResponse>(`/admin/games/${gameId}/sessions/${sessionId}/messages/search`, {
+      method: 'POST',
+      body: JSON.stringify({ query, queryEmbedding, limit }),
+    });
+  }
+
+  // ==================== Prompt Templates ====================
+
+  async getPromptTemplates(gameId: string) {
+    return this.request<PromptTemplate[]>(`/admin/games/${gameId}/prompt-templates`);
+  }
+
+  async createPromptTemplate(gameId: string, name: string, type: string, prompt: string) {
+    return this.request<PromptTemplate>(`/admin/games/${gameId}/prompt-templates`, {
+      method: 'POST',
+      body: JSON.stringify({ name, type, prompt }),
+    });
+  }
+
+  async updatePromptTemplate(gameId: string, templateId: string, name: string, type: string, prompt: string, isActive?: boolean, isDefault?: boolean) {
+    return this.request<PromptTemplate>(`/admin/games/${gameId}/prompt-templates/${templateId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, type, prompt, isActive, isDefault }),
+    });
+  }
+
+  async deletePromptTemplate(gameId: string, templateId: string) {
+    return this.request<{ message: string }>(`/admin/games/${gameId}/prompt-templates/${templateId}`, { method: 'DELETE' });
+  }
+
+  async getDefaultTemplate(gameId: string, type: string) {
+    return this.request<PromptTemplate | null>(`/admin/games/${gameId}/prompt-templates/default/${encodeURIComponent(type)}`);
+  }
 }
 
 // ==================== Types ====================
@@ -1330,4 +1413,106 @@ export interface SpellUpdateRequest {
 }
 
 export const api = new APIClient();
+
+// ==================== Session Note Types ====================
+
+export interface SessionNote {
+  id: string;
+  sessionId: string;
+  creatorId: string;
+  creatorName: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// ==================== Dice Statistics Types ====================
+
+export interface DiceStatsResponse {
+  gameId: string;
+  sessionId?: string;
+  totalRolls: number;
+  averageRoll: number;
+  minRoll: number;
+  maxRoll: number;
+  medianRoll: number;
+  diceTypes: Record<number, number>;
+  distribution: Record<number, number>;
+}
+
+export interface PlayerDiceStatsResponse {
+  gameId: string;
+  sessionId?: string;
+  playerId: string;
+  playerName: string;
+  totalRolls: number;
+  averageRoll: number;
+  minRoll: number;
+  maxRoll: number;
+  medianRoll: number;
+  naturalTwenties: number;
+  naturalOnes: number;
+  diceTypes: Record<number, number>;
+  distribution: Record<number, number>;
+}
+
+// ==================== Message Pagination Types ====================
+
+export interface MessagePaginationResponse {
+  gameId: string;
+  sessionId: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  messages: MessagePaginated[];
+}
+
+export interface MessagePaginated {
+  id: string;
+  sessionId: string;
+  playerId?: string;
+  playerName: string;
+  content: string;
+  type: number;
+  isOOC: boolean;
+  metadata: JsonElement;
+  createdAt: string;
+}
+
+// ==================== Message Search Types ====================
+
+export interface MessageSearchResponse {
+  gameId: string;
+  sessionId: string;
+  query: string;
+  results: MessageSearchResult[];
+}
+
+export interface MessageSearchResult {
+  id: string;
+  content: string;
+  type: number;
+  playerName: string;
+  isOOC: boolean;
+  createdAt: string;
+  distance: number;
+}
+
+// ==================== Prompt Template Types ====================
+
+export interface PromptTemplate {
+  id: string;
+  gameId: string;
+  userId: string;
+  userName: string;
+  name: string;
+  type: string;
+  prompt: string;
+  isActive: boolean;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
 

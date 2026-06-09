@@ -77,6 +77,15 @@ This document captures improvement ideas, feature requests, and architectural en
 - [x] Connection pooling: `MaxPoolSize=100;MinPoolSize=10;Connection Idle Lifetime=300`
 - [x] EF query logging enabled in dev via `ConfigureWarnings`
 
+### ⚡ Quick Wins (Batch 4 — 2026-06-09)
+- [x] **Session notes** — `SessionNote` model + CRUD endpoints (`ISessionNoteService`)
+- [x] **Dice roll statistics** — per-game and per-player stats (`IDiceStatsService`)
+- [x] **Message pagination** — `GET /admin/games/{gameId}/sessions/{sessionId}/messages?page=1&pageSize=50`
+- [x] **Message search** — pgvector cosine similarity search (`POST /admin/games/{gameId}/sessions/{sessionId}/messages/search`)
+- [x] **LLM prompt templates** — `PromptTemplate` model + CRUD endpoints (`IPromptTemplateService`)
+
+- [x] **`HasGmRoleAsync`** — authorization helper for GM-only features
+
 ### 🏗️ Architectural Improvements
 
 ### 21. Code Quality & Refactoring
@@ -391,9 +400,10 @@ This document captures improvement ideas, feature requests, and architectural en
 
 ### Phase 1: Foundation (Current)
 - [ ] Fix distributed connection state
-- [ ] Security hardening
-- [ ] Error handling & resilience
-- [ ] Database performance improvements
+- [x] Security hardening
+- [x] Error handling & resilience
+- [x] Database performance improvements
+- [x] Quick-win features (pagination, search, stats, notes, templates)
 - [ ] Add unit/integration tests
 
 ### Phase 2: Core Features
@@ -428,16 +438,16 @@ This document captures improvement ideas, feature requests, and architectural en
 
 ## 🎯 Quick Wins (Low Effort, High Impact)
 
-1. **Add pagination to message lists** — Prevents memory issues with long games
-2. **Add SQLite fallback** — Easier local development without Docker
-3. **Add message search** — Use PostgreSQL full-text search
-4. **Add dice roll statistics** — Simple chart of roll distribution
-5. **Add session notes** — GM-only notes per session
+1. ~~**Add pagination to message lists**~~ ✅ Done — `GET /admin/games/{gameId}/sessions/{sessionId}/messages?page=1&pageSize=50`
+2. **Add SQLite fallback** — (removed per request)
+3. ~~**Add message search**~~ ✅ Done — `POST /admin/games/{gameId}/sessions/{sessionId}/messages/search` (pgvector cosine similarity)
+4. ~~**Add dice roll statistics**~~ ✅ Done — `GET /admin/games/{gameId}/dice-stats` + per-player stats
+5. ~~**Add session notes**~~ ✅ Done — `SessionNote` model + CRUD endpoints
 6. **Add markdown to chat** — Simple formatting support
 7. **Add game templates** — Save/load game configurations
-8. **Add LLM prompt templates** — Configure system prompts per game
-9. **Add health check endpoints** — Essential for production
-10. **Add rate limiting** — Simple middleware for API protection
+8. ~~**Add LLM prompt templates**~~ ✅ Done — `PromptTemplate` model + CRUD endpoints
+9. ~~**Add health check endpoints**~~ ✅ Done (Batch 2)
+10. ~~**Add rate limiting**~~ ✅ Done (Batch 1)
 
 ---
 

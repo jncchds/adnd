@@ -34,6 +34,11 @@ public partial class AdminController : ControllerBase
     protected readonly ILogger<AdminController> _logger;
     protected readonly IGameStartService _gameStartService;
 
+    // New services for quick-win features
+    protected readonly ISessionNoteService _sessionNoteService;
+    protected readonly IPromptTemplateService _promptTemplateService;
+    protected readonly IDiceStatsService _diceStatsService;
+
     public AdminController(
         AppDbContext context,
         IGameEngine gameEngine,
@@ -49,7 +54,10 @@ public partial class AdminController : ControllerBase
         IMediator mediator,
         IHubContext<GameHub> hubContext,
         ILogger<AdminController> logger,
-        IGameStartService gameStartService)
+        IGameStartService gameStartService,
+        ISessionNoteService sessionNoteService,
+        IPromptTemplateService promptTemplateService,
+        IDiceStatsService diceStatsService)
     {
         _context = context;
         _gameEngine = gameEngine;
@@ -66,5 +74,8 @@ public partial class AdminController : ControllerBase
         _hubContext = hubContext;
         _logger = logger;
         _gameStartService = gameStartService;
+        _sessionNoteService = sessionNoteService;
+        _promptTemplateService = promptTemplateService;
+        _diceStatsService = diceStatsService;
     }
 }

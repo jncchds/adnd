@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Migrations;
+
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -96,7 +97,7 @@ builder.Services.AddCors(options =>
 
 
 
-// DB Context
+// DB Context — PostgreSQL
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default"),
         npgsqlOptions => npgsqlOptions.MigrationsAssembly(typeof(AppDbContext).Assembly))
@@ -256,6 +257,11 @@ builder.Services.AddSingleton<ILLMProviderFactory, LLMProviderFactory>();
 builder.Services.AddScoped<IGameManagementService, GameManagementService>();
 builder.Services.AddScoped<ISessionManagementService, SessionManagementService>();
 builder.Services.AddScoped<IPlayerManagementService, PlayerManagementService>();
+
+// Quick-win features
+builder.Services.AddScoped<ISessionNoteService, SessionNoteService>();
+builder.Services.AddScoped<IPromptTemplateService, PromptTemplateService>();
+builder.Services.AddScoped<IDiceStatsService, DiceStatsService>();
 
 // Player disconnect detector (background service)
 builder.Services.AddHostedService<PlayerDisconnectDetector>(sp => new PlayerDisconnectDetector(
