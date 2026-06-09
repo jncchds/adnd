@@ -155,7 +155,15 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
             }
 
             var result = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
-            return result?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+            var message = result?.Choices?.FirstOrDefault()?.Message;
+            if (message == null) return "No response";
+            // Some models (reasoning models) output reasoning_content instead of content
+            var content = message.Content;
+            if (string.IsNullOrEmpty(content) && message is { ReasoningContent: not null })
+            {
+                content = message.ReasoningContent;
+            }
+            return content ?? "No response";
         }
         catch (Exception ex)
         {

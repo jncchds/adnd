@@ -187,7 +187,7 @@ public class PlotWeaver : IPlotWeaver
             var result = await provider.CompleteAsync(systemPrompt, userPrompt, new LLMOptions
             {
                 Temperature = 0.8f,
-                MaxTokens = 2048
+                MaxTokens = 4096  // Increased for reasoning models that output reasoning before response
             });
 
             // Parse JSON — strip markdown code fences if present
@@ -196,6 +196,21 @@ public class PlotWeaver : IPlotWeaver
             {
                 var lines = json.Split('\n');
                 json = string.Join('\n', lines.Skip(1).Take(lines.Length - 2));
+            }
+            // Strip reasoning content (reasoning models output reasoning before the actual response)
+            var reasoningEnd = json.LastIndexOf("</reasoning>");
+            if (reasoningEnd >= 0)
+            {
+                json = json.Substring(reasoningEnd + "</reasoning>".Length).Trim();
+            }
+            // If still no JSON, try to find the first [ or { to skip preamble text
+            if (!json.StartsWith("[") && !json.StartsWith("{"))
+            {
+                var bracketIdx = json.IndexOfAny(new[] { '[', '{' });
+                if (bracketIdx > 0)
+                {
+                    json = json.Substring(bracketIdx);
+                }
             }
 
             var threads = JsonSerializer.Deserialize<List<ThreadTemplate>>(json);
@@ -238,6 +253,25 @@ public class PlotWeaver : IPlotWeaver
             _logger.LogError(ex, "Failed to generate initial plot threads for game {GameId}", gameId);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Fallback plot thread generation when the LLM returns only reasoning content.
+    /// </summary>
+    private async Task<List<PlotThread>> GenerateFallbackThreads(Guid gameId, string premise, string parameters, string systemId)
+    {
+        var fallbackThreads = new List<PlotThread>
+        {
+            new() { GameId = gameId, Title = "The Call to Adventure", Category = PlotThreadCategory.Personal, Description = $"A mysterious invitation arrives, drawing the players into the heart of the {premise}.", NextMilestone = "The first clue appears", Foreshadowing = "A symbol or phrase that recurs throughout the story", Momentum = 0f, RelevanceScore = 0.5f, Status = PlotThreadStatus.Active },
+            new() { GameId = gameId, Title = "The Hidden Threat", Category = PlotThreadCategory.Threat, Description = "An unseen force grows stronger in the shadows, unaware of the players' approach.", NextMilestone = "First sign of the threat", Foreshadowing = "Strange occurrences that hint at the danger", Momentum = 0f, RelevanceScore = 0.5f, Status = PlotThreadStatus.Active },
+            new() { GameId = gameId, Title = "Allies and Enemies", Category = PlotThreadCategory.Faction, Description = "Factions vie for control, some offering help, others seeking to exploit the players.", NextMilestone = "First faction contact", Foreshadowing = "Conflicting rumors about the factions", Momentum = 0f, RelevanceScore = 0.5f, Status = PlotThreadStatus.Active }
+        };
+
+        _context.PlotThreads.AddRange(fallbackThreads);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Generated {Count} fallback plot threads for game {GameId}", fallbackThreads.Count, gameId);
+        return fallbackThreads;
     }
 
     public async Task<PlotReview> ReviewAndAdaptAsync(Guid gameId, string context, string trigger)

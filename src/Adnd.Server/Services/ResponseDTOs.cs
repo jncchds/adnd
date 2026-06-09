@@ -21,6 +21,7 @@ public class OpenAIChatMessage
 {
     public string Role { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    public string? ReasoningContent { get; set; }
     public List<OpenAIToolCall>? ToolCalls { get; set; }
 }
 
