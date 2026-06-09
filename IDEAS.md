@@ -58,6 +58,17 @@ This document captures improvement ideas, feature requests, and architectural en
 - [x] Rate limiting middleware (IP-based: 10/min auth, 30/min LLM presets, 100/min default)
 - [x] Security headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Permissions-Policy, Cache-Control)
 
+### 🏥 Error Handling & Resilience (Batch 2 — 2026-06-09)
+- [x] Polly retry policy (3 attempts, exponential backoff for HTTP 5xx and timeouts)
+- [x] Polly circuit breaker (opens after 5 consecutive failures, half-opens after 30s)
+- [x] `IResiliencePolicies` interface + `ResiliencePolicies` implementation
+- [x] `ResilienceExtensions.ExecuteWithResilienceAsync` extension for easy policy application
+- [x] Health check endpoints: `/health` (liveness) and `/health/ready` (readiness)
+- [x] `DatabaseHealthCheck` — verifies PostgreSQL connectivity
+- [x] `LlmProvidersHealthCheck` — checks all registered LLM providers
+- [x] Configurable via `Resilience` section in appsettings.json
+- [x] Graceful degradation: circuit breaker prevents cascading failures
+
 ### 🏗️ Architectural Improvements
 
 ### 21. Code Quality & Refactoring

@@ -176,6 +176,15 @@ builder.Services.AddScoped<IWhisperService, WhisperService>();
 // API Key Encryption
 builder.Services.AddScoped<IApiKeyEncryptionService, ApiKeyEncryptionService>();
 
+// Resilience Policies (Polly)
+builder.Services.AddSingleton<IResiliencePolicies, ResiliencePolicies>();
+
+// Health Checks
+builder.Services.AddHealthChecks()
+    .AddCheck("liveness", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Application is running."))
+    .AddCheck<Adnd.Server.HealthChecks.DatabaseHealthCheck>("database")
+    .AddCheck<Adnd.Server.HealthChecks.LlmProvidersHealthCheck>("llm-providers");
+
 // LLM Providers
 builder.Services.AddHttpClient();
 
@@ -269,6 +278,10 @@ using (var scope = app.Services.CreateScope())
 // Swagger is enabled in all environments for API documentation
 app.UseSwagger();
 app.UseSwaggerUI();
+
+// Health Check endpoints: /health (liveness) and /health/ready (readiness)
+app.MapHealthChecks("/health");
+app.MapHealthChecks("/health/ready");
 
 if (app.Environment.IsDevelopment())
 {
