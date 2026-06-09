@@ -2,6 +2,14 @@
 
 > Instructions for LLMs and AI assistants working on this project.
 
+## Working Guidelines
+
+These rules apply to **all** work on this project:
+
+1. **Use EF Core tooling for migrations only.** Always create database migrations via `dotnet ef migrations add <Name>` — never hand-write SQL migration files or manually edit the `Migrations/` directory.
+2. **Incremental, backwards-compatible changes only.** All changes must be additive and non-breaking. Never remove or rename columns, tables, or API endpoints that existing clients depend on. Deprecate first, remove later. Database migrations must be forward-compatible (nullable columns, default values). API changes must support both old and new request/response shapes during transition.
+3. **Consult IDEAS.md before suggesting or implementing features.** Always read `IDEAS.md` to understand the current roadmap, priority matrix, and existing ideas before proposing new features or working on existing ones. Check the "Recently Completed" section to avoid duplicating work. Align proposals with the priority phases (Foundation → Core Features → Enhancement → Polish → Scale).
+
 ## Project Overview
 
 **ADnD (Advanced Dungeon Network)** is a multi-system TTRPG web framework with:
