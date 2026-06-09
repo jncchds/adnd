@@ -21,7 +21,9 @@ import {
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
   SportsEsports as GameIcon,
+  SportsEsports as SportsEsportsIcon,
   Shield as ShieldIcon,
+  Build as BuildIcon,
   ArrowBack as BackIcon,
   Chat as ChatIcon,
   DirectionsRun as CombatIcon,
@@ -305,6 +307,9 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
                   { key: 'players', label: 'Players', icon: <PeopleIcon fontSize="small" /> },
                   { key: 'characters', label: 'Characters', icon: <SheetIcon fontSize="small" /> },
                   { key: 'actions', label: 'Actions', icon: <ActionIcon fontSize="small" /> },
+                  { key: 'dice-history', label: 'Dice History', icon: <SportsEsportsIcon fontSize="small" /> },
+                  { key: 'combat-log', label: 'Combat Log', icon: <HistoryIcon fontSize="small" /> },
+                  { key: 'gm-tools', label: 'GM Tools', icon: <BuildIcon fontSize="small" /> },
                   { key: 'agent-calls', label: 'Agent Calls', icon: <MicIcon fontSize="small" /> },
                   { key: 'settings', label: 'Settings', icon: <SettingsIcon fontSize="small" /> }].map(tab => (
                   <ListItemButton key={tab.key} onClick={() => { window.location.hash = tab.key; }} sx={{ ...buttonBaseSx, bgcolor: activeGameTab === tab.key ? 'rgba(145,71,255,0.15)' : 'transparent', color: activeGameTab === tab.key ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>

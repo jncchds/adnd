@@ -554,9 +554,81 @@ class APIClient {
       method: 'POST',
     });
   }
-}
 
-export const api = new APIClient();
+  // ==================== Dice History ====================
+  async getDiceHistory(gameId: string, params?: {
+    sessionId?: string;
+    playerId?: string;
+    limit?: number;
+    sortBy?: string;
+  }) {
+    const searchParams = new URLSearchParams();
+    if (params?.sessionId) searchParams.set('sessionId', params.sessionId);
+    if (params?.playerId) searchParams.set('playerId', params.playerId);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.sortBy) searchParams.set('sortBy', params.sortBy);
+    return this.request<DiceHistoryResponse>(`/admin/games/${gameId}/dice-history?${searchParams}`);
+  }
+
+  async getDiceRoll(gameId: string, messageId: string) {
+    return this.request<DiceHistoryEntry>(`/admin/games/${gameId}/dice-history/${messageId}`);
+  }
+
+  // ==================== Combat Log ====================
+  async getCombats(gameId: string, limit = 50) {
+    return this.request<{ gameId: string; count: number; combats: CombatSummaryEntry[] }>(
+      `/admin/games/${gameId}/combats?limit=${limit}`
+    );
+  }
+
+  async getCombat(gameId: string, combatId: string) {
+    return this.request<CombatLogResponse>(`/admin/games/${gameId}/combats/${combatId}`);
+  }
+
+  // ==================== GM Tools ====================
+  async getGMTools(gameId: string) {
+    return this.request<GMToolResponse>(`/admin/games/${gameId}/tools`);
+  }
+
+  async getGMToolsByCategory(gameId: string, category: string) {
+    return this.request<GMToolResponse>(`/admin/games/${gameId}/tools/${category}`);
+  }
+
+  async executeGMTool(gameId: string, sessionId: string, request: ExecuteToolRequest) {
+    return this.request<ExecuteToolResponse>(
+      `/admin/games/${gameId}/tools/execute?sessionId=${sessionId}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
+
+  // ==================== Spell Management ====================
+  async getCharacterSpells(characterId: string) {
+    return this.request<SpellManagementResponse>(`/admin/characters/${characterId}/spells`);
+  }
+
+  async updateCharacterSpells(characterId: string, spells: SpellUpdateRequest[]) {
+    return this.request(`/admin/characters/${characterId}/spells`, {
+      method: 'PUT',
+      body: JSON.stringify(spells),
+    });
+  }
+
+  async updateSingleSpell(characterId: string, spellName: string, spell: SpellUpdateRequest) {
+    return this.request(`/admin/characters/${characterId}/spells/${encodeURIComponent(spellName)}`, {
+      method: 'PUT',
+      body: JSON.stringify(spell),
+    });
+  }
+
+  async removeSpell(characterId: string, spellName: string) {
+    return this.request(`/admin/characters/${characterId}/spells/${encodeURIComponent(spellName)}`, {
+      method: 'DELETE',
+    });
+  }
+}
 
 // ==================== Types ====================
 export interface AuthUser {
@@ -1092,3 +1164,169 @@ export interface ToolCallNotification {
 
 // ==================== GM Tool Call API Methods ====================
 // (Use api.getPendingToolCalls(), api.confirmToolCall(), etc. directly on the api instance)
+
+// ==================== Dice History Types ====================
+
+export interface DiceHistoryEntry {
+  id: string;
+  formula: string;
+  total: number | null;
+  diceCount: number | null;
+  diceType: number | null;
+  modifier: number;
+  rolls: number[];
+  sessionId: string | null;
+  sessionTitle: string | null;
+  playerId: string | null;
+  characterName: string | null;
+  createdAt: string;
+}
+
+export interface DiceHistoryResponse {
+  gameId: string;
+  count: number;
+  rolls: DiceHistoryEntry[];
+}
+
+// ==================== Combat Log Types ====================
+
+export interface CombatSummaryEntry {
+  id: string;
+  name: string;
+  status: string;
+  currentRound: number;
+  participantCount: number;
+  eventCount: number;
+  startedAt: string;
+  endedAt: string | null;
+  sessionId: string | null;
+  sessionTitle: string | null;
+}
+
+export interface CombatLogResponse {
+  id: string;
+  name: string;
+  status: string;
+  currentRound: number;
+  currentTurnIndex: number;
+  startedAt: string;
+  endedAt: string | null;
+  sessionId: string | null;
+  sessionTitle: string | null;
+  participants: CombatParticipantEntry[];
+  events: CombatEventEntry[];
+}
+
+export interface CombatParticipantEntry {
+  id: string;
+  displayName: string;
+  participantType: string;
+  currentHP: number;
+  maxHP: number;
+  ac: number;
+  initiative: number;
+  conditions: JsonElement;
+  deathSaveState: JsonElement | null;
+  notes: JsonElement | null;
+}
+
+export interface CombatEventEntry {
+  id: string;
+  round: number;
+  turnIndex: number;
+  type: string;
+  actorName: string;
+  targetName: string;
+  content: string;
+  metadata: JsonElement | null;
+  createdAt: string;
+}
+
+// ==================== GM Tool Types ====================
+
+export interface GMToolDefinition {
+  name: string;
+  description: string;
+  category: ToolCategory;
+  requiresConfirmation: boolean;
+  parameters: Record<string, any>;
+}
+
+export interface GMToolResponse {
+  gameId: string;
+  count: number;
+  tools: GMToolDefinition[];
+}
+
+export interface ExecuteToolRequest {
+  toolName: string;
+  arguments: string;
+}
+
+export interface ExecuteToolResponse {
+  toolName: string;
+  success: boolean;
+  output: string | null;
+  outputMessage: string | null;
+  requiresUserInput: boolean;
+  userInputType: string | null;
+}
+
+// ==================== Spell Management Types ====================
+
+export interface SpellEntry {
+  name: string;
+  level: string;
+  school: string;
+  castingTime: string;
+  range: string;
+  duration: string;
+  components: string;
+  description: string;
+  saveType: string | null;
+  saveDC: number | null;
+  damageFormula: string | null;
+  damageBonus: number | null;
+  damageType: string | null;
+  isPrepared: boolean;
+  isKnown: boolean;
+}
+
+export interface SpellSlotInfo {
+  level: string;
+  slotsTotal: number;
+  slotsRemaining: number;
+  slotsUsed: number;
+}
+
+export interface SpellManagementResponse {
+  characterId: string;
+  characterName: string;
+  characterClass: string;
+  characterLevel: number;
+  spells: SpellEntry[];
+  spellSlots: SpellSlotInfo[];
+  updatedAt: string;
+}
+
+export interface SpellUpdateRequest {
+  name?: string;
+  level?: string;
+  school?: string;
+  castingTime?: string;
+  range?: string;
+  duration?: string;
+  components?: string;
+  description?: string;
+  saveType?: string;
+  saveDC?: number;
+  damageFormula?: string;
+  damageBonus?: number;
+  damageType?: string;
+  isPrepared?: boolean;
+  isKnown?: boolean;
+  spellSlots?: SpellSlotInfo[];
+}
+
+export const api = new APIClient();
+

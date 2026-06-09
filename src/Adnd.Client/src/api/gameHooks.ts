@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, PlotThreadResponse, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary, GameProviderUsageSummary, GMStatusResponse, SwayResponse, PlotReviewResponse, PendingCallsResponse } from './client';
+import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, PlotThreadResponse, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary, GameProviderUsageSummary, GMStatusResponse, SwayResponse, PlotReviewResponse, PendingCallsResponse, DiceHistoryEntry, CombatSummaryEntry, CombatLogResponse, GMToolDefinition, SpellEntry, SpellSlotInfo, SpellUpdateRequest } from './client';
 import { useEntity } from './useEntity';
 
 export function useGames() {
@@ -650,5 +650,220 @@ export function usePlotWeaver(gameId: string | undefined) {
     triggerReview,
     adjustMomentum,
     detectOpportunities,
+  };
+}
+
+// ==================== Dice History Hook ====================
+
+export function useDiceHistory(gameId: string | undefined) {
+  const [rolls, setRolls] = useState<DiceHistoryEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchRolls = useCallback(async (params?: {
+    sessionId?: string;
+    playerId?: string;
+    limit?: number;
+    sortBy?: string;
+  }) => {
+    if (!gameId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getDiceHistory(gameId, params);
+      setRolls(data.rolls);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [gameId]);
+
+  return {
+    rolls,
+    isLoading,
+    error,
+    refetch: fetchRolls,
+  };
+}
+
+// ==================== Combat Log Hook ====================
+
+export function useCombats(gameId: string | undefined) {
+  const [combats, setCombats] = useState<CombatSummaryEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchCombats = useCallback(async () => {
+    if (!gameId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getCombats(gameId);
+      setCombats(data.combats);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [gameId]);
+
+  return {
+    combats,
+    isLoading,
+    error,
+    refetch: fetchCombats,
+  };
+}
+
+export function useCombat(combatId: string | undefined, gameId: string | undefined) {
+  const [combat, setCombat] = useState<CombatLogResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchCombat = useCallback(async () => {
+    if (!combatId || !gameId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getCombat(gameId, combatId);
+      setCombat(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [combatId, gameId]);
+
+  return {
+    combat,
+    isLoading,
+    error,
+    refetch: fetchCombat,
+  };
+}
+
+// ==================== GM Tools Hook ====================
+
+export function useGMTools(gameId: string | undefined) {
+  const [tools, setTools] = useState<GMToolDefinition[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTools = useCallback(async () => {
+    if (!gameId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getGMTools(gameId);
+      setTools(data.tools);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [gameId]);
+
+  const executeTool = useCallback(async (toolName: string, args: Record<string, any>, sessionId?: string) => {
+    if (!gameId) return null;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.executeGMTool(gameId, sessionId || '', {
+        toolName,
+        arguments: JSON.stringify(args),
+      });
+      return data;
+    } catch (e: any) {
+      setError(e.message);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [gameId]);
+
+  return {
+    tools,
+    isLoading,
+    error,
+    refetch: fetchTools,
+    executeTool,
+  };
+}
+
+// ==================== Spell Management Hook ====================
+
+export function useSpells(characterId: string | undefined) {
+  const [spells, setSpells] = useState<SpellEntry[]>([]);
+  const [spellSlots, setSpellSlots] = useState<SpellSlotInfo[]>([]);
+  const [characterName, setCharacterName] = useState('');
+  const [characterClass, setCharacterClass] = useState('');
+  const [characterLevel, setCharacterLevel] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchSpells = useCallback(async () => {
+    if (!characterId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.getCharacterSpells(characterId);
+      setSpells(data.spells);
+      setSpellSlots(data.spellSlots);
+      setCharacterName(data.characterName);
+      setCharacterClass(data.characterClass);
+      setCharacterLevel(data.characterLevel);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [characterId]);
+
+  const updateSpells = useCallback(async (spellUpdates: SpellUpdateRequest[]) => {
+    if (!characterId) return false;
+    try {
+      await api.updateCharacterSpells(characterId, spellUpdates);
+      await fetchSpells();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [characterId, fetchSpells]);
+
+  const addSpell = useCallback(async (spell: SpellUpdateRequest) => {
+    if (!characterId || !spell.name) return false;
+    try {
+      await api.updateSingleSpell(characterId, spell.name, spell);
+      await fetchSpells();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [characterId, fetchSpells]);
+
+  const removeSpell = useCallback(async (spellName: string) => {
+    if (!characterId) return false;
+    try {
+      await api.removeSpell(characterId, spellName);
+      await fetchSpells();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [characterId]);
+
+  return {
+    spells,
+    spellSlots,
+    characterName,
+    characterClass,
+    characterLevel,
+    isLoading,
+    error,
+    refetch: fetchSpells,
+    updateSpells,
+    addSpell,
+    removeSpell,
   };
 }

@@ -8,6 +8,9 @@ import { api } from '../api/client';
 import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
 import CombatTab from './CombatTab';
 import CharacterCreateWizard from './CharacterCreateWizard';
+import DiceHistoryTab from './DiceHistoryTab';
+import CombatLogViewerPage from './CombatLogViewerPage';
+import GMToolPanel from './GMToolPanel';
 import ToolCallBanner from '../components/ToolCallBanner';
 import PlayerRollDialog from '../components/PlayerRollDialog';
 import {
@@ -111,7 +114,7 @@ export default function GameRoomPage() {
   }, []);
 
   useEffect(() => {
-    const tabMap: Record<string, number> = { 'chat': 0, 'combat': 1, 'players': 2, 'characters': 3, 'actions': 4, 'agent-calls': 5, 'settings': 6 };
+    const tabMap: Record<string, number> = { 'chat': 0, 'combat': 1, 'players': 2, 'characters': 3, 'actions': 4, 'dice-history': 5, 'combat-log': 6, 'gm-tools': 7, 'agent-calls': 8, 'settings': 9 };
     setActiveTab(tabMap[hash] ?? 0);
   }, [hash]);
 
@@ -920,6 +923,18 @@ export default function GameRoomPage() {
               calls={[]}
               onRefresh={handleRefreshAgentCalls}
             />
+          )}
+
+          {hash === 'dice-history' && (
+            <DiceHistoryTab />
+          )}
+
+          {hash === 'combat-log' && (
+            <CombatLogViewerPage />
+          )}
+
+          {hash === 'gm-tools' && (
+            <GMToolPanel />
           )}
 
           {hash === 'settings' && (
