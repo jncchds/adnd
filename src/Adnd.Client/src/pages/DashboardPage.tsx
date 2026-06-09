@@ -6,7 +6,8 @@ import { api } from '../api/client';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Alert, Chip, IconButton, Tooltip, AlertTitle, Button, useMediaQuery, useTheme
+  TextField, Alert, Chip, IconButton, Tooltip, AlertTitle, Button, Autocomplete,
+  useMediaQuery, useTheme, CircularProgress
 } from '@mui/material';
 import { Delete as DeleteIcon, PlayArrow as PlayIcon, Archive as ArchiveIcon,
   Share as ShareIcon, ExitToApp as LeaveIcon, Add as AddIcon } from '@mui/icons-material';
@@ -17,7 +18,7 @@ export default function DashboardPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
   const { games, isLoading, error, refetch, createGame, deleteGame, leaveGame, generateInvite, archiveGame, joinByCode } = useGames();
-  const { presets } = useLLMPresets();
+  const { presets, isLoading: presetsLoading } = useLLMPresets();
   const { templates, createTemplate, deleteTemplate } = useGameTemplates();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showJoinDialog, setShowJoinDialog] = useState(false);
@@ -307,20 +308,39 @@ export default function DashboardPage() {
               sx={{ mt: 0.5 }}
             />
           </Box>
-          <TextField
-            fullWidth
-            select
-            label="LLM Preset (for AI-GM)"
-            value={llmPresetId || ''}
-            onChange={e => setLLMPresetId(e.target.value || null)}
-            SelectProps={{ native: true }}
-            disabled={!presets}
-          >
-            <option value="">None</option>
-            {presets?.map(preset => (
-              <option key={preset.id} value={preset.id}>{preset.name}</option>
-            ))}
-          </TextField>
+          <Autocomplete
+            options={presets || []}
+            value={presets?.find(p => p.id === llmPresetId) || null}
+            onChange={(_event, newValue) => {
+              setLLMPresetId(newValue?.id || null);
+            }}
+            getOptionLabel={(option) => option.name}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            disabled={presetsLoading || presets?.length === 0}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                fullWidth
+                label="LLM Preset (for AI-GM)"
+                placeholder={presetsLoading ? 'Loading presets...' : presets?.length === 0 ? 'No presets available — create one first' : 'Select an LLM preset'}
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <>
+                      {presetsLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                      {params.InputProps?.endAdornment}
+                    </>
+                  ),
+                }}
+              />
+            )}
+            renderOption={(props, option) => (
+              <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2">{option.name}</Typography>
+                <Chip label={option.providerType} size="small" variant="outlined" sx={{ height: 16, fontSize: 10 }} />
+              </Box>
+            )}
+          />
           <TextField
             fullWidth
             multiline
