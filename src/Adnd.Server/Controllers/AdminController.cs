@@ -79,11 +79,88 @@ public partial class AdminController : ControllerBase
         _gameTemplateService = gameTemplateService;
     }
 
-    // ==================== Additional Trigger Endpoints ====================
+    /// <summary>
+    /// Manually trigger game pause.
+    /// </summary>
+    [HttpPost("games/{gameId}/trigger/pause")]
+    public async Task<IActionResult> PauseGame(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+
+        await _mediator.Publish(new GamePaused(gameId));
+
+        return Ok(new { message = "Game paused event published" });
+    }
 
     /// <summary>
-    /// Manually trigger plot thread generation.
+    /// Manually trigger game resume.
     /// </summary>
+    [HttpPost("games/{gameId}/trigger/resume")]
+    public async Task<IActionResult> ResumeGame(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+
+        await _mediator.Publish(new GameResumed(gameId));
+
+        return Ok(new { message = "Game resumed event published" });
+    }
+
+    /// <summary>
+    /// Manually trigger a combat start simulation.
+    /// </summary>
+    [HttpPost("games/{gameId}/trigger/combat-start")]
+    public async Task<IActionResult> TriggerCombatStart(Guid gameId)
+    {
+        var game = await _context.Games.FindAsync(gameId);
+        if (game == null) return NotFound(new { error = "Game not found." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+
+        var combat = new Combat
+        {
+            GameId = gameId,
+            Name = "Simulated Combat",
+            Status = CombatStatus.Active,
+            StartedAt = DateTime.UtcNow,
+            CurrentRound = 1,
+            CurrentTurnIndex = 0,
+        };
+
+        _context.Combats.Add(combat);
+        await _context.SaveChangesAsync();
+
+        await _mediator.Publish(new CombatStarted(gameId, null, combat.Name));
+
+        return Ok(new { combatId = combat.Id, message = "Simulated combat started" });
+    }
+
+    /// <summary>
+    /// Manually trigger a combat end simulation for the most recent active combat.
+    /// </summary>
+    [HttpPost("games/{gameId}/trigger/combat-end")]
+    public async Task<IActionResult> TriggerCombatEnd(Guid gameId)
+    {
+        var combat = await _context.Combats
+            .Where(c => c.GameId == gameId && c.Status == CombatStatus.Active)
+            .OrderByDescending(c => c.StartedAt)
+            .FirstOrDefaultAsync();
+
+        if (combat == null) return BadRequest(new { error = "No active combat found to end." });
+        if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
+
+        combat.Status = CombatStatus.Finished;
+        combat.EndedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        await _mediator.Publish(new CombatEnded(gameId, combat.Id, "Simulation Ended"));
+
+        return Ok(new { combatId = combat.Id, message = "Simulated combat ended" });
+    }
+
+    // ==================== Additional Trigger Endpoints ====================
     [HttpPost("games/{gameId}/trigger/generate-threads")]
     public async Task<IActionResult> TriggerGenerateThreads(Guid gameId)
     {

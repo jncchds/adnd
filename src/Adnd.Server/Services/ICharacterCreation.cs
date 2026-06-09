@@ -44,7 +44,7 @@ public interface ICharacterCreationFactory
 }
 
 /// <summary>
-/// Concrete strategy for D&D 5e character creation.
+/// Concrete strategy for D&amp;D 5e character creation.
 /// </summary>
 public class DnD5eCharacterCreation : ICharacterCreationStrategy
 {
