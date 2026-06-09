@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Adnd.Server.Models;
+using Adnd.Server.Services;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using System.Text.Json;
 
@@ -36,6 +37,9 @@ public class AppDbContext : DbContext
     public DbSet<Whisper> Whispers => Set<Whisper>();
     public DbSet<LLMPreset> LLMPresets => Set<LLMPreset>();
     public DbSet<LLMInteractionLog> LLMInteractionLogs => Set<LLMInteractionLog>();
+
+    // Audit
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     // Combat
     public DbSet<Combat> Combats => Set<Combat>();
@@ -279,5 +283,39 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<LLMInteractionLog>()
             .HasIndex(l => new { l.UserId, l.OriginGameId, l.StartedAt })
             .IsDescending(new[] { false, false, true });
+
+        // Audit Log
+        modelBuilder.Entity<AuditLog>()
+            .HasOne(a => a.User)
+            .WithMany()
+            .HasForeignKey(a => a.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<AuditLog>()
+            .HasIndex(a => new { a.UserId, a.CreatedAt })
+            .IsDescending(new[] { false, true });
+
+        // Performance indexes
+        // PlotThreads: query by game + status (used in RAG, PlotWeaver)
+        modelBuilder.Entity<PlotThread>()
+            .HasIndex(p => new { p.GameId, p.Status });
+
+        // PlotThreads: full-text search on title and description (requires pg_trgm extension)
+        // Note: GIN index with pg_trgm is applied via migration, not fluent API
+        modelBuilder.Entity<PlotThread>()
+            .HasIndex(p => new { p.GameId, p.Title })
+            .HasDatabaseName("IX_PlotThreads_GameId_Title");
+
+        // Combats: active combat queries
+        modelBuilder.Entity<Combat>()
+            .HasIndex(c => new { c.GameId, c.Status });
+
+        // LLMInteractionLogs: date-based queries
+        modelBuilder.Entity<LLMInteractionLog>()
+            .HasIndex(l => l.StartedAt);
+
+        // Messages: created date for pagination
+        modelBuilder.Entity<Message>()
+            .HasIndex(m => new { m.SessionId, m.CreatedAt })
+            .IsDescending(new[] { false, true });
     }
 }

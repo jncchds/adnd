@@ -69,6 +69,14 @@ This document captures improvement ideas, feature requests, and architectural en
 - [x] Configurable via `Resilience` section in appsettings.json
 - [x] Graceful degradation: circuit breaker prevents cascading failures
 
+### 🗄️ Database Performance (Batch 3 — 2026-06-09)
+- [x] New indexes: `PlotThreads(GameId, Status)`, `Combats(GameId, Status)`, `LLMInteractionLogs(StartedAt)`, `Messages(SessionId, CreatedAt)`
+- [x] `IX_PlotThreads_GameId_Title` composite index for fast title lookups
+- [x] `AuditLogs` table with `(UserId, CreatedAt)` index — tracks admin actions
+- [x] `IAuditLogService` + `AuditLog` model for audit logging
+- [x] Connection pooling: `MaxPoolSize=100;MinPoolSize=10;Connection Idle Lifetime=300`
+- [x] EF query logging enabled in dev via `ConfigureWarnings`
+
 ### 🏗️ Architectural Improvements
 
 ### 21. Code Quality & Refactoring
