@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Shared;
 using Adnd.Server.Features.Auth;
 using Adnd.Server.Features.LlmPresets;
+using Adnd.Server.Data;
 using FluentValidation;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -83,3 +84,18 @@ if (app.Environment.IsDevelopment())
 }
 
 app.Run();
+
+// Seed predefined game systems
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.EnsureCreatedAsync();
+    foreach (var system in SeedData.DefaultSystems)
+    {
+        if (!await db.GameSystems.AnyAsync(s => s.Id == system.Id))
+        {
+            db.GameSystems.Add(system);
+        }
+    }
+    await db.SaveChangesAsync();
+}

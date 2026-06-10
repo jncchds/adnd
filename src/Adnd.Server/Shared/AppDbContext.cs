@@ -8,6 +8,7 @@ public class AppDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<LlmPreset> LlmPresets => Set<LlmPreset>();
+    public DbSet<GameSystem> GameSystems => Set<GameSystem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -34,6 +35,18 @@ public class AppDbContext : DbContext
             entity.Property(e => e.EmbeddingModel).HasMaxLength(128);
             entity.Property(e => e.ApiKeyEncrypted).IsRequired();
             entity.Property(e => e.SystemPrompt).IsRequired();
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("NOW()");
+        });
+
+        modelBuilder.Entity<GameSystem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Slug).IsUnique();
+            entity.Property(e => e.Name).HasMaxLength(128);
+            entity.Property(e => e.Slug).HasMaxLength(32);
+            entity.Property(e => e.Description).HasMaxLength(512);
+            entity.Property(e => e.RulesetConfig).HasColumnType("jsonb");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("NOW()");
         });
