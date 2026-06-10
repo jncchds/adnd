@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using Adnd.Server.Data;
+using Adnd.Server.Hubs;
 using Adnd.Server.Models;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Services;
@@ -92,6 +94,7 @@ public class AgentBus : IAgentBus
     private readonly IGMToolRegistry _toolRegistry;
     private readonly IApiKeyEncryptionService _encryption;
     private readonly ILogger<AgentBus> _logger;
+    private readonly IHubContext<GameHub> _hubContext;
 
     public AgentBus(
         AppDbContext context,
@@ -104,7 +107,8 @@ public class AgentBus : IAgentBus
         ILLMInteractionLogger interactionLogger,
         IGMToolRegistry toolRegistry,
         IApiKeyEncryptionService encryption,
-        ILogger<AgentBus> logger)
+        ILogger<AgentBus> logger,
+        IHubContext<GameHub> hubContext)
     {
         _context = context;
         _providerFactory = providerFactory;
@@ -118,6 +122,7 @@ public class AgentBus : IAgentBus
         _providerFactory = providerFactory;
         _encryption = encryption;
         _logger = logger;
+        _hubContext = hubContext;
     }
 
     private ILLMProvider? GetProvider(LLMPreset preset)
@@ -176,6 +181,14 @@ public class AgentBus : IAgentBus
 
             _context.AgentCalls.Update(call);
             await _context.SaveChangesAsync();
+
+            // Broadcast narrative output to players for narrative-producing actions
+            if ((call.Action == AgentAction.Narrate || call.Action == AgentAction.Generate || call.Action == AgentAction.Nudge)
+                && !string.IsNullOrWhiteSpace(result)
+                && !result.StartsWith("{"))
+            {
+                await BroadcastNarrationAsync(call.GameId, result);
+            }
 
             _logger.LogInformation("[AGENT_CALL] Completed | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | Duration={Duration}ms",
                 call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.DurationMs);
@@ -992,6 +1005,57 @@ public class AgentBus : IAgentBus
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("GM agent resumed for game {GameId}", gameId);
+    }
+
+    /// <summary>
+    /// Persist a GM narrative as a Message entity and broadcast it to all players via SignalR.
+    /// Called automatically after Narrate/Generate agent calls complete.
+    /// </summary>
+    private async Task BroadcastNarrationAsync(Guid gameId, string narrative)
+    {
+        try
+        {
+            // Truncate very long narratives to avoid message size limits
+            var content = narrative.Length > 10000 ? narrative[..10000] : narrative;
+
+            var message = new Message
+            {
+                Id = Guid.NewGuid(),
+                SessionId = Guid.Empty,
+                PlayerId = null,
+                Content = content,
+                Type = Adnd.Server.Models.MessageType.GM,
+                IsOOC = false,
+                Metadata = JsonSerializer.SerializeToElement(new { source = "agent", action = "narrate" }),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.Messages.Add(message);
+            await _context.SaveChangesAsync();
+
+            // Broadcast to all players in the game
+            await _hubContext.Clients.Group(gameId.ToString()).SendAsync("NewMessage", new
+            {
+                message.Id,
+                message.SessionId,
+                message.PlayerId,
+                message.Content,
+                message.Type,
+                message.Metadata,
+                message.IsOOC,
+                WhisperFromId = (Guid?)null,
+                WhisperToId = (Guid?)null,
+                WhisperTarget = (string?)null,
+                message.CreatedAt
+            });
+
+            _logger.LogInformation("[NARRATION] Broadcast | GameId={GameId} | MessageId={MessageId} | Length={Length}",
+                gameId, message.Id, content.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NARRATION] Failed to broadcast narration for game {GameId}", gameId);
+        }
     }
 }
 
