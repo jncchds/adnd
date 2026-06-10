@@ -3,11 +3,11 @@ FROM node:20-alpine AS frontend
 
 WORKDIR /app
 
-COPY package.json tsconfig.json vite.config.ts ./
-COPY src/Adnd.Client/package.json ./
+COPY src/Adnd.Client/package.json src/Adnd.Client/tsconfig.json src/Adnd.Client/vite.config.ts ./
 RUN npm install
 
 COPY src/Adnd.Client/ ./src/Adnd.Client/
+WORKDIR /app/src/Adnd.Client
 RUN npm run build
 
 # ---- Backend build stage ----

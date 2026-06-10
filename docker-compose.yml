@@ -25,7 +25,8 @@ services:
       - "5010:5010"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__Default: Host=postgres;Port=5432;Database=adnd;Username=adnd;Password=adnd_secret
+      ASPNETCORE_URLS: http://+:5010
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=adnd;Username=adnd;Password=adnd_secret;Timeout=30
       JwtSettings__SecretKey: ${JWT_SECRET:-change-me-in-production}
       JwtSettings__Issuer: adnd-server
       JwtSettings__Audience: adnd-client

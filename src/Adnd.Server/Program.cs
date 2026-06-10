@@ -40,6 +40,7 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddAuthorization();
+builder.Services.AddControllers();
 
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<EncryptionService>();
@@ -63,13 +64,6 @@ var app = builder.Build();
 
 app.UseAuthentication();
 app.UseAuthorization();
-
-// Apply pending EF Core migrations on startup
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
-}
 
 // Serve SPA static files (production)
 app.MapWhen(ctx => !ctx.Request.Path.StartsWithSegments("/api") && !ctx.Request.Path.StartsWithSegments("/swagger"), appBuilder =>

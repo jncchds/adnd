@@ -24,10 +24,8 @@ import {
   FormControl,
   InputLabel,
   Select,
-  FormHelperText,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import RefreshIcon from '@mui/icons-material/Refresh';
 import client from '@/api/client';
 
 interface LlmPreset {
