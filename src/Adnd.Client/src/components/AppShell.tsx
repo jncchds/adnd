@@ -179,7 +179,10 @@ function AuthenticatedShell() {
         currentView={currentView}
         onNavigate={handleNavigate}
         gameId={currentGameId}
-        activeGameTab={window.location.hash.replace('#', '') || 'chat'}
+        activeGameTab={(() => {
+          const parts = location.pathname.split('/').filter(Boolean);
+          return parts[2] || 'chat';
+        })()}
         onNewGame={currentView === 'dashboard' ? handleNewGame : undefined}
         onJoinGame={currentView === 'dashboard' ? handleJoinGame : undefined}
         onAddPreset={currentView === 'llm-presets' ? handleAddPreset : undefined}

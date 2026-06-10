@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useGames, useGame, useNPCs, usePlotThreads, useCharacters, useConsistency, usePlotWeaver } from '../api/gameHooks';
-import LLMUsagePanel from './LLMUsagePanel';
+import { useState } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useGames, useGame, useNPCs, useCharacters, useConsistency, usePlotWeaver } from '../api/gameHooks';
 import { useGameHub } from '../api/hubHook';
-import { WhisperType, AgentType, AgentAction, AgentCallStatus } from '../types';
+import { AgentType, AgentAction, AgentCallStatus } from '../types';
 import CharacterCreateWizard from './CharacterCreateWizard';
 import PlotBoardAdminTab from './PlotBoardAdminTab';
 import GameStatePage from './GameStatePage';
@@ -19,70 +18,35 @@ import { Delete as DeleteIcon, Add as AddIcon,
   CheckCircle as CheckCircleIcon,
   History as HistoryIcon,
   Article as SheetIcon,
-  PlayArrow as PlayIcon, ChevronLeft as ChevronLeftIcon, Dashboard as DashboardIcon } from '@mui/icons-material';
+  ChevronLeft as ChevronLeftIcon } from '@mui/icons-material';
 
 export default function AdminPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { game, isLoading } = useGame(id);
-  const { startGame } = useGames();
+  const { startGame: _startGame } = useGames();
   const { npcs, isLoading: npcsLoading, createNPC, updateNPC, deleteNPC } = useNPCs(id);
-  const { threads, isLoading: threadsLoading, createThread, updateThread } = usePlotThreads(id);
   const { characters, refetch: refetchCharacters } = useCharacters(id);
   const { report, isLoading: consistencyLoading, check } = useConsistency(id);
   const { threads: plotThreads, isLoading: plotThreadsLoading } = usePlotWeaver(id);
+  const location = useLocation();
 
-  const [_activeTab, setActiveTab] = useState(0);
-  const [hash, setHash] = useState(window.location.hash.replace('#', '') || 'npcs');
-
-  useEffect(() => {
-    const handler = () => setHash(window.location.hash.replace('#', '') || 'npcs');
-    window.addEventListener('hashchange', handler);
-    return () => window.removeEventListener('hashchange', handler);
-  }, []);
-
-  useEffect(() => {
-    const tabMap: Record<string, number> = { 'npcs': 0, 'plot-board': 1, 'plot-threads': 2, 'characters': 3, 'consistency': 4, 'agent-calls': 5, 'llm-usage': 6, 'llm-logs': 7, 'whispers': 8, 'game-state': 9 };
-    setActiveTab(tabMap[hash] ?? 0);
-  }, [hash]);
-
-  // Show GameStatePage as a full-page view when selected
-  if (hash === 'game-state') {
-    return (
-      <Box>
-        <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Button size="small" variant="outlined" startIcon={<ChevronLeftIcon />}
-            onClick={() => { setHash('npcs'); window.location.hash = 'npcs'; }}>
-            Back to Admin
-          </Button>
-          <Typography variant="h5" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <DashboardIcon color="primary" /> Game State Dashboard
-          </Typography>
-        </Box>
-        <GameStatePage />
-      </Box>
-    );
-  }
+  // Derive view from URL path: /admin/:id, /admin/:id/plot-board, etc.
+  const pathParts = location.pathname.split('/').filter(Boolean);
+  // pathParts = ['admin', id, view?]  or  ['admin', id]
+  const view = pathParts[2] || 'dashboard';
 
   const [npcDialogOpen, setNpcDialogOpen] = useState(false);
   const [npcName, setNpcName] = useState('');
   const [npcDesc, setNpcDesc] = useState('');
-  const [threadDialogOpen, setThreadDialogOpen] = useState(false);
-  const [threadTitle, setThreadTitle] = useState('');
-  const [threadDesc, setThreadDesc] = useState('');
   const [errorState, setErrorState] = useState<string | null>(null);
   const [agentCalls, setAgentCalls] = useState<any[]>([]);
-  const [whispers, setWhispers] = useState<any[]>([]);
   const [agentCallFilter, setAgentCallFilter] = useState<number | undefined>(undefined);
-  const [whisperFilter, setWhisperFilter] = useState<number | undefined>(undefined);
   const [showAgentDialog, setShowAgentDialog] = useState(false);
   const [agentFrom, setAgentFrom] = useState(AgentType.GM);
   const [agentTo, setAgentTo] = useState(AgentType.LLM);
   const [agentAction, setAgentAction] = useState(AgentAction.Query);
   const [agentInput, setAgentInput] = useState('');
-  const [gameStateJson, setGameStateJson] = useState('{}');
-  const [plotSeed, setPlotSeed] = useState('');
-  const [gameParameters, setGameParameters] = useState('');
   const [showCharCreateWizard, setShowCharCreateWizard] = useState(false);
   const { invoke } = useGameHub();
 
@@ -108,33 +72,8 @@ export default function AdminPage() {
     }
   };
 
-  const handleCreateThread = async () => {
-    if (!threadTitle.trim()) return;
-    try {
-      await createThread!({ title: threadTitle, description: threadDesc });
-      setThreadDialogOpen(false);
-      setThreadTitle('');
-      setThreadDesc('');
-    } catch (e: any) {
-      setErrorState(e.message);
-    }
-  };
-
   const handleCheckConsistency = async () => {
     await check(50);
-  };
-
-  const handleSaveGameState = async () => {
-    if (!id) return;
-    try {
-      await invoke('UpdateGameState', id, gameStateJson, plotSeed, gameParameters);
-      setGameStateJson(gameStateJson);
-      setPlotSeed(plotSeed);
-      setGameParameters(gameParameters);
-      setErrorState('Game state saved successfully.');
-    } catch (e: any) {
-      setErrorState(e.message);
-    }
   };
 
   // ==================== LLM Interaction Log Handlers ====================
@@ -171,16 +110,6 @@ export default function AdminPage() {
       if (calls) setAgentCalls(calls);
     } catch (e) {
       console.error('Failed to fetch agent calls', e);
-    }
-  };
-
-  const handleRefreshWhispers = async () => {
-    if (!id) return;
-    try {
-      const w = await invoke('GetWhisperHistory', id, 50);
-      if (w) setWhispers(w);
-    } catch (e) {
-      console.error('Failed to fetch whispers', e);
     }
   };
 
@@ -227,7 +156,7 @@ export default function AdminPage() {
       )}
 
       {/* Back to Game */}
-      <Box sx={{ mb: 2 }}>
+      <Box sx={{ mb: 1 }}>
         <Button
           size="small"
           variant="outlined"
@@ -238,98 +167,21 @@ export default function AdminPage() {
         </Button>
       </Box>
 
-      {/* Tab Content (tabs are now in the side panel) */}
-      {hash === 'npcs' && (
-        <NPCsTab
-          npcs={npcs}
-          npcsLoading={npcsLoading}
-          onOpenDialog={() => setNpcDialogOpen(true)}
-          onDelete={deleteNPC}
-          onUpdate={updateNPC}
-        />
+      {/* Content */}
+      {view === 'dashboard' && <GameStatePage />}
+      {view === 'plot-board' && <PlotBoardAdminTab threads={plotThreads} isLoading={plotThreadsLoading} gameId={id || ''} />}
+      {view === 'npcs' && (
+        <NPCsTab npcs={npcs} npcsLoading={npcsLoading} onOpenDialog={() => setNpcDialogOpen(true)} onDelete={deleteNPC} onUpdate={updateNPC} />
       )}
-
-      {hash === 'plot-board' && (
-        <PlotBoardAdminTab threads={plotThreads} isLoading={plotThreadsLoading} gameId={id || ''} />
+      {view === 'characters' && <CharactersTab characters={characters} />}
+      {view === 'consistency' && (
+        <ConsistencyTab report={report} isLoading={consistencyLoading} onCheck={handleCheckConsistency} />
       )}
-
-      {hash === 'plot-threads' && (
-        <PlotThreadsTab
-          threads={threads}
-          threadsLoading={threadsLoading}
-          onOpenDialog={() => setThreadDialogOpen(true)}
-          onUpdate={updateThread}
-        />
+      {view === 'llm-logs' && (
+        <LLMLogsTab logs={llmLogs} isLoading={logsLoading} onRefresh={handleRefreshLLMLogs} onOpenDetail={setSelectedLog} onDelete={handleDeleteLog} filterProvider={logFilterProvider} onFilterProviderChange={setLogFilterProvider} filterFrom={logFilterFrom} onFilterFromChange={setLogFilterFrom} filterTo={logFilterTo} onFilterToChange={setLogFilterTo} />
       )}
-
-      {hash === 'characters' && (
-        <CharactersTab characters={characters} />
-      )}
-
-      {hash === 'consistency' && (
-        <ConsistencyTab
-          report={report}
-          isLoading={consistencyLoading}
-          onCheck={handleCheckConsistency}
-        />
-      )}
-
-      {hash === 'agent-calls' && (
-        <AgentCallsTab
-          calls={agentCalls}
-          isLoading={false}
-          onRefresh={handleRefreshAgentCalls}
-          onOpenDialog={() => setShowAgentDialog(true)}
-          onDelete={handleDeleteAgentCall}
-          filter={agentCallFilter}
-          onFilterChange={setAgentCallFilter}
-        />
-      )}
-
-      {hash === 'llm-usage' && (
-        <LLMUsagePanel gameId={id!} />
-      )}
-
-      {hash === 'llm-logs' && (
-        <LLMLogsTab
-          logs={llmLogs}
-          isLoading={logsLoading}
-          onRefresh={handleRefreshLLMLogs}
-          onOpenDetail={setSelectedLog}
-          onDelete={handleDeleteLog}
-          filterProvider={logFilterProvider}
-          onFilterProviderChange={setLogFilterProvider}
-          filterFrom={logFilterFrom}
-          onFilterFromChange={setLogFilterFrom}
-          filterTo={logFilterTo}
-          onFilterToChange={setLogFilterTo}
-        />
-      )}
-
-      {hash === 'whispers' && (
-        <WhispersTabAdmin
-          whispers={whispers}
-          isLoading={false}
-          onRefresh={handleRefreshWhispers}
-          filter={whisperFilter}
-          onFilterChange={setWhisperFilter}
-        />
-      )}
-
-      {hash === 'game-state' && (
-        <GameStateTab
-          game={game}
-          gameStatus={game?.status}
-          gameStateJson={gameStateJson}
-          setGameStateJson={setGameStateJson}
-          plotSeed={plotSeed}
-          setPlotSeed={setPlotSeed}
-          gameParameters={gameParameters}
-          setGameParameters={setGameParameters}
-          onSave={handleSaveGameState}
-          onOpenCharCreate={() => setShowCharCreateWizard(true)}
-          onStartGame={startGame}
-        />
+      {view === 'agent-calls' && (
+        <AgentCallsTab calls={agentCalls} isLoading={false} onRefresh={handleRefreshAgentCalls} onOpenDialog={() => setShowAgentDialog(true)} onDelete={handleDeleteAgentCall} filter={agentCallFilter} onFilterChange={setAgentCallFilter} />
       )}
 
       {/* NPC Dialog */}
@@ -342,19 +194,6 @@ export default function AdminPage() {
         <DialogActions>
           <Button onClick={() => setNpcDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleCreateNPC} variant="contained" disabled={!npcName.trim()}>Create</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Plot Thread Dialog */}
-      <Dialog open={threadDialogOpen} onClose={() => setThreadDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>New Plot Thread</DialogTitle>
-        <DialogContent sx={{ mt: 1 }}>
-          <TextField fullWidth label="Title" value={threadTitle} onChange={e => setThreadTitle(e.target.value)} sx={{ mb: 2 }} autoFocus />
-          <TextField fullWidth label="Description" multiline rows={3} value={threadDesc} onChange={e => setThreadDesc(e.target.value)} />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setThreadDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleCreateThread} variant="contained" disabled={!threadTitle.trim()}>Create</Button>
         </DialogActions>
       </Dialog>
 
@@ -489,51 +328,6 @@ function NPCsTab({ npcs, npcsLoading, onOpenDialog, onDelete }: any) {
               <IconButton size="small" onClick={() => onDelete(npc.id)} color="error">
                 <DeleteIcon />
               </IconButton>
-            </ListItem>
-          ))}
-        </List>
-      )}
-    </Paper>
-  );
-}
-
-function PlotThreadsTab({ threads, threadsLoading, onOpenDialog }: any) {
-  const statusColor = (status: string) => {
-    switch (status) {
-      case 'Active': return 'success';
-      case 'Resolved': return 'default';
-      case 'Abandoned': return 'error';
-      default: return 'default';
-    }
-  };
-
-  return (
-    <Paper>
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">Plot Threads</Typography>
-        <Button variant="outlined" startIcon={<AddIcon />} onClick={onOpenDialog}>
-          New Thread
-        </Button>
-      </Box>
-      <Divider />
-      {threadsLoading ? (
-        <Typography sx={{ p: 2 }}>Loading...</Typography>
-      ) : threads.length === 0 ? (
-        <Typography sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
-          No plot threads yet. Create one to track storylines.
-        </Typography>
-      ) : (
-        <List>
-          {threads.map((thread: any) => (
-            <ListItem key={thread.id} sx={{ px: 2 }}>
-              <ListItemAvatar>
-                <Avatar>📖</Avatar>
-              </ListItemAvatar>
-              <ListItemText
-                primary={thread.title}
-                secondary={`${thread.description} · ${thread.keyEventMessageIds?.length || 0} events · ${new Date(thread.createdAt).toLocaleDateString()}`}
-              />
-              <Chip label={thread.status} size="small" color={statusColor(thread.status) as any} />
             </ListItem>
           ))}
         </List>
@@ -744,174 +538,6 @@ function AgentCallsTab({ calls, isLoading, onRefresh, onOpenDialog, onDelete, fi
           </Table>
         </TableContainer>
       )}
-    </Paper>
-  );
-}
-
-// ==================== Whispers Tab (Admin) ====================
-
-function WhispersTabAdmin({ whispers, isLoading, onRefresh }: any) {
-  const getWhisperTypeLabel = (type: number) => {
-    switch (type) {
-      case WhisperType.InGamePlayerToGM: return '🤫 P→GM (In-Game)';
-      case WhisperType.InGameGMToPlayer: return '🤫 GM→P (In-Game)';
-      case WhisperType.OOCPlayerToGM: return '🤫 P→GM (OOC)';
-      case WhisperType.OOCGMToPlayer: return '🤫 GM→P (OOC)';
-      case WhisperType.PlayerToPlayer: return '🤫 P→P';
-      case WhisperType.GMToGroup: return '🤫 Creator→G';
-      case WhisperType.GMToAll: return '🤫 Creator→All';
-      default: return '🤫 Whisper';
-    }
-  };
-
-  return (
-    <Paper>
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">Whispers ({whispers.length})</Typography>
-        <Button variant="outlined" onClick={onRefresh} size="small">Refresh</Button>
-      </Box>
-      <Divider />
-      {isLoading ? (
-        <Typography sx={{ p: 2 }}>Loading...</Typography>
-      ) : whispers.length === 0 ? (
-        <Typography sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
-          No whispers recorded yet.
-        </Typography>
-      ) : (
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>From</TableCell>
-                <TableCell>Type</TableCell>
-                <TableCell>Content</TableCell>
-                <TableCell>Time</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {whispers.map((w: any) => (
-                <TableRow key={w.id} sx={{ '&:nth-of-type(odd)': { bgcolor: 'action.hover' } }}>
-                  <TableCell>{w.fromCharacter}</TableCell>
-                  <TableCell><Chip label={getWhisperTypeLabel(w.type)} size="small" sx={{ height: 16, fontSize: 10 }} /></TableCell>
-                  <TableCell sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.content}</TableCell>
-                  <TableCell>{new Date(w.createdAt).toLocaleTimeString()}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
-    </Paper>
-  );
-}
-
-// ==================== Game State Tab ====================
-
-function GameStateTab({ game, gameStatus, gameStateJson, setGameStateJson, plotSeed, setPlotSeed, gameParameters, setGameParameters, onSave, onOpenCharCreate, onStartGame }: any) {
-  const [editMode, setEditMode] = useState(false);
-  const [starting, setStarting] = useState(false);
-
-  const handleStart = async () => {
-    if (!game?.id || !onStartGame) return;
-    setStarting(true);
-    try {
-      await onStartGame(game.id);
-    } catch {
-      // error handled by hook
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  return (
-    <Paper>
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
-        <Typography variant="h6">Game State</Typography>
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Button variant="outlined" onClick={onOpenCharCreate}>Create Character</Button>
-          <Button variant="outlined" onClick={() => setEditMode(!editMode)}>
-            {editMode ? 'Cancel' : 'Edit State'}
-          </Button>
-          {editMode && (
-            <Button variant="contained" onClick={onSave}>Save</Button>
-          )}
-          {gameStatus === 'Draft' && (
-            <Button variant="contained" color="success" startIcon={<PlayIcon />} onClick={handleStart} disabled={starting}>
-              {starting ? 'Starting...' : 'Start Game'}
-            </Button>
-          )}
-        </Box>
-      </Box>
-      <Divider />
-      <Box sx={{ p: 2 }}>
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle1" color="primary">Game Info</Typography>
-          <Typography variant="body2">Name: {game.name}</Typography>
-          <Typography variant="body2">System: {game.systemId} v{game.systemVersion || 'unknown'}</Typography>
-          <Typography variant="body2">Status: {game.status}</Typography>
-          <Typography variant="body2">Created: {new Date(game.createdAt).toLocaleDateString()}</Typography>
-        </Box>
-        <Divider sx={{ my: 2 }} />
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle1" color="primary">Plot Seed</Typography>
-          {editMode ? (
-            <TextField
-              fullWidth
-              multiline
-              rows={3}
-              value={plotSeed}
-              onChange={e => setPlotSeed(e.target.value)}
-              placeholder="Initial plot setup (JSON or text)"
-              sx={{ mt: 1 }}
-            />
-          ) : (
-            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', bgcolor: 'background.default', p: 1, borderRadius: 1 }}>
-              {plotSeed || '(not set)'}
-            </Typography>
-          )}
-        </Box>
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle1" color="primary">Game Parameters</Typography>
-          {editMode ? (
-            <TextField
-              fullWidth
-              multiline
-              rows={3}
-              value={gameParameters}
-              onChange={e => setGameParameters(e.target.value)}
-              placeholder="Game tone, difficulty, pacing (JSON or text)"
-              sx={{ mt: 1 }}
-            />
-          ) : (
-            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', bgcolor: 'background.default', p: 1, borderRadius: 1 }}>
-              {gameParameters || '(not set)'}
-            </Typography>
-          )}
-        </Box>
-        <Box>
-          <Typography variant="subtitle1" color="primary">Game State (JSON)</Typography>
-          {editMode ? (
-            <TextField
-              fullWidth
-              multiline
-              rows={10}
-              value={gameStateJson}
-              onChange={e => setGameStateJson(e.target.value)}
-              placeholder='{"currentScene": "...", "npcs": [...], ...}'
-              sx={{ mt: 1, fontFamily: 'monospace' }}
-            />
-          ) : (
-            <Box sx={{ bgcolor: 'background.default', p: 2, borderRadius: 1, maxHeight: 300, overflow: 'auto' }}>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-                {(() => {
-                  try { return JSON.stringify(JSON.parse(gameStateJson), null, 2); }
-                  catch { return gameStateJson || '{}'; }
-                })()}
-              </Typography>
-            </Box>
-          )}
-        </Box>
-      </Box>
     </Paper>
   );
 }

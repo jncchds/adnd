@@ -297,8 +297,14 @@ All env vars are documented in `docker-compose.yml` with defaults. Key productio
 4. Create migration: `dotnet ef migrations add <Name>`
 5. Add frontend API call in `api/client.ts`
 6. Add hook in `api/gameHooks.ts` if reusable
-7. Add UI component/page as needed
+7. Add UI page in `pages/` with its own route in `App.tsx` (no tabs — each page is a separate URL)
 8. If it triggers game narrative, add event in `Events/GameEvents.cs` and handler in `Handlers/GameEventHandlers.cs`
+
+### Frontend navigation convention
+- **No tabs** — every feature is a separate page with its own URL
+- **Admin routes**: `/admin/:id`, `/admin/:id/plot-board`, `/admin/:id/npcs`, `/admin/:id/characters`, `/admin/:id/consistency`, `/admin/:id/llm-logs`, `/admin/:id/agent-calls`
+- **Game routes**: `/game/:id`, `/game/:id/combat`, `/game/:id/settings`
+- Sidebar navigation uses `navigate()` (react-router) — never `window.location.hash`
 
 ### Debugging
 - Swagger UI: `http://localhost:5010/swagger`

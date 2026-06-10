@@ -221,6 +221,28 @@ All API endpoints are under `/api/`. Swagger docs are available at `/swagger`.
 - **Keep/Drop:** `4d6kh3` (keep highest 3), `3d6kl2` (keep lowest 2)
 - **Drop:** `dr2` (drop lowest 2), `dh1` (drop highest 1)
 
+## 🗺️ Navigation
+
+All navigation uses proper URL routes (no hash-based routing):
+
+### Admin Pages
+| URL | Page |
+|-----|------|
+| `/admin/:id` | Dashboard |
+| `/admin/:id/plot-board` | Plot Board |
+| `/admin/:id/npcs` | NPCs |
+| `/admin/:id/characters` | Characters |
+| `/admin/:id/consistency` | Consistency Check |
+| `/admin/:id/llm-logs` | LLM Logs |
+| `/admin/:id/agent-calls` | Agent Calls |
+
+### Game Pages
+| URL | Page |
+|-----|------|
+| `/game/:id` | Chat |
+| `/game/:id/combat` | Combat |
+| `/game/:id/settings` | Settings |
+
 ## 📁 Project Structure
 
 ```

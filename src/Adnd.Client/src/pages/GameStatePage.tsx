@@ -6,7 +6,7 @@ import { AgentType, AgentAction, MessageType } from '../types';
 import {
   Box, Typography, Paper, Button, Chip,
   Divider, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Alert, LinearProgress, Tabs, Tab,
+  TextField, Alert, LinearProgress,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Collapse, CircularProgress,
 } from '@mui/material';
@@ -18,7 +18,6 @@ import {
   NotificationsActive as NotificationIcon,
   Event as EventIcon,
   People as PeopleIcon,
-  History as HistoryIcon,
   SportsMartialArts as CombatIcon,
   EmojiEvents as TrophyIcon,
   Warning as WarningIcon,
@@ -26,7 +25,6 @@ import {
   Speed as SpeedIcon,
   Dashboard as DashboardIcon,
   MenuBook as StoryIcon,
-  AutoFixHigh as AutoIcon,
 } from '@mui/icons-material';
 
 // ==================== Main Component ====================
@@ -37,20 +35,14 @@ export default function GameStatePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState(0);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     overview: true,
-    gmStatus: true,
-    players: true,
     combat: true,
-    messages: true,
     plot: true,
     agents: true,
-    tools: true,
+    messages: true,
     llm: true,
-    npcs: true,
-    characters: true,
-    sessions: true,
+    triggers: false,
   });
   const [triggerResult, setTriggerResult] = useState<any>(null);
   const [triggerLoading, setTriggerLoading] = useState<string | null>(null);
@@ -91,6 +83,10 @@ export default function GameStatePage() {
     try {
       let result: any;
       switch (label) {
+        case 'Pause Game': result = await api.pauseGame(id); break;
+        case 'Resume Game': result = await api.resumeGame(id); break;
+        case 'Start Combat': result = await api.triggerCombatStart(id); break;
+        case 'End Combat': result = await api.triggerCombatEnd(id); break;
         case 'Narrate': result = await api.triggerNarrate(id); break;
         case 'Suggest': result = await api.triggerSuggest(id); break;
         case 'Consistency Check': result = await api.triggerConsistency(id); break;
@@ -113,6 +109,7 @@ export default function GameStatePage() {
       setTriggerLoading(null);
     }
   };
+
 
   const handleToggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -200,33 +197,24 @@ export default function GameStatePage() {
         </Alert>
       )}
 
-      {/* Tab Navigation */}
-      <Paper sx={{ mb: 2 }}>
-        <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} variant="scrollable" scrollButtons="auto">
-          <Tab label="Overview" icon={<DashboardIcon fontSize="small" />} iconPosition="start" />
-          <Tab label="Combat" icon={<CombatIcon fontSize="small" />} iconPosition="start" />
-          <Tab label="Plot Board" icon={<StoryIcon fontSize="small" />} iconPosition="start" />
-          <Tab label="Agent Calls" icon={<AutoIcon fontSize="small" />} iconPosition="start" />
-          <Tab label="Messages" icon={<HistoryIcon fontSize="small" />} iconPosition="start" />
-          <Tab label="LLM Usage" icon={<TrophyIcon fontSize="small" />} iconPosition="start" />
-          <Tab label="Manual Triggers" icon={<LightbulbIcon fontSize="small" />} iconPosition="start" />
-        </Tabs>
-      </Paper>
-
-      {/* Tab Content */}
-      {activeTab === 0 && <OverviewTab gameState={gameState} expandedSections={expandedSections} onToggleSection={handleToggleSection} />}
-      {activeTab === 1 && <CombatTab gameState={gameState} expandedSections={expandedSections} onToggleSection={handleToggleSection} />}
-      {activeTab === 2 && <PlotTab gameState={gameState} expandedSections={expandedSections} onToggleSection={handleToggleSection} />}
-      {activeTab === 3 && <AgentTab gameState={gameState} onOpenAgentDialog={() => setShowAgentDialog(true)} onRefresh={fetchGameState} />}
-      {activeTab === 4 && <MessagesTab gameState={gameState} />}
-      {activeTab === 5 && <LLMTab gameState={gameState} />}
-      {activeTab === 6 && <TriggersTab
-        gameState={gameState}
-        onTrigger={handleTrigger}
-        loading={triggerLoading}
-        onOpenReview={() => setReviewDialogOpen(true)}
-        onOpenAgent={() => setShowAgentDialog(true)}
-      />}
+      {/* Single Dashboard Layout */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <OverviewTab gameState={gameState} expandedSections={expandedSections} onToggleSection={handleToggleSection} />
+        <CombatTab gameState={gameState} expandedSections={expandedSections} onToggleSection={handleToggleSection} />
+        <PlotTab gameState={gameState} expandedSections={expandedSections} onToggleSection={handleToggleSection} />
+        <AgentTab gameState={gameState} onOpenAgentDialog={() => setShowAgentDialog(true)} onRefresh={fetchGameState} />
+        <MessagesTab gameState={gameState} />
+        <LLMTab gameState={gameState} />
+        <SectionCard title="Manual Triggers" icon={<LightbulbIcon />} expanded={expandedSections.triggers} onToggle={() => handleToggleSection('triggers')}>
+          <TriggersTab
+            gameState={gameState}
+            onTrigger={handleTrigger}
+            loading={triggerLoading}
+            onOpenReview={() => setReviewDialogOpen(true)}
+            onOpenAgent={() => setShowAgentDialog(true)}
+          />
+        </SectionCard>
+      </Box>
 
       {/* Review Dialog */}
       <Dialog open={reviewDialogOpen} onClose={() => setReviewDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -857,6 +845,16 @@ function TriggersTab({ gameState, onTrigger, loading, onOpenReview, onOpenAgent 
   const isRunning = gameState!.Game.gmStatus === 'Running';
 
   const triggerGroups = [
+    {
+      title: '⚙️ System Simulation',
+      description: 'Trigger core game lifecycle events manually',
+      triggers: [
+        { label: 'Pause Game', endpoint: 'pause', desc: 'Publish GamePaused event' },
+        { label: 'Resume Game', endpoint: 'resume', desc: 'Publish GameResumed event' },
+        { label: 'Start Combat', endpoint: 'combat-start', desc: 'Create dummy combat and publish CombatStarted' },
+        { label: 'End Combat', endpoint: 'combat-end', desc: 'End latest active combat and publish CombatEnded' },
+      ],
+    },
     {
       title: '📖 Narrative',
       description: 'Trigger the GM agent to generate narrative content',

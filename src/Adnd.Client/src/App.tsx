@@ -31,7 +31,15 @@ function App() {
             <Route path="/systems/new" element={<SystemsPage />} />
             <Route path="/user-settings" element={<UserSettingsPage />} />
             <Route path="/game/:id" element={<GameRoomPage />} />
+            <Route path="/game/:id/combat" element={<GameRoomPage />} />
+            <Route path="/game/:id/settings" element={<GameRoomPage />} />
             <Route path="/admin/:id" element={<AdminPage />} />
+            <Route path="/admin/:id/plot-board" element={<AdminPage />} />
+            <Route path="/admin/:id/npcs" element={<AdminPage />} />
+            <Route path="/admin/:id/characters" element={<AdminPage />} />
+            <Route path="/admin/:id/consistency" element={<AdminPage />} />
+            <Route path="/admin/:id/llm-logs" element={<AdminPage />} />
+            <Route path="/admin/:id/agent-calls" element={<AdminPage />} />
             <Route path="/character/:id" element={<CharacterSheetPage />} />
           </Route>
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
 import { useGame, useSessions, usePlayers, useGMStatus, useSway } from '../api/gameHooks';
 import { useGameHub } from '../api/hubHook';
@@ -154,20 +154,16 @@ export default function GameRoomPage() {
   const { isConnected, connect, on, invoke, disconnect, waitForConnection } = useGameHub();
 
   const [_activeTab, setActiveTab] = useState(0);
-  const [hash, setHash] = useState(window.location.hash.replace('#', '') || 'chat');
+  const location = useLocation();
+
+  // Derive view from URL path: /game/:id, /game/:id/combat, /game/:id/settings
+  const pathParts = location.pathname.split('/').filter(Boolean);
+  const view = pathParts[2] || 'chat';
 
   useEffect(() => {
-    const handler = () => setHash(window.location.hash.replace('#', '') || 'chat');
-    window.addEventListener('hashchange', handler);
-    return () => window.removeEventListener('hashchange', handler);
-  }, []);
-
-  useEffect(() => {
-    // Unified chat is the main interface — everything appears in chat
-    // Combat and Settings are secondary views
     const tabMap: Record<string, number> = { 'chat': 0, 'combat': 1, 'settings': 2 };
-    setActiveTab(tabMap[hash] ?? 0);
-  }, [hash]);
+    setActiveTab(tabMap[view] ?? 0);
+  }, [view]);
 
 
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
@@ -1230,7 +1226,7 @@ export default function GameRoomPage() {
         gap: isMobile ? 1 : 2,
       }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          {hash === 'chat' && (
+          {view === 'chat' && (
             <UnifiedChatPanel
               messages={messages}
               isLoadingMore={isLoadingMore}
@@ -1259,7 +1255,7 @@ export default function GameRoomPage() {
             />
           )}
 
-          {hash === 'combat' && (
+          {view === 'combat' && (
             <CombatTab gameId={id || ''} />
           )}
 
@@ -1267,7 +1263,7 @@ export default function GameRoomPage() {
               are all visible in the unified chat above. Use the chat to see everything.
               Quick links to detailed views are available in the side panel. */}
 
-          {hash === 'settings' && (
+          {view === 'settings' && (
             <SettingsTab
               game={game}
               sessions={sessions}
