@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: adnd
+      POSTGRES_USER: adnd
+      POSTGRES_PASSWORD: adnd_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adnd"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5010:5010"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=adnd;Username=adnd;Password=adnd_secret
+      JwtSettings__SecretKey: ${JWT_SECRET:-change-me-in-production}
+      JwtSettings__Issuer: adnd-server
+      JwtSettings__Audience: adnd-client
+      Encryption__MasterKey: ${ENCRYPTION_KEY:-change-me-in-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

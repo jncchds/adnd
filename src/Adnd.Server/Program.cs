@@ -61,16 +61,24 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Serve SPA static files (production)
+app.MapWhen(ctx => !ctx.Request.Path.StartsWithSegments("/api") && !ctx.Request.Path.StartsWithSegments("/swagger"), appBuilder =>
+{
+    appBuilder.UseDefaultFiles();
+    appBuilder.UseStaticFiles();
+});
+
+app.MapControllers();
+
+// Swagger (dev only)
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
     app.UseCors("Dev");
 }
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.MapControllers();
 
 app.Run();
