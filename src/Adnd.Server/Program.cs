@@ -41,6 +41,7 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<JwtService>();
+builder.Services.AddScoped<EncryptionService>();
 builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly, ServiceLifetime.Transient);
 
 // Swagger
