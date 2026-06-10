@@ -335,7 +335,24 @@ class APIClient {
     });
   }
 
+  async pauseGame(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/pause`, { method: 'POST' });
+  }
+
+  async resumeGame(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/resume`, { method: 'POST' });
+  }
+
+  async triggerCombatStart(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/combat-start`, { method: 'POST' });
+  }
+
+  async triggerCombatEnd(gameId: string) {
+    return this.request(`/admin/games/${gameId}/trigger/combat-end`, { method: 'POST' });
+  }
+
   // ==================== LLM / RAG ====================
+
   async getLLMProviders() {
     return this.request<ProviderStatus[]>('/admin/llm/providers');
   }

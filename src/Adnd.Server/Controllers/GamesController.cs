@@ -98,6 +98,8 @@ public class GamesController : ControllerBase
 
         // Publish game created event
         await _mediator.Publish(new GameCreated(response.Id, userId, request.SystemId, request.LLMPresetId));
+        // Start the game (activates agent and plot weaver)
+        await _mediator.Publish(new GameStarted(response.Id, userId));
 
         return Ok(response);
     }
