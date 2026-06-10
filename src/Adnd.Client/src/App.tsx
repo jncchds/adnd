@@ -3,6 +3,8 @@ import LoginPage from '@/pages/auth/LoginPage';
 import RegisterPage from '@/pages/auth/RegisterPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
 import LlmPresetsPage from '@/pages/llm-presets/LlmPresetsPage';
+import SystemRegistryPage from '@/pages/systems/SystemRegistryPage';
+import GameManagementPage from '@/pages/games/GameManagementPage';
 
 function App() {
   return (
@@ -12,6 +14,9 @@ function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/llm-presets" element={<LlmPresetsPage />} />
+        <Route path="/systems" element={<SystemRegistryPage />} />
+        <Route path="/games" element={<GameManagementPage />} />
+        <Route path="/dashboard" element={<Navigate to="/games" replace />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

@@ -31,3 +31,43 @@ export interface ModelList {
   chatModels: string[];
   embeddingModels: string[];
 }
+
+export interface GameSystem {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  type: 'predefined' | 'custom';
+  rulesetConfig?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Game {
+  id: string;
+  title: string;
+  systemId: string;
+  systemName: string;
+  systemSlug: string;
+  creatorId: string;
+  creatorDisplayName: string;
+  status: string;
+  plotSeed?: string;
+  joinCode: string;
+  playerCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GameDetail extends Game {
+  players: GamePlayer[];
+}
+
+export interface GamePlayer {
+  id: string;
+  userId: string;
+  role: string;
+  characterName: string;
+  spectating: boolean;
+  isBanned: boolean;
+}
