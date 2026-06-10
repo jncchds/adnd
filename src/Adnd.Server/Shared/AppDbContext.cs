@@ -7,6 +7,7 @@ public class AppDbContext : DbContext
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<User> Users => Set<User>();
+    public DbSet<LlmPreset> LlmPresets => Set<LlmPreset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -19,6 +20,20 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Email).HasMaxLength(256);
             entity.Property(e => e.DisplayName).HasMaxLength(64);
             entity.Property(e => e.PasswordHash).HasMaxLength(128);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("NOW()");
+        });
+
+        modelBuilder.Entity<LlmPreset>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.CreatedByUserId, e.IsActive });
+            entity.Property(e => e.Name).HasMaxLength(128);
+            entity.Property(e => e.Provider).HasMaxLength(32);
+            entity.Property(e => e.BaseModel).HasMaxLength(128);
+            entity.Property(e => e.EmbeddingModel).HasMaxLength(128);
+            entity.Property(e => e.ApiKeyEncrypted).IsRequired();
+            entity.Property(e => e.SystemPrompt).IsRequired();
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("NOW()");
         });
