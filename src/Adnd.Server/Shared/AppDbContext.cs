@@ -9,6 +9,8 @@ public class AppDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<LlmPreset> LlmPresets => Set<LlmPreset>();
     public DbSet<GameSystem> GameSystems => Set<GameSystem>();
+    public DbSet<Game> Games => Set<Game>();
+    public DbSet<GamePlayer> GamePlayers => Set<GamePlayer>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,6 +51,44 @@ public class AppDbContext : DbContext
             entity.Property(e => e.RulesetConfig).HasColumnType("jsonb");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("NOW()");
+        });
+
+        modelBuilder.Entity<Game>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.CreatorId);
+            entity.HasIndex(e => new { e.CreatorId, e.Status });
+            entity.HasIndex(e => e.JoinCode).IsUnique();
+            entity.Property(e => e.Title).HasMaxLength(128);
+            entity.Property(e => e.JoinCode).HasMaxLength(8);
+            entity.Property(e => e.PlotSeed).HasColumnType("text");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("NOW()");
+            entity.HasOne(e => e.Creator)
+                .WithMany()
+                .HasForeignKey(e => e.CreatorId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.System)
+                .WithMany()
+                .HasForeignKey(e => e.SystemId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GamePlayer>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.GameId, e.UserId }).IsUnique();
+            entity.Property(e => e.CharacterName).HasMaxLength(64);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("NOW()");
+            entity.HasOne(e => e.Game)
+                .WithMany(g => g.GamePlayers)
+                .HasForeignKey(e => e.GameId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
