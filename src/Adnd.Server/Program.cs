@@ -4,6 +4,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Shared;
 using Adnd.Server.Features.Auth;
+using Adnd.Server.Features.LlmPresets;
 using FluentValidation;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,6 +43,7 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<EncryptionService>();
+builder.Services.AddHttpClient<ModelLoaderService>();
 builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly, ServiceLifetime.Transient);
 
 // Swagger

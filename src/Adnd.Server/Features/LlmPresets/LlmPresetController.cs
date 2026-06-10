@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Adnd.Server.Shared;
 using Adnd.Server.Features.LlmPresets.Dto;
 using System.Security.Claims;
+using System.Linq;
 
 namespace Adnd.Server.Features.LlmPresets;
 
@@ -14,11 +15,13 @@ public class LlmPresetController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly EncryptionService _encryption;
+    private readonly ModelLoaderService _modelLoader;
 
-    public LlmPresetController(AppDbContext db, EncryptionService encryption)
+    public LlmPresetController(AppDbContext db, EncryptionService encryption, ModelLoaderService modelLoader)
     {
         _db = db;
         _encryption = encryption;
+        _modelLoader = modelLoader;
     }
 
     [HttpGet]
@@ -157,4 +160,11 @@ public class LlmPresetController : ControllerBase
         CreatedAt = preset.CreatedAt,
         UpdatedAt = preset.UpdatedAt
     };
+
+    [HttpGet("providers/{provider}/models")]
+    public async Task<IActionResult> GetModels(string provider, [FromQuery] string? hostUrl = null)
+    {
+        var (chatModels, embeddingModels) = await _modelLoader.LoadModels(provider, hostUrl);
+        return Ok(new { chatModels, embeddingModels });
+    }
 }
