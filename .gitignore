@@ -26,3 +26,5 @@ appsettings.Production.json
 
 ## Docker
 *.log
+
+.worktrees/
