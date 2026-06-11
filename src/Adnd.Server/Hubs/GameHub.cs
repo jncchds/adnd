@@ -40,6 +40,21 @@ public partial class GameHub : Hub
         _logger = logger;
     }
 
+    /// <summary>
+    /// Broadcast GM status change to all players in a game.
+    /// </summary>
+    public async Task BroadcastGMStatusAsync(Guid gameId, Models.GMStatus status, string? lastAction)
+    {
+        await _mediator.Publish(new GMStatusChanged(gameId, status, lastAction));
+        await Clients.Group(gameId.ToString()).SendAsync("GMStatusChanged", new
+        {
+            GameId = gameId,
+            Status = status,
+            LastAction = lastAction,
+            ChangedAt = DateTime.UtcNow
+        });
+    }
+
     public override async Task OnConnectedAsync()
     {
         _logger.LogInformation("Client connected: {ConnectionId}", Context.ConnectionId);

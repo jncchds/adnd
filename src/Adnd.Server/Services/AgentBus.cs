@@ -697,6 +697,13 @@ public class AgentBus : IAgentBus
             game.LastGMAction = "ManageState";
             game.LastGMActionAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+            await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
+            {
+                GameId = game.Id,
+                Status = game.GMStatus,
+                LastAction = game.LastGMAction,
+                ChangedAt = game.LastGMActionAt
+            });
             return "Game state updated.";
         }
 
@@ -762,6 +769,14 @@ public class AgentBus : IAgentBus
                         game.LastGMActionAt = DateTime.UtcNow;
                         await _context.SaveChangesAsync();
 
+                        await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
+                        {
+                            GameId = game.Id,
+                            Status = game.GMStatus,
+                            LastAction = game.LastGMAction,
+                            ChangedAt = game.LastGMActionAt
+                        });
+
                         // Return tool call info for frontend notification
                         return JsonSerializer.Serialize(new { toolCallId = toolCall.Id, toolName = toolCall.Name, waitingConfirmation = true });
                     }
@@ -780,12 +795,28 @@ public class AgentBus : IAgentBus
                 game.LastGMActionAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
 
+                await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
+                {
+                    GameId = game.Id,
+                    Status = game.GMStatus,
+                    LastAction = game.LastGMAction,
+                    ChangedAt = game.LastGMActionAt
+                });
+
                 return followUpCompletion;
             }
 
             game.LastGMAction = "Narrate";
             game.LastGMActionAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
+            {
+                GameId = game.Id,
+                Status = game.GMStatus,
+                LastAction = game.LastGMAction,
+                ChangedAt = game.LastGMActionAt
+            });
 
             return completion.Content;
         }
@@ -832,6 +863,14 @@ public class AgentBus : IAgentBus
             game.LastGMAction = "Nudge";
             game.LastGMActionAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
+            {
+                GameId = game.Id,
+                Status = game.GMStatus,
+                LastAction = game.LastGMAction,
+                ChangedAt = game.LastGMActionAt
+            });
 
             return result;
         }
