@@ -32,8 +32,8 @@ public partial class GameHub
             $"⚔️ **Combat Started**: {combat.Name ?? "An unexpected encounter!"}{combat.Participants.Count} participants",
             Adnd.Server.Models.MessageType.CombatStart);
 
-        // Publish event for game agent processing
-        await _mediator.Publish(new CombatStarted(gameId, sessionId, name));
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatStarted(gameId, sessionId, name));
 
         await Clients.Group(gameId.ToString()).SendAsync("CombatStarted", new
         {
@@ -62,8 +62,8 @@ public partial class GameHub
             $"⚔️ **Combat Ended**: {result ?? "No result"}",
             Adnd.Server.Models.MessageType.CombatEnd);
 
-        // Publish event for game agent processing
-        await _mediator.Publish(new CombatEnded(combat.GameId, combatId, result));
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatEnded(combat.GameId, combatId, result));
 
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatEnded", new
         {
@@ -106,8 +106,8 @@ public partial class GameHub
             $"➕ **{displayName}** ({participantType}) joins combat — HP: {currentHP}/{maxHP}, AC: {ac}",
             Adnd.Server.Models.MessageType.ParticipantAdded);
 
-        // Publish event for game agent processing
-        await _mediator.Publish(new ParticipantAdded(
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new ParticipantAdded(
             combat.GameId, combatId, participantType, displayName, ac, currentHP, maxHP, playerId, npcId));
 
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatParticipantAdded", new

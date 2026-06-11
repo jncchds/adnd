@@ -55,6 +55,26 @@ public partial class GameHub : Hub
         });
     }
 
+    /// <summary>
+    /// Publish a notification asynchronously to avoid blocking the SignalR Hub caller.
+    /// Critical events (player join/leave) should still use await.
+    /// Slow events (GM narrative queue) should use this.
+    /// </summary>
+    private void PublishAsync<T>(T notification, CancellationToken ct = default) where T : INotification
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _mediator.Publish(notification, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error publishing async event {EventType}", typeof(T).Name);
+            }
+        });
+    }
+
     public override async Task OnConnectedAsync()
     {
         _logger.LogInformation("Client connected: {ConnectionId}", Context.ConnectionId);

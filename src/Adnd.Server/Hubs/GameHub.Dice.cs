@@ -71,8 +71,8 @@ public partial class GameHub
             $"📋 **{result.Skill} Check** vs DC {result.DC}: d20({result.DiceRoll})+{result.Modifier:+#;-#;0} = **{result.Total}** → {(result.Success ? "✅ Success" : "❌ Failure")}",
             Adnd.Server.Models.MessageType.SkillCheck, metadata);
 
-        // Publish event for game agent processing
-        await _mediator.Publish(new SkillCheckRequested(session.GameId, sessionId, skill, playerId, dc));
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new SkillCheckRequested(session.GameId, sessionId, skill, playerId, dc));
 
         await Clients.Group(session.GameId.ToString()).SendAsync("SkillCheckResult", new
         {
@@ -109,8 +109,8 @@ public partial class GameHub
             $"⚔️ **{result.Weapon}** vs **{result.Target}**: d20({result.AttackRoll}) vs AC {result.AC} → {attackResult}",
             Adnd.Server.Models.MessageType.Attack, metadata);
 
-        // Publish event for game agent processing
-        await _mediator.Publish(new AttackRequested(session.GameId, sessionId, weapon, targetName, playerId));
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new AttackRequested(session.GameId, sessionId, weapon, targetName, playerId));
 
         await Clients.Group(session.GameId.ToString()).SendAsync("AttackResult", new
         {
