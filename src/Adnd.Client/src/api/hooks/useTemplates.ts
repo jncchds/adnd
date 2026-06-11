@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { api } from '../client';
+import { templatesGetTemplates, templatesCreateTemplate, templatesUpdateTemplate, templatesDeleteTemplate } from '../../api/templates/templateApi';
 import type { GameTemplate, CreateGameTemplateRequest, UpdateGameTemplateRequest } from '../../types';
 
 export function useGameTemplates() {
@@ -11,7 +11,7 @@ export function useGameTemplates() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getGameTemplates();
+      const data = await templatesGetTemplates();
       setTemplates(data);
     } catch (e: any) {
       setError(e.message);
@@ -25,19 +25,19 @@ export function useGameTemplates() {
   }, [fetchTemplates]);
 
   const createTemplate = async (request: CreateGameTemplateRequest) => {
-    const template = await api.createGameTemplate(request);
+    const template = await templatesCreateTemplate(request);
     setTemplates(prev => [...prev, template]);
     return template;
   };
 
   const updateTemplate = async (id: string, request: UpdateGameTemplateRequest) => {
-    const template = await api.updateGameTemplate(id, request);
+    const template = await templatesUpdateTemplate(id, request);
     setTemplates(prev => prev.map(t => t.id === id ? template : t));
     return template;
   };
 
   const deleteTemplate = async (id: string) => {
-    await api.deleteGameTemplate(id);
+    await templatesDeleteTemplate(id);
     setTemplates(prev => prev.filter(t => t.id !== id));
   };
 

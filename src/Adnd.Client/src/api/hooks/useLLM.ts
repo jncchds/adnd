@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { api } from '../client';
+import { llmGetPresets, llmCreatePreset, llmUpdatePreset, llmDeletePreset, llmTestPreset, llmSetDefaultPreset, llmGetProviderModels, llmGetPresetUsage, llmGetInteractions, llmDeleteInteraction, llmGetGameProviderUsage } from '../../api/llm/llmApi';
 import type { LLMPreset, LLMInteractionLog, PresetUsageSummary, GameProviderUsageSummary } from '../../types';
 
 export function useLLMPresets() {
@@ -11,7 +11,7 @@ export function useLLMPresets() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getLLMPresets();
+      const data = await llmGetPresets();
       setPresets(data);
     } catch (e: any) {
       setError(e.message);
@@ -25,28 +25,28 @@ export function useLLMPresets() {
   }, [fetchPresets]);
 
   const createPreset = async (request: { name: string; providerType: string; baseModel: string; temperature: number; maxTokens: number; topP: number }) => {
-    const preset = await api.createLLMPreset(request);
+    const preset = await llmCreatePreset(request);
     setPresets(prev => [...prev, preset]);
     return preset;
   };
 
   const updatePreset = async (presetId: string, request: { name?: string; temperature?: number; maxTokens?: number; topP?: number }) => {
-    const preset = await api.updateLLMPreset(presetId, request);
+    const preset = await llmUpdatePreset(presetId, request);
     setPresets(prev => prev.map(p => p.id === presetId ? preset : p));
     return preset;
   };
 
   const deletePreset = async (presetId: string) => {
-    await api.deleteLLMPreset(presetId);
+    await llmDeletePreset(presetId);
     setPresets(prev => prev.filter(p => p.id !== presetId));
   };
 
   const testConnection = async (presetId: string) => {
-    return api.testLLMPreset(presetId);
+    return llmTestPreset(presetId);
   };
 
   const setDefault = async (presetId: string) => {
-    await api.setDefaultPreset(presetId);
+    await llmSetDefaultPreset(presetId);
     await fetchPresets();
   };
 
@@ -72,7 +72,7 @@ export function useProviderModels() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getProviderModels(providerType, endpointUrl, apiKey);
+      const data = await llmGetProviderModels(providerType, endpointUrl, apiKey);
       setModels(data);
     } catch (e: any) {
       setError(e.message);
@@ -94,7 +94,7 @@ export function useUserLLMUsage() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getPresetUsage(from, to);
+      const data = await llmGetPresetUsage(from, to);
       setUsage(data);
     } catch (e: any) {
       setError(e.message);
@@ -126,7 +126,7 @@ export function useLLMInteractions(gameId?: string) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getLLMInteractions(params);
+      const data = await llmGetInteractions(params);
       setLogs(data);
     } catch (e: any) {
       setError(e.message);
@@ -140,7 +140,7 @@ export function useLLMInteractions(gameId?: string) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getLLMInteractions({ gameId, limit: 200 });
+      const data = await llmGetInteractions({ gameId, limit: 200 });
       setLogs(data);
     } catch (e: any) {
       setError(e.message);
@@ -150,7 +150,7 @@ export function useLLMInteractions(gameId?: string) {
   }, [gameId]);
 
   const deleteLog = async (logId: string) => {
-    await api.deleteLLMInteraction(logId);
+    await llmDeleteInteraction(logId);
     setLogs(prev => prev.filter(l => l.id !== logId));
   };
 
@@ -174,7 +174,7 @@ export function useGameProviderUsage(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getGameProviderUsage(gameId, from, to);
+      const data = await llmGetGameProviderUsage(gameId, from, to);
       setUsage(data);
     } catch (e: any) {
       setError(e.message);

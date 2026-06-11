@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { api } from '../client';
+import { messagesGetPaginated, messagesSearch } from '../../api/messages/messageApi';
+import { gmGetSessionNotes, gmCreateSessionNote, gmUpdateSessionNote, gmDeleteSessionNote, gmGetDiceStats, gmGetPlayerDiceStats } from '../../api/gm/gmApi';
 import type { SessionNote, DiceStatsResponse, PlayerDiceStatsResponse, MessageSearchResponse, MessagePaginated } from '../../types';
 
 // ==================== Unified Message Types ====================
@@ -143,7 +144,7 @@ export function useSessionNotes(gameId: string | undefined, sessionId: string | 
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getSessionNotes(gameId, sessionId);
+      const data = await gmGetSessionNotes(gameId, sessionId);
       setNotes(data.notes);
     } catch (e: any) {
       setError(e.message);
@@ -157,17 +158,17 @@ export function useSessionNotes(gameId: string | undefined, sessionId: string | 
   }, [fetchNotes]);
 
   const createNote = async (title: string, content: string) => {
-    await api.createSessionNote(gameId!, sessionId!, title, content);
+    await gmCreateSessionNote(gameId!, sessionId!, title, content);
     await fetchNotes();
   };
 
   const updateNote = async (noteId: string, title: string, content: string) => {
-    await api.updateSessionNote(gameId!, noteId, title, content);
+    await gmUpdateSessionNote(gameId!, noteId, title, content);
     await fetchNotes();
   };
 
   const deleteNote = async (noteId: string) => {
-    await api.deleteSessionNote(gameId!, noteId);
+    await gmDeleteSessionNote(gameId!, noteId);
     setNotes(prev => prev.filter(n => n.id !== noteId));
   };
 
@@ -192,7 +193,7 @@ export function useDiceStats(gameId: string | undefined, sessionId?: string) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getDiceStats(gameId, sessionId);
+      const data = await gmGetDiceStats(gameId, sessionId);
       setStats(data);
     } catch (e: any) {
       setError(e.message);
@@ -223,7 +224,7 @@ export function usePlayerDiceStats(gameId: string | undefined, playerId: string 
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getPlayerDiceStats(gameId, playerId, sessionId);
+      const data = await gmGetPlayerDiceStats(gameId, playerId, sessionId);
       setStats(data);
     } catch (e: any) {
       setError(e.message);
@@ -256,7 +257,7 @@ export function useMessagesPaginated(gameId: string | undefined, sessionId: stri
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getMessagesPaginated(gameId, sessionId, pageNum, pageSize, type, anchorId);
+      const data = await messagesGetPaginated(gameId, sessionId, pageNum, pageSize, type, anchorId);
       setMessages(data.messages);
       setTotalPages(data.totalPages);
       setPage(pageNum);
@@ -291,7 +292,7 @@ export function useMessagesInfiniteScroll(gameId: string | undefined, sessionId:
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getMessagesPaginated(gameId, sessionId, 1, 50, undefined, anchorId);
+      const data = await messagesGetPaginated(gameId, sessionId, 1, 50, undefined, anchorId);
       if (data.messages.length > 0) {
         setMessages(prev => [...prev, ...data.messages]);
         setAnchorId(data.messages[data.messages.length - 1].id);
@@ -311,7 +312,7 @@ export function useMessagesInfiniteScroll(gameId: string | undefined, sessionId:
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getMessagesPaginated(gameId, sessionId, 1, 50);
+      const data = await messagesGetPaginated(gameId, sessionId, 1, 50);
       if (data.messages.length > 0) {
         setMessages(prev => [...data.messages, ...prev]);
         setAnchorId(data.messages[0].id);
@@ -346,7 +347,7 @@ export function useMessageSearch(gameId: string | undefined, sessionId: string |
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.searchMessages(gameId, sessionId, query, queryEmbedding, limit);
+      const data = await messagesSearch(gameId, sessionId, query, queryEmbedding, limit);
       setResults(data.results);
     } catch (e: any) {
       setError(e.message);

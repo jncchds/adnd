@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { api } from '../client';
+import { combatGetCombats, combatGetCombat } from '../../api/combat/combatApi';
 import type { CombatSummaryEntry, CombatLogResponse } from '../../types';
 
 export function useCombats(gameId: string | undefined) {
@@ -12,7 +12,7 @@ export function useCombats(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getCombats(gameId);
+      const data = await combatGetCombats(gameId);
       setCombats(data.combats);
     } catch (e: any) {
       setError(e.message);
@@ -39,7 +39,7 @@ export function useCombat(combatId: string | undefined, gameId: string | undefin
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getCombat(gameId, combatId);
+      const data = await combatGetCombat(gameId, combatId);
       setCombat(data);
     } catch (e: any) {
       setError(e.message);

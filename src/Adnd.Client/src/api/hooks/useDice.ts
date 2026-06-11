@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { api } from '../client';
+import { gmGetDiceHistory } from '../../api/gm/gmApi';
 import type { DiceHistoryEntry } from '../../types';
 
 export function useDiceHistory(gameId: string | undefined) {
@@ -17,7 +17,7 @@ export function useDiceHistory(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getDiceHistory(gameId, params);
+      const data = await gmGetDiceHistory(gameId, params);
       setRolls(data.rolls);
     } catch (e: any) {
       setError(e.message);

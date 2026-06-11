@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { api } from '../client';
+import { gamesGetGame, gamesGetGMStatus, gamesUpdateGameState } from '../../api/games/gameApi';
 import type { GameDetail, GMStatusResponse } from '../../types';
 
 export function useGameGameState(gameId: string | undefined) {
@@ -14,8 +14,8 @@ export function useGameGameState(gameId: string | undefined) {
     setError(null);
     try {
       const [game, status] = await Promise.all([
-        api.getGame(gameId),
-        api.getGMStatus(gameId),
+        gamesGetGame(gameId),
+        gamesGetGMStatus(gameId),
       ]);
       setGameState(game);
       setGmStatus(status);
@@ -32,7 +32,7 @@ export function useGameGameState(gameId: string | undefined) {
 
   const updateGameState = async (updates: { gameState?: string; plotSeed?: string; gameParameters?: string }) => {
     if (!gameId) return;
-    await api.updateGameState(gameId, updates.gameState, updates.plotSeed, updates.gameParameters);
+    await gamesUpdateGameState(gameId, updates.gameState, updates.plotSeed, updates.gameParameters);
     await fetchState();
   };
 

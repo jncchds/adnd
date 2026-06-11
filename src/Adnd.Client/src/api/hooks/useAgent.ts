@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { api } from '../client';
+import { agentGetPendingCalls } from '../../api/agent/agentApi';
+import { gmGetPendingToolCalls, gmConfirmToolCall, gmConfirmPlayerRoll, gmDeclinePlayerRoll } from '../../api/gm/gmApi';
 import type { PendingCallsResponse, ToolCallInfo, ToolCallConfirmationResponse, PlayerRollConfirmationResponse } from '../../types';
 
 // ==================== Tool Call Types ====================
@@ -35,7 +36,7 @@ export function usePendingCalls(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getPendingAgentCalls(gameId);
+      const data = await agentGetPendingCalls(gameId);
       setCalls(data);
     } catch (e: any) {
       setError(e.message);
@@ -68,7 +69,7 @@ export function useToolCalls(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getPendingToolCalls(gameId);
+      const data = await gmGetPendingToolCalls(gameId);
       const parsed = (data as ToolCallInfo[]).map(call => ({
         ...call,
         argumentsParsed: call.arguments ? JSON.parse(call.arguments) : undefined,
@@ -84,7 +85,7 @@ export function useToolCalls(gameId: string | undefined) {
   const confirmToolCall = useCallback(async (toolCallId: string, approved: boolean): Promise<ToolCallConfirmationResponse | null> => {
     if (!gameId) return null;
     try {
-      const result = await api.confirmToolCall(gameId, toolCallId, approved);
+      const result = await gmConfirmToolCall(gameId, toolCallId, approved);
       await fetchPending();
       return result as ToolCallConfirmationResponse;
     } catch (e: any) {
@@ -96,7 +97,7 @@ export function useToolCalls(gameId: string | undefined) {
   const confirmPlayerRoll = useCallback(async (toolCallId: string): Promise<PlayerRollConfirmationResponse | null> => {
     if (!gameId) return null;
     try {
-      const result = await api.confirmPlayerRoll(gameId, toolCallId);
+      const result = await gmConfirmPlayerRoll(gameId, toolCallId);
       return result as PlayerRollConfirmationResponse;
     } catch (e: any) {
       setError(e.message);
@@ -107,7 +108,7 @@ export function useToolCalls(gameId: string | undefined) {
   const declinePlayerRoll = useCallback(async (toolCallId: string) => {
     if (!gameId) return;
     try {
-      await api.declinePlayerRoll(gameId, toolCallId);
+      await gmDeclinePlayerRoll(gameId, toolCallId);
       await fetchPending();
     } catch (e: any) {
       setError(e.message);

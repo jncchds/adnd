@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { api } from '../client';
+import { gmGetTools, gmExecuteTool, gmGetSpells, gmUpdateSpells, gmUpdateSpell, gmRemoveSpell } from '../../api/gm/gmApi';
 import type { GMToolDefinition, SpellEntry, SpellSlotInfo, SpellUpdateRequest } from '../../types';
 
 export function useGMTools(gameId: string | undefined) {
@@ -12,7 +12,7 @@ export function useGMTools(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getGMTools(gameId);
+      const data = await gmGetTools(gameId);
       setTools(data.tools);
     } catch (e: any) {
       setError(e.message);
@@ -26,7 +26,7 @@ export function useGMTools(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.executeGMTool(gameId, sessionId || '', {
+      const data = await gmExecuteTool(gameId, sessionId || '', {
         toolName,
         arguments: JSON.stringify(args),
       });
@@ -62,7 +62,7 @@ export function useSpells(characterId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getCharacterSpells(characterId);
+      const data = await gmGetSpells(characterId);
       setSpells(data.spells);
       setSpellSlots(data.spellSlots);
       setCharacterName(data.characterName);
@@ -78,7 +78,7 @@ export function useSpells(characterId: string | undefined) {
   const updateSpells = useCallback(async (spellUpdates: SpellUpdateRequest[]) => {
     if (!characterId) return false;
     try {
-      await api.updateCharacterSpells(characterId, spellUpdates);
+      await gmUpdateSpells(characterId, spellUpdates);
       await fetchSpells();
       return true;
     } catch {
@@ -89,7 +89,7 @@ export function useSpells(characterId: string | undefined) {
   const addSpell = useCallback(async (spell: SpellUpdateRequest) => {
     if (!characterId || !spell.name) return false;
     try {
-      await api.updateSingleSpell(characterId, spell.name, spell);
+      await gmUpdateSpell(characterId, spell.name, spell);
       await fetchSpells();
       return true;
     } catch {
@@ -100,7 +100,7 @@ export function useSpells(characterId: string | undefined) {
   const removeSpell = useCallback(async (spellName: string) => {
     if (!characterId) return false;
     try {
-      await api.removeSpell(characterId, spellName);
+      await gmRemoveSpell(characterId, spellName);
       await fetchSpells();
       return true;
     } catch {

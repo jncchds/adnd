@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { api } from '../client';
+import { adminGetPlotWeaverThreads, adminTriggerPlotReview, adminGetPlotReviewHistory, adminAdjustThreadMomentum, adminDetectOpportunities } from '../../api/admin/adminApi';
 import type { PlotThreadResponse, PlotReviewResponse } from '../../types';
 
 export function usePlotWeaver(gameId: string | undefined) {
@@ -13,7 +13,7 @@ export function usePlotWeaver(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getPlotWeaverThreads(gameId);
+      const data = await adminGetPlotWeaverThreads(gameId);
       setThreads(data);
     } catch (e: any) {
       setError(e.message);
@@ -25,7 +25,7 @@ export function usePlotWeaver(gameId: string | undefined) {
   const fetchReviews = useCallback(async () => {
     if (!gameId) return;
     try {
-      const data = await api.getPlotReviewHistory(gameId);
+      const data = await adminGetPlotReviewHistory(gameId);
       setReviews(data);
     } catch (e: any) {
       console.error('Failed to fetch plot reviews', e);
@@ -37,7 +37,7 @@ export function usePlotWeaver(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.triggerPlotReview(gameId, context);
+      const data = await adminTriggerPlotReview(gameId, context);
       setReviews(prev => [data, ...prev]);
       await fetchThreads();
       return data;
@@ -52,7 +52,7 @@ export function usePlotWeaver(gameId: string | undefined) {
   const adjustMomentum = useCallback(async (threadId: string, delta: number, reason: string) => {
     if (!gameId) return;
     try {
-      await api.adjustThreadMomentum(gameId, threadId, delta, reason);
+      await adminAdjustThreadMomentum(gameId, threadId, delta, reason);
       await fetchThreads();
     } catch (e: any) {
       console.error('Failed to adjust momentum', e);
@@ -68,7 +68,7 @@ export function usePlotWeaver(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.detectOpportunities(gameId);
+      const data = await adminDetectOpportunities(gameId);
       await fetchThreads();
       return data;
     } catch (e: any) {

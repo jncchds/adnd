@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../client';
+import { gamesGetGames, gamesCreateGame, gamesDeleteGame, gamesJoinGame, gamesJoinByCode, gamesLeaveGame, gamesGenerateInvite, gamesStartGame, gamesArchiveGame, gamesGetGame, gamesGetGMStatus, gamesPauseGM, gamesResumeGM, gamesSwayStory, gamesGetSessions, gamesCreateSession, gamesCloseSession, gamesGetPlayers, gamesGetNPCs, gamesCreateNPC, gamesUpdateNPC, gamesDeleteNPC, gamesGetPlotThreads, gamesCreatePlotThread, gamesUpdatePlotThread } from '../../api/games/gameApi';
+import { adminGetCharacters as adminGetChars, adminGetCharacter as adminGetChar, adminUpdateCharacter as adminUpdateChar, adminCheckConsistency } from '../../api/admin/adminApi';
 import type { GameListItem, GameDetail, GMStatusResponse, SwayResponse } from '../../types';
 
 export function useGames() {
@@ -11,7 +12,7 @@ export function useGames() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getGames();
+      const data = await gamesGetGames();
       setGames(data);
     } catch (e: any) {
       setError(e.message);
@@ -25,43 +26,43 @@ export function useGames() {
   }, [fetchGames]);
 
   const createGame = async (name: string, systemId = 'dnd5e', systemVersion?: string, customSystemJson?: string, llmPresetId?: string, plotSeed?: string, gameParameters?: string, language = 'English') => {
-    const game = await api.createGame(name, systemId, systemVersion, customSystemJson, llmPresetId, plotSeed, gameParameters, language);
+    const game = await gamesCreateGame(name, systemId, systemVersion, customSystemJson, llmPresetId, plotSeed, gameParameters, language);
     setGames(prev => [...prev, game]);
     return game;
   };
 
   const deleteGame = async (id: string) => {
-    await api.deleteGame(id);
+    await gamesDeleteGame(id);
     setGames(prev => prev.filter(g => g.id !== id));
   };
 
   const joinGame = async (id: string) => {
-    await api.joinGame(id);
+    await gamesJoinGame(id);
     await fetchGames();
   };
 
   const joinByCode = async (code: string) => {
-    const result = await api.joinByCode(code);
+    const result = await gamesJoinByCode(code);
     await fetchGames();
     return result;
   };
 
   const leaveGame = async (id: string) => {
-    await api.leaveGame(id);
+    await gamesLeaveGame(id);
     await fetchGames();
   };
 
   const generateInvite = async (id: string) => {
-    return api.generateInvite(id);
+    return gamesGenerateInvite(id);
   };
 
   const startGame = async (id: string) => {
-    await api.startGame(id);
+    await gamesStartGame(id);
     await fetchGames();
   };
 
   const archiveGame = async (id: string) => {
-    await api.archiveGame(id);
+    await gamesArchiveGame(id);
     await fetchGames();
   };
 
@@ -91,7 +92,7 @@ export function useGame(id: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getGame(id);
+      const data = await gamesGetGame(id);
       setGame(data);
     } catch (e: any) {
       setError(e.message);
@@ -117,7 +118,7 @@ export function useGMStatus(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getGMStatus(gameId);
+      const data = await gamesGetGMStatus(gameId);
       setStatus(data);
     } catch (e: any) {
       setError(e.message);
@@ -131,12 +132,12 @@ export function useGMStatus(gameId: string | undefined) {
   }, [fetchStatus]);
 
   const pause = async () => {
-    await api.pauseGM(gameId!);
+    await gamesPauseGM(gameId!);
     await fetchStatus();
   };
 
   const resume = async () => {
-    await api.resumeGM(gameId!);
+    await gamesResumeGM(gameId!);
     await fetchStatus();
   };
 
@@ -160,7 +161,7 @@ export function useSway(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.swayStory(gameId, direction);
+      const data = await gamesSwayStory(gameId, direction);
       setLastSway(data);
       return data;
     } catch (e: any) {
@@ -189,7 +190,7 @@ export function useSessions(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getSessions(gameId);
+      const data = await gamesGetSessions(gameId);
       setSessions(data);
     } catch (e: any) {
       setError(e.message);
@@ -203,12 +204,12 @@ export function useSessions(gameId: string | undefined) {
   }, [fetchSessions]);
 
   const createSession = async (title: string, description?: string) => {
-    await api.createSession(gameId!, title, description);
+    await gamesCreateSession(gameId!, title, description);
     await fetchSessions();
   };
 
   const closeSession = async (sessionId: string) => {
-    await api.closeSession(gameId!, sessionId);
+    await gamesCloseSession(gameId!, sessionId);
     await fetchSessions();
   };
 
@@ -232,7 +233,7 @@ export function usePlayers(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getPlayers(gameId);
+      const data = await gamesGetPlayers(gameId);
       setPlayers(data);
     } catch (e: any) {
       setError(e.message);
@@ -263,7 +264,7 @@ export function useNPCs(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getNPCs(gameId);
+      const data = await gamesGetNPCs(gameId);
       setNpcs(data);
     } catch (e: any) {
       setError(e.message);
@@ -277,17 +278,17 @@ export function useNPCs(gameId: string | undefined) {
   }, [fetchNpcs]);
 
   const createNPC = async (name: string, description?: string) => {
-    await api.createNPC(gameId!, name, description);
+    await gamesCreateNPC(gameId!, name, description);
     await fetchNpcs();
   };
 
   const updateNPC = async (npcId: string, updates: { name?: string; description?: string }) => {
-    await api.updateNPC(npcId, updates);
+    await gamesUpdateNPC(npcId, updates);
     await fetchNpcs();
   };
 
   const deleteNPC = async (npcId: string) => {
-    await api.deleteNPC(npcId);
+    await gamesDeleteNPC(npcId);
     setNpcs(prev => prev.filter(n => n.id !== npcId));
   };
 
@@ -312,7 +313,7 @@ export function usePlotThreads(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getPlotThreads(gameId);
+      const data = await gamesGetPlotThreads(gameId);
       setThreads(data);
     } catch (e: any) {
       setError(e.message);
@@ -326,12 +327,12 @@ export function usePlotThreads(gameId: string | undefined) {
   }, [fetchThreads]);
 
   const createThread = async (title: string, description: string) => {
-    await api.createPlotThread(gameId!, title, description);
+    await gamesCreatePlotThread(gameId!, title, description);
     await fetchThreads();
   };
 
   const updateThread = async (threadId: string, updates: { title?: string; description?: string; status?: string }) => {
-    await api.updatePlotThread(threadId, updates);
+    await gamesUpdatePlotThread(threadId, updates);
     await fetchThreads();
   };
 
@@ -355,7 +356,7 @@ export function useCharacters(gameId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getCharacters(gameId);
+      const data = await adminGetChars(gameId);
       setCharacters(data);
     } catch (e: any) {
       setError(e.message);
@@ -369,7 +370,7 @@ export function useCharacters(gameId: string | undefined) {
   }, [fetchCharacters]);
 
   const updateCharacter = async (characterId: string, updates: Record<string, any>) => {
-    await api.updateCharacter(characterId, updates);
+    await adminUpdateChar(characterId, updates);
     await fetchCharacters();
   };
 
@@ -392,7 +393,7 @@ export function useCharacter(characterId: string | undefined) {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getCharacter(characterId);
+      const data = await adminGetChar(characterId);
       setCharacter(data);
     } catch (e: any) {
       setError(e.message);
@@ -406,7 +407,7 @@ export function useCharacter(characterId: string | undefined) {
   }, [fetchCharacter]);
 
   const updateCharacter = async (updates: Record<string, any>) => {
-    await api.updateCharacter(characterId!, updates);
+    await adminUpdateChar(characterId!, updates);
     await fetchCharacter();
   };
 
@@ -427,7 +428,7 @@ export function useConsistency(gameId: string | undefined) {
     if (!gameId) return;
     setIsLoading(true);
     try {
-      const data = await api.checkConsistency(gameId, messageCount);
+      const data = await adminCheckConsistency(gameId, messageCount);
       setReport(data as any);
     } catch (e) {
       console.error('Consistency check failed', e);
