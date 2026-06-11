@@ -101,6 +101,7 @@ public class AgentBus : IAgentBus
     private readonly IDeadLetterQueue _dlq;
     private readonly IConfiguration _configuration;
     private readonly int _toolCallingMaxDepth;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public AgentBus(
         AppDbContext context,
@@ -117,7 +118,8 @@ public class AgentBus : IAgentBus
         IHubContext<GameHub> hubContext,
         IMediator mediator,
         IDeadLetterQueue dlq,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IServiceScopeFactory scopeFactory)
     {
         _context = context;
         _providerFactory = providerFactory;
@@ -135,6 +137,7 @@ public class AgentBus : IAgentBus
         _dlq = dlq;
         _configuration = configuration;
         _toolCallingMaxDepth = _configuration.GetValue<int>("ToolCallingMaxDepth", 5);
+        _scopeFactory = scopeFactory;
     }
 
     private readonly object _decryptionLock = new();
@@ -1022,8 +1025,11 @@ public class AgentBus : IAgentBus
                     newThreads.Add(thread);
                 }
 
-                _context.PlotThreads.AddRange(newThreads);
-                await _context.SaveChangesAsync();
+                // Use scoped context to avoid ObjectDisposedException
+                using var scope = _scopeFactory.CreateScope();
+                var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                scopedContext.PlotThreads.AddRange(newThreads);
+                await scopedContext.SaveChangesAsync();
 
                 _logger.LogInformation("[PLOTWEAVER] GeneratedInitialThreads | GameId={GameId} | Count={Count} | Duration={Duration}ms",
                     game.Id, newThreads.Count, sw.ElapsedMilliseconds);
@@ -1117,16 +1123,23 @@ public class AgentBus : IAgentBus
                 // If tool requires confirmation, save and return early
                 if (toolResult.RequiresUserInput)
                 {
-                    game.LastGMAction = $"ToolCall: {toolCall.Name} (waiting confirmation)";
-                    game.LastGMActionAt = DateTime.UtcNow;
-                    await _context.SaveChangesAsync();
+                    // Use scoped context to avoid ObjectDisposedException
+                    using var scope = _scopeFactory.CreateScope();
+                    var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    var scopedGame = await scopedContext.Games.FindAsync(game.Id);
+                    if (scopedGame != null)
+                    {
+                        scopedGame.LastGMAction = $"ToolCall: {toolCall.Name} (waiting confirmation)";
+                        scopedGame.LastGMActionAt = DateTime.UtcNow;
+                        await scopedContext.SaveChangesAsync();
+                    }
 
                     await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
                     {
                         GameId = game.Id,
                         Status = game.GMStatus,
-                        LastAction = game.LastGMAction,
-                        ChangedAt = game.LastGMActionAt
+                        LastAction = $"ToolCall: {toolCall.Name} (waiting confirmation)",
+                        ChangedAt = DateTime.UtcNow
                     });
 
                     // Return tool call info for frontend notification
@@ -1145,25 +1158,37 @@ public class AgentBus : IAgentBus
         // Max depth reached — return last narrative or tool results
         if (lastNarrative != null)
         {
-            game.LastGMAction = $"OpenNarrative (with {allToolCalls.Count} tool calls)";
-            game.LastGMActionAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+            using var scope = _scopeFactory.CreateScope();
+            var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var scopedGame = await scopedContext.Games.FindAsync(game.Id);
+            if (scopedGame != null)
+            {
+                scopedGame.LastGMAction = $"OpenNarrative (with {allToolCalls.Count} tool calls)";
+                scopedGame.LastGMActionAt = DateTime.UtcNow;
+                await scopedContext.SaveChangesAsync();
+            }
 
             await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
             {
                 GameId = game.Id,
                 Status = game.GMStatus,
-                LastAction = game.LastGMAction,
-                ChangedAt = game.LastGMActionAt
+                LastAction = $"OpenNarrative (with {allToolCalls.Count} tool calls)",
+                ChangedAt = DateTime.UtcNow
             });
 
             return lastNarrative;
         }
 
         // Max depth reached with no final narrative — return tool results
-        game.LastGMAction = $"OpenNarrative (max depth {_toolCallingMaxDepth} reached)";
-        game.LastGMActionAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
+        using var scope2 = _scopeFactory.CreateScope();
+        var scopedContext2 = scope2.ServiceProvider.GetRequiredService<AppDbContext>();
+        var scopedGame2 = await scopedContext2.Games.FindAsync(game.Id);
+        if (scopedGame2 != null)
+        {
+            scopedGame2.LastGMAction = $"OpenNarrative (max depth {_toolCallingMaxDepth} reached)";
+            scopedGame2.LastGMActionAt = DateTime.UtcNow;
+            await scopedContext2.SaveChangesAsync();
+        }
 
         return $"Tool calling reached max depth ({_toolCallingMaxDepth}). Last tool results:\n{string.Join("\n", toolResults.Select(tr => $"  {tr.toolCallId}: {tr.message} = {tr.result}"))}";
     }
