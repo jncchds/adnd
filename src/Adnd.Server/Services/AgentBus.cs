@@ -99,6 +99,8 @@ public class AgentBus : IAgentBus
     private readonly IHubContext<GameHub> _hubContext;
     private readonly IMediator _mediator;
     private readonly IDeadLetterQueue _dlq;
+    private readonly IConfiguration _configuration;
+    private readonly int _toolCallingMaxDepth;
 
     public AgentBus(
         AppDbContext context,
@@ -114,7 +116,8 @@ public class AgentBus : IAgentBus
         ILogger<AgentBus> logger,
         IHubContext<GameHub> hubContext,
         IMediator mediator,
-        IDeadLetterQueue dlq)
+        IDeadLetterQueue dlq,
+        IConfiguration configuration)
     {
         _context = context;
         _providerFactory = providerFactory;
@@ -130,6 +133,8 @@ public class AgentBus : IAgentBus
         _hubContext = hubContext;
         _mediator = mediator;
         _dlq = dlq;
+        _configuration = configuration;
+        _toolCallingMaxDepth = _configuration.GetValue<int>("ToolCallingMaxDepth", 5);
     }
 
     private readonly object _decryptionLock = new();
@@ -201,7 +206,7 @@ public class AgentBus : IAgentBus
             await _context.SaveChangesAsync();
 
             // Broadcast narrative output to players for narrative-producing actions
-            if ((call.Action == AgentAction.Narrate || call.Action == AgentAction.Generate || call.Action == AgentAction.Nudge)
+            if ((call.Action == AgentAction.Narrate || call.Action == AgentAction.Generate || call.Action == AgentAction.Nudge || call.Action == AgentAction.OpenNarrative)
                 && !string.IsNullOrWhiteSpace(result)
                 && !result.StartsWith("{"))
             {
@@ -899,6 +904,16 @@ public class AgentBus : IAgentBus
             return "Notification sent to relevant agents.";
         }
 
+        if (call.Action == AgentAction.GenerateInitialThreads)
+        {
+            return await HandleGenerateInitialThreads(game, options);
+        }
+
+        if (call.Action == AgentAction.OpenNarrative)
+        {
+            return await HandleOpenNarrative(game, options);
+        }
+
         return "GM agent: action not handled.";
     }
 
@@ -952,6 +967,205 @@ public class AgentBus : IAgentBus
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Handle GenerateInitialThreads action — generates initial plot threads via LLM.
+    /// </summary>
+    private async Task<string> HandleGenerateInitialThreads(Game game, GMDispatchOptions options)
+    {
+        if (game.LLMPreset == null)
+            return "No LLM preset configured for this game.";
+
+        var provider = GetProvider(game.LLMPreset);
+        if (provider == null)
+            return $"LLM provider '{game.LLMPreset.ProviderType}' not available.";
+
+        var input = JsonSerializer.Deserialize<GMDispatchOptions>(options.SystemPrompt ?? "{}") ?? new GMDispatchOptions();
+        var systemPrompt = input.SystemPrompt ?? $"You are the Game Master for a TTRPG session. " +
+            $"Generate initial plot threads for this game. " +
+            $"Plot seed: {game.PlotSeed ?? "No premise provided."}. " +
+            $"Game parameters: {game.GameParameters ?? "Standard tone and difficulty."}. " +
+            $"Game system: {game.SystemId}. " +
+            $"Respond with a JSON array of plot threads. Each thread should have: " +
+            $"title (string), category (Personal, Threat, Faction, Mystery, or Adventure), " +
+            $"description (string), nextMilestone (string), foreshadowing (string). " +
+            $"Generate 2-4 threads appropriate for the premise.";
+        var userPrompt = input.UserPrompt ?? "Generate initial plot threads for this game.";
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+        sw.Stop();
+
+        // Parse and save the generated threads
+        try
+        {
+            var threads = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(result);
+            if (threads != null && threads.Any())
+            {
+                var newThreads = new List<PlotThread>();
+                foreach (var threadData in threads)
+                {
+                    var thread = new PlotThread
+                    {
+                        GameId = game.Id,
+                        Title = threadData.GetValueOrDefault("title")?.ToString() ?? "Untitled Thread",
+                        Category = Enum.TryParse<PlotThreadCategory>(threadData.GetValueOrDefault("category")?.ToString(), true, out var cat) 
+                            ? cat : PlotThreadCategory.Personal,
+                        Description = threadData.GetValueOrDefault("description")?.ToString() ?? "",
+                        NextMilestone = threadData.GetValueOrDefault("nextMilestone")?.ToString(),
+                        Foreshadowing = threadData.GetValueOrDefault("foreshadowing")?.ToString(),
+                        Momentum = 0f,
+                        RelevanceScore = 0.5f,
+                        Status = PlotThreadStatus.Active
+                    };
+                    newThreads.Add(thread);
+                }
+
+                _context.PlotThreads.AddRange(newThreads);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("[PLOTWEAVER] GeneratedInitialThreads | GameId={GameId} | Count={Count} | Duration={Duration}ms",
+                    game.Id, newThreads.Count, sw.ElapsedMilliseconds);
+
+                // Publish event for PlotWeaverHandler to react
+                await _mediator.Publish(new InitialThreadsGenerated(game.Id, newThreads.Count));
+
+                return JsonSerializer.Serialize(new { threadCount = newThreads.Count, threads = newThreads.Select(t => new { t.Id, t.Title, t.Category }) });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[PLOTWEAVER] FailedToParseInitialThreads | GameId={GameId}", game.Id);
+        }
+
+        return "Failed to generate initial threads.";
+    }
+
+    /// <summary>
+    /// Handle OpenNarrative action — generates opening narrative with iterative tool calling.
+    /// </summary>
+    private async Task<string> HandleOpenNarrative(Game game, GMDispatchOptions options)
+    {
+        if (game.LLMPreset == null)
+            return "No LLM preset configured for this game.";
+
+        var provider = GetProvider(game.LLMPreset);
+        if (provider == null)
+            return $"LLM provider '{game.LLMPreset.ProviderType}' not available.";
+
+        var systemPrompt = options.SystemPrompt ??
+            $"You are the Game Master for a TTRPG session. " +
+            $"Create an immersive opening narrative that introduces the world, sets the tone, " +
+            $"and invites the players into the story. Be vivid and engaging. " +
+            $"Game system: {game.SystemId}. " +
+            $"Plot seed: {game.PlotSeed ?? "No premise provided."}. " +
+            $"Game parameters: {game.GameParameters ?? "Standard tone and difficulty."}. " +
+            $"You have access to game tools. Use the 'narrate' tool to generate the opening scene.";
+
+        // Add language instruction to the default system prompt
+        if (!string.IsNullOrEmpty(game.Language) && game.Language != "English")
+        {
+            systemPrompt += $"\n\n**Language**: All narrative output must be in **{game.Language}**. Write your response entirely in {game.Language}. Do NOT use English for any narrative content. (NPCs speaking in their native unknown language may be described in English for player comprehension.)";
+        }
+
+        var userPrompt = options.UserPrompt ?? "Generate the opening narrative for this game session.";
+        var tools = _toolRegistry.GetAvailableTools(game.Id);
+
+        // Iterative tool calling loop
+        var currentSystemPrompt = systemPrompt;
+        var currentFollowUpPrompt = userPrompt;
+        int currentDepth = 0;
+        string? lastNarrative = null;
+        var allToolCalls = new List<ToolCall>();
+        var toolResults = new List<(string toolCallId, string result, string message)>();
+
+        while (currentDepth < _toolCallingMaxDepth)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var completion = await provider.CompleteWithToolsAsync(currentSystemPrompt, currentFollowUpPrompt, tools, options.Options);
+            sw.Stop();
+
+            // Log successful interaction
+            var model = options?.Options?.Model ?? game.LLMPreset.BaseModel;
+            var tokenUsage = completion.TokenUsage ?? provider.GetTokenUsage(completion.Content);
+            await _interactionLogger.LogInteractionAsync(
+                game.CreatorId, game.LLMPresetId, provider.ProviderId, model,
+                tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
+                (int)sw.ElapsedMilliseconds, currentSystemPrompt, currentFollowUpPrompt, completion.Content,
+                null, provider.EndpointUrl, "agent", game.Id, null,
+                "GM", "OpenNarrative");
+
+            if (!completion.HasToolCalls)
+            {
+                // No more tool calls — this is the final narrative
+                lastNarrative = completion.Content;
+                allToolCalls.AddRange(completion.ToolCalls);
+                break;
+            }
+
+            allToolCalls.AddRange(completion.ToolCalls);
+            currentDepth++;
+            toolResults.Clear();
+
+            // Execute tool calls
+            foreach (var toolCall in completion.ToolCalls)
+            {
+                var toolResult = await ExecuteToolCallAsync(game.Id, Guid.Empty, toolCall);
+                toolResults.Add((toolCall.Id, toolResult.Output ?? "", toolResult.OutputMessage ?? ""));
+
+                // If tool requires confirmation, save and return early
+                if (toolResult.RequiresUserInput)
+                {
+                    game.LastGMAction = $"ToolCall: {toolCall.Name} (waiting confirmation)";
+                    game.LastGMActionAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+
+                    await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
+                    {
+                        GameId = game.Id,
+                        Status = game.GMStatus,
+                        LastAction = game.LastGMAction,
+                        ChangedAt = game.LastGMActionAt
+                    });
+
+                    // Return tool call info for frontend notification
+                    return JsonSerializer.Serialize(new { toolCallId = toolCall.Id, toolName = toolCall.Name, waitingConfirmation = true });
+                }
+            }
+
+            // Feed results back with tools re-sent
+            var toolResultsText = string.Join("\n", toolResults.Select(tr =>
+                $"Tool '{tr.toolCallId}': {tr.message}\nResult: {tr.result}"));
+
+            currentFollowUpPrompt = $"Tool results:\n{toolResultsText}\n\nNow continue the narrative based on these results.";
+            currentSystemPrompt = systemPrompt; // Reset system prompt each round
+        }
+
+        // Max depth reached — return last narrative or tool results
+        if (lastNarrative != null)
+        {
+            game.LastGMAction = $"OpenNarrative (with {allToolCalls.Count} tool calls)";
+            game.LastGMActionAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
+            {
+                GameId = game.Id,
+                Status = game.GMStatus,
+                LastAction = game.LastGMAction,
+                ChangedAt = game.LastGMActionAt
+            });
+
+            return lastNarrative;
+        }
+
+        // Max depth reached with no final narrative — return tool results
+        game.LastGMAction = $"OpenNarrative (max depth {_toolCallingMaxDepth} reached)";
+        game.LastGMActionAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        return $"Tool calling reached max depth ({_toolCallingMaxDepth}). Last tool results:\n{string.Join("\n", toolResults.Select(tr => $"  {tr.toolCallId}: {tr.message} = {tr.result}"))}";
     }
 
     public async Task<AgentCall> ActivateGameAgentAsync(Guid gameId, Guid? creatorId)

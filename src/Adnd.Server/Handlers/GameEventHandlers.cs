@@ -26,14 +26,16 @@ public class GameLifecycleHandler :
     private readonly IAgentBus _agentBus;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IHubContext<Adnd.Server.Hubs.GameHub> _hubContext;
+    private readonly AppDbContext _context;
     private readonly ILogger<GameLifecycleHandler> _logger;
 
-    public GameLifecycleHandler(IGameAgentManager gameAgentManager, IAgentBus agentBus, IServiceScopeFactory serviceScopeFactory, IHubContext<Adnd.Server.Hubs.GameHub> hubContext, ILogger<GameLifecycleHandler> logger)
+    public GameLifecycleHandler(IGameAgentManager gameAgentManager, IAgentBus agentBus, IServiceScopeFactory serviceScopeFactory, IHubContext<Adnd.Server.Hubs.GameHub> hubContext, AppDbContext context, ILogger<GameLifecycleHandler> logger)
     {
         _gameAgentManager = gameAgentManager;
         _agentBus = agentBus;
         _serviceScopeFactory = serviceScopeFactory;
         _hubContext = hubContext;
+        _context = context;
         _logger = logger;
     }
 
@@ -54,16 +56,44 @@ public class GameLifecycleHandler :
         _logger.LogInformation("[STATE] GameAgentStarted | GameId={GameId} | Status=Running | Loop=Started",
             notification.GameId);
 
-        // Queue the initial GM narrative call so the processing loop has something to process
+        // Queue the opening narrative call via AgentCall (async, non-blocking)
         try
         {
-            var call = await _agentBus.ActivateGameAgentAsync(notification.GameId, notification.CreatorId);
-            _logger.LogInformation("[AGENT_CALL] QueuedInitialNarrate | GameId={GameId} | CallId={CallId} | Action={Action} | Status={Status}",
+            var game = await _context.Games.FindAsync(notification.GameId);
+            if (game == null) return;
+
+            var call = new AgentCall
+            {
+                GameId = notification.GameId,
+                FromAgent = AgentType.System,
+                ToAgent = AgentType.GM,
+                Action = AgentAction.OpenNarrative,
+                Input = JsonSerializer.Serialize(new GMDispatchOptions
+                {
+                    SystemPrompt = $"You are the Game Master for a TTRPG session. " +
+                        $"Create an immersive opening narrative that introduces the world, sets the tone, " +
+                        $"and invites the players into the story. Be vivid and engaging. " +
+                        $"Game system: {game.SystemId}. " +
+                        $"Plot seed: {game.PlotSeed ?? "No premise provided."}. " +
+                        $"Game parameters: {game.GameParameters ?? "Standard tone and difficulty."}. " +
+                        $"Use the 'narrate' tool to generate the opening scene. " +
+                        (string.IsNullOrEmpty(game.Language) || game.Language == "English" ? "" :
+                            $"\n\n**Language**: All narrative output must be in **{game.Language}**. Write your response entirely in {game.Language}. Do NOT use English for any narrative content."),
+                    UserPrompt = "Generate the opening narrative for this game session."
+                }),
+                Status = AgentCallStatus.Pending,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.AgentCalls.Add(call);
+            await _context.SaveChangesAsync(ct);
+
+            _logger.LogInformation("[AGENT_CALL] QueuedOpenNarrative | GameId={GameId} | CallId={CallId} | Action={Action} | Status={Status}",
                 notification.GameId, call.Id, call.Action, call.Status);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[AGENT_CALL] FailedToQueueInitialNarrate | GameId={GameId} | Error={Error}",
+            _logger.LogWarning(ex, "[AGENT_CALL] FailedToQueueOpenNarrative | GameId={GameId} | Error={Error}",
                 notification.GameId, ex.Message);
         }
     }

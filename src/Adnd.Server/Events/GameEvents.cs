@@ -20,6 +20,8 @@ public record GMStatusChanged(Guid GameId, Models.GMStatus NewStatus, string? La
 
 public record GameStatusChanged(Guid GameId, Models.GameStatus NewStatus) : INotification;
 
+public record InitialThreadsGenerated(Guid GameId, int ThreadCount) : INotification;
+
 // ==================== Player Events ====================
 
 public record PlayerJoined(Guid GameId, Guid PlayerId, Guid UserId, string CharacterName) : INotification;

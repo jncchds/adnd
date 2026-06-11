@@ -55,24 +55,43 @@ public class PlotWeaverHandler :
         _logger.LogInformation("[PLOTWEAVER] GameStarted | GameId={GameId} | System={SystemId} | PlotSeed={PlotSeed}",
             notification.GameId, game.SystemId, game.PlotSeed ?? "(none)");
 
-        // Generate initial plot threads if not already done
+        // Queue initial plot thread generation via GameAgent (async, non-blocking)
         if (!await _plotWeaver.HasInitialThreadsAsync(notification.GameId))
         {
             try
             {
-                var threads = await _plotWeaver.GenerateInitialThreadsAsync(
-                    notification.GameId,
-                    game.PlotSeed ?? "No premise provided.",
-                    game.GameParameters ?? "Standard tone and difficulty.",
-                    game.SystemId,
-                    game.LLMPresetId);
+                var call = new AgentCall
+                {
+                    GameId = notification.GameId,
+                    FromAgent = AgentType.System,
+                    ToAgent = AgentType.GM,
+                    Action = AgentAction.GenerateInitialThreads,
+                    Input = JsonSerializer.Serialize(new GMDispatchOptions
+                    {
+                        SystemPrompt = $"You are the Game Master for a TTRPG session. " +
+                            $"Generate initial plot threads for this game. " +
+                            $"Plot seed: {game.PlotSeed ?? "No premise provided."}. " +
+                            $"Game parameters: {game.GameParameters ?? "Standard tone and difficulty."}. " +
+                            $"Game system: {game.SystemId}. " +
+                            $"Respond with a JSON array of plot threads. Each thread should have: " +
+                            $"title (string), category (Personal, Threat, Faction, Mystery, or Adventure), " +
+                            $"description (string), nextMilestone (string), foreshadowing (string). " +
+                            $"Generate 2-4 threads appropriate for the premise.",
+                        UserPrompt = "Generate initial plot threads for this game."
+                    }),
+                    Status = AgentCallStatus.Pending,
+                    CreatedAt = DateTime.UtcNow
+                };
 
-                _logger.LogInformation("[PLOTWEAVER] GeneratedInitialThreads | GameId={GameId} | Count={Count}",
-                    notification.GameId, threads.Count);
+                _context.AgentCalls.Add(call);
+                await _context.SaveChangesAsync(ct);
+
+                _logger.LogInformation("[PLOTWEAVER] QueuedInitialThreadGeneration | GameId={GameId} | CallId={CallId}",
+                    notification.GameId, call.Id);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[PLOTWEAVER] FailedToGenerateInitialThreads | GameId={GameId} | Error={Error}",
+                _logger.LogError(ex, "[PLOTWEAVER] FailedToQueueInitialThreads | GameId={GameId} | Error={Error}",
                     notification.GameId, ex.Message);
             }
         }
