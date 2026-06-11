@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.ComponentModel.DataAnnotations.Schema;
+using Pgvector;
 
 namespace Adnd.Server.Models;
 
@@ -26,7 +27,7 @@ public class Message
     public string? WhisperTarget { get; set; } // "all", "player:{userId}", "group:{groupName}"
 
     // PGVector embedding for semantic search
-    public float[]? Embedding { get; set; }
+    public Vector? Embedding { get; set; }
 }
 
 public enum MessageType

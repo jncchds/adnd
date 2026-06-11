@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Pgvector;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 
@@ -412,7 +413,7 @@ public class RAGService : IRAGService
 
             for (var i = 0; i < messages.Count; i++)
             {
-                messages[i].Embedding = embeddings[i];
+                messages[i].Embedding = embeddings[i] != null ? new Vector(embeddings[i]) : null;
             }
 
             await _context.SaveChangesAsync();
@@ -437,7 +438,7 @@ public class RAGService : IRAGService
         try
         {
             var embedding = await _embeddingService.GenerateEmbeddingAsync(session.GameId, content);
-            message.Embedding = embedding;
+            message.Embedding = embedding != null ? new Vector(embedding) : null;
             await _context.SaveChangesAsync();
             _logger.LogDebug("Generated embedding for message {MessageId}", messageId);
         }

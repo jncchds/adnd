@@ -19,6 +19,7 @@ using Adnd.Server.Agent;
 using Adnd.Server.Handlers;
 using MediatR;
 using Npgsql.EntityFrameworkCore.PostgreSQL;
+using Pgvector;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -103,7 +104,9 @@ builder.Services.AddCors(options =>
 // DB Context — PostgreSQL
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default"),
-        npgsqlOptions => npgsqlOptions.MigrationsAssembly(typeof(AppDbContext).Assembly))
+        npgsqlOptions => npgsqlOptions
+            .MigrationsAssembly(typeof(AppDbContext).Assembly)
+            .UseVector())
         .ConfigureWarnings(w => w
             .Ignore(RelationalEventId.PendingModelChangesWarning)
             .Ignore((EventId)10620)));

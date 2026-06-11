@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
@@ -200,7 +201,7 @@ public partial class GameHub : Hub
             var message = await _context.Messages.FindAsync(messageId);
             if (message != null && message.Embedding == null)
             {
-                message.Embedding = embedding;
+                message.Embedding = embedding != null ? new Vector(embedding) : null;
                 await _context.SaveChangesAsync();
             }
         }

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Hubs;
@@ -318,7 +319,7 @@ public class GameStartService : IGameStartService
             try
             {
                 var embedding = await _embeddingService.GenerateEmbeddingAsync(gameId, openingNarrative);
-                message.Embedding = embedding;
+                message.Embedding = embedding != null ? new Vector(embedding) : null;
                 await _context.SaveChangesAsync();
             }
             catch (Exception ex)

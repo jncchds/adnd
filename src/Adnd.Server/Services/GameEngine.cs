@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 
@@ -105,7 +106,7 @@ public class GameEngine : IGameEngine
             var message = await _context.Messages.FindAsync(messageId);
             if (message != null && message.Embedding == null)
             {
-                message.Embedding = embedding;
+                message.Embedding = embedding != null ? new Vector(embedding) : null;
                 await _context.SaveChangesAsync();
             }
         }

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
 
 namespace Adnd.Server.Services;
 
@@ -92,7 +93,7 @@ public class PlotThreadGenerationStrategy
                     Momentum = 0f,
                     RelevanceScore = 0.5f,
                     Status = PlotThreadStatus.Active,
-                    Embedding = embedding
+                    Embedding = embedding != null ? new Vector(embedding) : null
                 };
                 plotThreads.Add(plotThread);
             }
@@ -177,7 +178,7 @@ Only generate threads that are genuinely new and relevant to the current game st
                     RelevanceScore = 0.6f,
                     Status = PlotThreadStatus.Active,
                     IsDynamic = true,
-                    Embedding = embedding
+                    Embedding = embedding != null ? new Vector(embedding) : null
                 };
                 plotThreads.Add(plotThread);
             }
