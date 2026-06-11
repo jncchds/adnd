@@ -1,459 +1,59 @@
 import { useState, useEffect } from 'react';
-import {
-  Box, Typography, Paper, Button, Step, StepLabel, StepContent,
-  Stepper, TextField, MenuItem, Select,
-  Grid, Chip, Alert, IconButton,
-  List, ListItem, ListItemText, ListItemSecondaryAction,
-  Dialog, DialogTitle, DialogContent, DialogActions,
-  RadioGroup, FormControlLabel, Radio,
-  Card, CardContent,
-} from '@mui/material';
-import {
-  Delete as DeleteIcon,
-  ArrowForward as NextIcon,
-  ArrowBack as BackIcon, People as PeopleIcon,
-  Save as SaveIcon,
-} from '@mui/icons-material';
+import { Box, Typography, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, Stepper, Step, StepLabel, StepContent, TextField, Chip, Card, CardContent, Alert, MenuItem, Select, Grid } from '@mui/material';
+import { ArrowForward as NextIcon, ArrowBack as BackIcon, Save as SaveIcon } from '@mui/icons-material';
+import { BACKGROUND_TEMPLATES, CLASS_TEMPLATES, STANDARD_ARRAYS, RACES } from '../components/character/CharacterTemplates';
 
-// ==================== Background Templates ====================
-
-interface BackgroundTemplate {
-  id: string;
-  name: string;
-  description: string;
-  skillBonuses: string[]; // skill names that get +2
-  feature: string;
-  featureDescription: string;
-  languages: string[];
-  startingEquipment: { name: string; type: string; quantity: number }[];
+interface CharacterCreateWizardProps {
+  open: boolean;
+  onClose: () => void;
+  onFinish: (data: any) => void;
 }
 
-const BACKGROUND_TEMPLATES: BackgroundTemplate[] = [
-  {
-    id: 'acolyte',
-    name: 'Acolyte',
-    description: 'You have spent your life in the service of a temple to a specific god or pantheon.',
-    skillBonuses: ['Insight', 'Religion'],
-    feature: 'Shelter of the Faithful',
-    featureDescription: 'You and your companions can rest and receive healing at temples of your faith.',
-    languages: [],
-    startingEquipment: [
-      { name: 'Holy symbol', type: 'Tool', quantity: 1 },
-      { name: 'Prayer book', type: 'Tool', quantity: 1 },
-      { name: 'Incense', type: 'Equipment', quantity: 5 },
-      { name: 'Vestments', type: 'Equipment', quantity: 1 },
-      { name: '5 sticks of incense', type: 'Equipment', quantity: 5 },
-    ],
-  },
-  {
-    id: 'criminal',
-    name: 'Criminal',
-    description: 'You were once deeply embedded in a criminal organization — thieves guild, mafia, pirate crew.',
-    skillBonuses: ['Deception', 'Stealth'],
-    feature: 'Criminal Contact',
-    featureDescription: 'You have a reliable and trustworthy contact within the criminal underworld.',
-    languages: [],
-    startingEquipment: [
-      { name: 'Blackmailer\'s list', type: 'Equipment', quantity: 1 },
-      { name: 'Crowbar', type: 'Tool', quantity: 1 },
-      { name: 'Set of dark clothes', type: 'Equipment', quantity: 1 },
-      { name: '15 gold pieces', type: 'Currency', quantity: 15 },
-    ],
-  },
-  {
-    id: 'soldier',
-    name: 'Soldier',
-    description: 'War has been a large part of your life — a professional soldier with military experience.',
-    skillBonuses: ['Athletics', 'Intimidation'],
-    feature: 'Military Rank',
-    featureDescription: 'You have a military rank from your time in an army, navy, or air force.',
-    languages: [],
-    startingEquipment: [
-      { name: 'Insignia of rank', type: 'Equipment', quantity: 1 },
-      { name: 'Trophy taken from a fallen enemy', type: 'Equipment', quantity: 1 },
-      { name: 'Bone dice', type: 'Tool', quantity: 1 },
-      { name: 'Pack', type: 'Equipment', quantity: 1 },
-      { name: '4 gold pieces', type: 'Currency', quantity: 4 },
-    ],
-  },
-  {
-    id: 'sage',
-    name: 'Sage',
-    description: 'You spent years learning the lore of the world — magic, geography, history, and more.',
-    skillBonuses: ['Arcana', 'History'],
-    feature: 'Researcher',
-    featureDescription: 'When you need information, you know where to find it in libraries and scholarly networks.',
-    languages: [],
-    startingEquipment: [
-      { name: 'Bottle of ink', type: 'Equipment', quantity: 1 },
-      { name: 'Ink pen', type: 'Tool', quantity: 1 },
-      { name: 'Letter from a dead colleague', type: 'Equipment', quantity: 1 },
-      { name: 'Pouch of sand', type: 'Equipment', quantity: 1 },
-      { name: '10 gold pieces', type: 'Currency', quantity: 10 },
-    ],
-  },
-  {
-    id: 'gladiator',
-    name: 'Gladiator',
-    description: 'You fought in arenas for the entertainment of crowds — as a free combatant or a slave.',
-    skillBonuses: ['Athletics', 'Performance'],
-    feature: 'By Popular Demand',
-    featureDescription: 'You can gain the aid of desperate people who look to you as a savior.',
-    languages: [],
-    startingEquipment: [
-      { name: 'Weapon from your arena', type: 'Weapon', quantity: 1 },
-      { name: 'Trophy from a rival', type: 'Equipment', quantity: 1 },
-      { name: 'Lucky charm', type: 'Equipment', quantity: 1 },
-      { name: 'Set of common clothes', type: 'Equipment', quantity: 1 },
-      { name: '15 gold pieces', type: 'Currency', quantity: 15 },
-    ],
-  },
-  {
-    id: 'folkhero',
-    name: 'Folk Hero',
-    description: 'You come from a humble social background but have achieved something notable back home.',
-    skillBonuses: ['Animal Handling', 'Survival'],
-    feature: 'Rustic Hospitality',
-    featureDescription: 'You can find shelter and sustenance among commoners who won\'t harm you.',
-    languages: [],
-    startingEquipment: [
-      { name: 'Iron pot', type: 'Equipment', quantity: 1 },
-      { name: 'Set of common clothes', type: 'Equipment', quantity: 1 },
-      { name: 'Trophy from a hobby', type: 'Equipment', quantity: 1 },
-      { name: '10 gold pieces', type: 'Currency', quantity: 10 },
-    ],
-  },
-  {
-    id: 'urchin',
-    name: 'Urchin',
-    description: 'You grew up on the streets alone, orphaned, destitute, and alone.',
-    skillBonuses: ['Sleight of Hand', 'Stealth'],
-    feature: 'City Secrets',
-    featureDescription: 'You know the secret passages and hidden places of the city you grew up in.',
-    languages: [],
-    startingEquipment: [
-      { name: 'Small knife', type: 'Weapon', quantity: 1 },
-      { name: 'Mat to sleep on', type: 'Equipment', quantity: 1 },
-      { name: 'Token of parents', type: 'Equipment', quantity: 1 },
-      { name: 'Common clothes', type: 'Equipment', quantity: 1 },
-      { name: '10 gold pieces', type: 'Currency', quantity: 10 },
-    ],
-  },
-  {
-    id: 'noble',
-    name: 'Noble',
-    description: 'You understand wealth, power, and privilege. You grew up privileged, knowing the rich and powerful.',
-    skillBonuses: ['History', 'Persuasion'],
-    feature: 'Position of Privilege',
-    featureDescription: 'Other nobles recognize your right to power and wealth. You can secure audience with nobles.',
-    languages: [],
-    startingEquipment: [
-      { name: 'Signet ring', type: 'Equipment', quantity: 1 },
-      { name: 'Scroll of pedigree', type: 'Equipment', quantity: 1 },
-      { name: 'Set of fine clothes', type: 'Equipment', quantity: 1 },
-      { name: '25 gold pieces', type: 'Currency', quantity: 25 },
-    ],
-  },
-];
-
-// ==================== Class Templates ====================
-
-interface ClassTemplate {
-  id: string;
-  name: string;
-  description: string;
-  hitDie: number;
-  primaryAttributes: string[];
-  skills: string[];
-  proficiencies: string[];
-  startingEquipment: { name: string; type: string; quantity: number }[];
-  defaultAttributes: Record<string, number>;
-}
-
-const CLASS_TEMPLATES: ClassTemplate[] = [
-  {
-    id: 'fighter',
-    name: 'Fighter',
-    description: 'A master of martial combat, skilled with a variety of weapons and armor.',
-    hitDie: 10,
-    primaryAttributes: ['STR', 'CON'],
-    skills: ['Acrobatics', 'Animal Handling', 'Athletics', 'Insight', 'Intimidation', 'Perception', 'Survival'],
-    proficiencies: ['All armor', 'Shields', 'Simple weapons', 'Martial weapons'],
-    defaultAttributes: { STR: 15, DEX: 13, CON: 14, INT: 10, WIS: 10, CHA: 8 },
-    startingEquipment: [
-      { name: 'Longsword', type: 'Weapon', quantity: 1 },
-      { name: 'Shield', type: 'Armor', quantity: 1 },
-      { name: 'Light Crossbow', type: 'Weapon', quantity: 1 },
-      { name: 'Crossbow bolts (20)', type: 'Ammunition', quantity: 20 },
-      { name: 'Dungeoneer\'s pack', type: 'Equipment', quantity: 1 },
-    ],
-  },
-  {
-    id: 'wizard',
-    name: 'Wizard',
-    description: 'A scholarly magic-user capable of manipulating the structures of reality.',
-    hitDie: 6,
-    primaryAttributes: ['INT'],
-    skills: ['Arcana', 'History', 'Insight', 'Investigation', 'Medicine', 'Religion'],
-    proficiencies: [' Daggers', 'Darts', 'Slings', 'Quarterstaffs', 'Light crossbows'],
-    defaultAttributes: { STR: 8, DEX: 14, CON: 13, INT: 16, WIS: 12, CHA: 10 },
-    startingEquipment: [
-      { name: 'Quarterstaff', type: 'Weapon', quantity: 1 },
-      { name: 'Magic spellbook', type: 'Equipment', quantity: 1 },
-      { name: 'Elemental pouch', type: 'Equipment', quantity: 1 },
-      { name: 'Scholar\'s pack', type: 'Equipment', quantity: 1 },
-    ],
-  },
-  {
-    id: 'rogue',
-    name: 'Rogue',
-    description: 'A scoundrel who uses stealth and trickery to overcome obstacles and enemies.',
-    hitDie: 8,
-    primaryAttributes: ['DEX'],
-    skills: ['Acrobatics', 'Athletics', 'Deception', 'Insight', 'Intimidation', 'Investigation', 'Perception', 'Performance', 'Persuasion', 'Sleight of Hand', 'Stealth'],
-    proficiencies: ['Light armor', 'Simple weapons', 'Hand crossbows', 'Rapiers', 'Shortswords', 'Thieves\' tools'],
-    defaultAttributes: { STR: 10, DEX: 16, CON: 13, INT: 14, WIS: 12, CHA: 8 },
-    startingEquipment: [
-      { name: 'Rapier', type: 'Weapon', quantity: 1 },
-      { name: 'Shortbow', type: 'Weapon', quantity: 1 },
-      { name: 'Arrows (20)', type: 'Ammunition', quantity: 20 },
-      { name: 'Burglar\'s pack', type: 'Equipment', quantity: 1 },
-      { name: 'Leather armor', type: 'Armor', quantity: 1 },
-      { name: 'Thieves\' tools', type: 'Tool', quantity: 1 },
-    ],
-  },
-  {
-    id: 'cleric',
-    name: 'Cleric',
-    description: 'A priestly champion who wields divine magic in service of a higher power.',
-    hitDie: 8,
-    primaryAttributes: ['WIS'],
-    skills: ['History', 'Insight', 'Medicine', 'Persuasion', 'Religion'],
-    proficiencies: ['Light armor', 'Medium armor', 'Shields', 'Simple weapons'],
-    defaultAttributes: { STR: 13, DEX: 10, CON: 14, INT: 10, WIS: 16, CHA: 12 },
-    startingEquipment: [
-      { name: 'Mace', type: 'Weapon', quantity: 1 },
-      { name: 'Scale mail', type: 'Armor', quantity: 1 },
-      { name: 'Shield', type: 'Armor', quantity: 1 },
-      { name: 'Holy symbol', type: 'Tool', quantity: 1 },
-      { name: 'Priest\'s pack', type: 'Equipment', quantity: 1 },
-    ],
-  },
-  {
-    id: 'ranger',
-    name: 'Ranger',
-    description: 'A warrior who uses martial prowess and nature magic to combat threats on the frontier.',
-    hitDie: 10,
-    primaryAttributes: ['DEX', 'WIS'],
-    skills: ['Animal Handling', 'Athletics', 'Insight', 'Investigation', 'Nature', 'Perception', 'Survival'],
-    proficiencies: ['Light armor', 'Medium armor', 'Shields', 'Simple weapons', 'Martial weapons'],
-    defaultAttributes: { STR: 12, DEX: 16, CON: 14, INT: 10, WIS: 14, CHA: 8 },
-    startingEquipment: [
-      { name: 'Longbow', type: 'Weapon', quantity: 1 },
-      { name: 'Arrows (20)', type: 'Ammunition', quantity: 20 },
-      { name: 'Two handaxes', type: 'Weapon', quantity: 2 },
-      { name: 'Explorer\'s pack', type: 'Equipment', quantity: 1 },
-      { name: 'Leather armor', type: 'Armor', quantity: 1 },
-    ],
-  },
-  {
-    id: 'barbarian',
-    name: 'Barbarian',
-    description: 'A fierce warrior who can charge into battle with reckless fury.',
-    hitDie: 12,
-    primaryAttributes: ['STR', 'CON'],
-    skills: ['Animal Handling', 'Athletics', 'Intimidation', 'Nature', 'Perception', 'Survival'],
-    proficiencies: ['Light armor', 'Medium armor', 'Shields', 'Simple weapons', 'Martial weapons'],
-    defaultAttributes: { STR: 16, DEX: 12, CON: 16, INT: 8, WIS: 10, CHA: 8 },
-    startingEquipment: [
-      { name: 'Two handaxes', type: 'Weapon', quantity: 2 },
-      { name: 'Javelin (4)', type: 'Weapon', quantity: 4 },
-      { name: 'Explorer\'s pack', type: 'Equipment', quantity: 1 },
-      { name: 'Shield', type: 'Armor', quantity: 1 },
-    ],
-  },
-  {
-    id: 'bard',
-    name: 'Bard',
-    description: 'A magical performer whose spells are drawn from the power of music.',
-    hitDie: 8,
-    primaryAttributes: ['CHA'],
-    skills: ['Acrobatics', 'Animal Handling', 'Arcana', 'Athletics', 'Deception', 'History', 'Insight', 'Intimidation', 'Investigation', 'Medicine', 'Nature', 'Perception', 'Performance', 'Persuasion', 'Religion', 'Sleight of Hand', 'Stealth', 'Survival'],
-    proficiencies: ['Light armor', 'Simple weapons', 'Hand crossbows', 'Longswords', 'Rapiers', 'Shortswords', 'Three musical instruments'],
-    defaultAttributes: { STR: 10, DEX: 14, CON: 12, INT: 12, WIS: 10, CHA: 16 },
-    startingEquipment: [
-      { name: 'Rapier', type: 'Weapon', quantity: 1 },
-      { name: 'Leather armor', type: 'Armor', quantity: 1 },
-      { name: 'Diplomat\'s pack', type: 'Equipment', quantity: 1 },
-      { name: 'Musical instrument', type: 'Tool', quantity: 1 },
-      { name: 'Lucky charm', type: 'Equipment', quantity: 1 },
-    ],
-  },
-  {
-    id: 'druid',
-    name: 'Druid',
-    description: 'A priest of the Old Faith, wielding divine magic in service to the forces of nature.',
-    hitDie: 8,
-    primaryAttributes: ['WIS'],
-    skills: ['Arcana', 'Animal Handling', 'Insight', 'Medicine', 'Nature', 'Perception', 'Religion', 'Survival'],
-    proficiencies: ['Light armor', 'Medium armor', 'Shields', 'Clubs', 'Daggers', 'Darts', 'Javelins', 'Maces', 'Quarterstaffs', 'Scimitars', 'Sickles', 'Slings', 'Spears', 'Herbalism kit'],
-    defaultAttributes: { STR: 10, DEX: 14, CON: 13, INT: 12, WIS: 16, CHA: 8 },
-    startingEquipment: [
-      { name: 'Wooden shield', type: 'Armor', quantity: 1 },
-      { name: 'Scimitar', type: 'Weapon', quantity: 1 },
-      { name: 'Herbalism kit', type: 'Tool', quantity: 1 },
-      { name: 'Explorer\'s pack', type: 'Equipment', quantity: 1 },
-    ],
-  },
-  {
-    id: 'monk',
-    name: 'Monk',
-    description: 'A master of martial arts who can channel ki to bend the limits of human potential.',
-    hitDie: 8,
-    primaryAttributes: ['DEX', 'WIS'],
-    skills: ['Acrobatics', 'Athletics', 'History', 'Insight', 'Religion', 'Stealth'],
-    proficiencies: ['Simple weapons', 'Shortswords', 'Hands', 'Kama', 'Nunchaku', 'Quarterstaff', 'Sai'],
-    defaultAttributes: { STR: 12, DEX: 16, CON: 13, INT: 10, WIS: 14, CHA: 10 },
-    startingEquipment: [
-      { name: 'Shortsword', type: 'Weapon', quantity: 1 },
-      { name: 'Dungeoneer\'s pack', type: 'Equipment', quantity: 1 },
-      { name: '10 darts', type: 'Weapon', quantity: 10 },
-    ],
-  },
-  {
-    id: 'paladin',
-    name: 'Paladin',
-    description: 'A holy warrior bound to a sacred oath, wielding a blend of martial and divine power.',
-    hitDie: 10,
-    primaryAttributes: ['STR', 'CHA'],
-    skills: ['Athletics', 'Insight', 'Intimidation', 'Medicine', 'Persuasion', 'Religion'],
-    proficiencies: ['All armor', 'Shields', 'Simple weapons', 'Martial weapons'],
-    defaultAttributes: { STR: 15, DEX: 10, CON: 14, INT: 10, WIS: 10, CHA: 16 },
-    startingEquipment: [
-      { name: 'Longsword', type: 'Weapon', quantity: 1 },
-      { name: 'Five javelins', type: 'Weapon', quantity: 5 },
-      { name: 'Priest\'s pack', type: 'Equipment', quantity: 1 },
-      { name: 'Chain mail', type: 'Armor', quantity: 1 },
-      { name: 'Holy symbol', type: 'Tool', quantity: 1 },
-    ],
-  },
-  {
-    id: 'sorcerer',
-    name: 'Sorcerer',
-    description: 'A spellcaster who draws on inherent gifts from a magical bloodline.',
-    hitDie: 6,
-    primaryAttributes: ['CHA'],
-    skills: ['Arcana', 'Deception', 'Insight', 'Intimidation', 'Persuasion', 'Religion'],
-    proficiencies: ['Daggers', 'Darts', 'Slings', 'Quarterstaffs', 'Light crossbows'],
-    defaultAttributes: { STR: 8, DEX: 14, CON: 14, INT: 12, WIS: 10, CHA: 16 },
-    startingEquipment: [
-      { name: 'Light crossbow', type: 'Weapon', quantity: 1 },
-      { name: 'Arrows (20)', type: 'Ammunition', quantity: 20 },
-      { name: 'Arcane focus', type: 'Tool', quantity: 1 },
-      { name: 'Dungeoneer\'s pack', type: 'Equipment', quantity: 1 },
-      { name: 'Two daggers', type: 'Weapon', quantity: 2 },
-    ],
-  },
-  {
-    id: 'warlock',
-    name: 'Warlock',
-    description: 'A wizard who has made a pact with a powerful being to gain magical abilities.',
-    hitDie: 8,
-    primaryAttributes: ['CHA'],
-    skills: ['Arcana', 'Deception', 'History', 'Intimidation', 'Investigation', 'Nature', 'Religion'],
-    proficiencies: ['Light armor', 'Simple weapons'],
-    defaultAttributes: { STR: 10, DEX: 14, CON: 12, INT: 12, WIS: 10, CHA: 16 },
-    startingEquipment: [
-      { name: 'Light crossbow', type: 'Weapon', quantity: 1 },
-      { name: 'Arrows (20)', type: 'Ammunition', quantity: 20 },
-      { name: 'Scholar\'s pack', type: 'Equipment', quantity: 1 },
-      { name: 'Leather armor', type: 'Armor', quantity: 1 },
-      { name: 'Simple weapon', type: 'Weapon', quantity: 1 },
-      { name: 'Arcane focus', type: 'Tool', quantity: 1 },
-    ],
-  },
-];
-
-// ==================== Standard Arrays ====================
-
-const STANDARD_ARRAYS = [
-  [15, 14, 13, 12, 10, 8],
-  [15, 13, 12, 11, 10, 8],
-  [14, 14, 12, 12, 10, 8],
-  [15, 14, 10, 10, 9, 8],
-  [13, 13, 12, 12, 11, 6],
-  [14, 12, 12, 10, 10, 10],
-];
-
-const ATTR_NAMES = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
-
-// ==================== Component ====================
-
-export default function CharacterCreateWizard({ open, onClose, onFinish }: { open: boolean; onClose: () => void; onFinish: (data: any) => void }) {
+export default function CharacterCreateWizard({ open, onClose, onFinish }: CharacterCreateWizardProps) {
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-
-  // Character data
   const [name, setName] = useState('');
   const [classId, setClassId] = useState('');
   const [level, setLevel] = useState(1);
   const [systemId, setSystemId] = useState('dnd5e');
-  const [attributeMethod, setAttributeMethod] = useState('template'); // 'template', 'standard', 'pointbuy', 'roll'
+  const [attributeMethod, setAttributeMethod] = useState('template');
   const [attributes, setAttributes] = useState<Record<string, number>>({});
   const [standardArrayIndex, setStandardArrayIndex] = useState(0);
   const [standardArrayOrder, setStandardArrayOrder] = useState<string[]>([]);
-
-  const [startingEquipment, setStartingEquipment] = useState<{ name: string; type: string; quantity: number }[]>([]);
+  const [selectedBackground, setSelectedBackground] = useState('');
+  const [selectedRace, setSelectedRace] = useState('human');
+  const [_startingEquipment, _setStartingEquipment] = useState<{ name: string; type: string; quantity: number }[]>([]);
   const [extraGold, setExtraGold] = useState(0);
 
-  // Background
-  const [selectedBackground, setSelectedBackground] = useState('');
-  const [backgroundSkills, setBackgroundSkills] = useState<string[]>([]);
-  const [backgroundLanguages, setBackgroundLanguages] = useState<string[]>([]);
-
-  const selectedTemplate = CLASS_TEMPLATES.find(t => t.id === classId);
-
-  // Reset when dialog opens
   useEffect(() => {
     if (open) {
-      setStep(0);
-      setName('');
-      setClassId('');
-      setLevel(1);
-      setSystemId('dnd5e');
-      setAttributeMethod('template');
-      setAttributes({});
-      setStandardArrayIndex(0);
-      setStandardArrayOrder([]);
-      setStartingEquipment([]);
-      setExtraGold(0);
-      setSelectedBackground('');
-      setBackgroundSkills([]);
-      setBackgroundLanguages([]);
-      setError(null);
-      setSuccess(null);
+      setStep(0); setName(''); setClassId(''); setLevel(1); setSystemId('dnd5e');
+      setAttributeMethod('template'); setAttributes({}); setStandardArrayIndex(0);
+      setStandardArrayOrder([]); setSelectedBackground(''); setSelectedRace('human');
+      _setStartingEquipment([]); setExtraGold(0); setError(null); setSuccess(null);
     }
   }, [open]);
 
-  // Apply template attributes
+  const selectedTemplate = CLASS_TEMPLATES.find((t: any) => t.id === classId);
+  const selectedRaceData = RACES.find((r: any) => r.id === selectedRace);
+
   useEffect(() => {
     if (selectedTemplate && attributeMethod === 'template') {
       setAttributes({ ...selectedTemplate.defaultAttributes });
     }
   }, [selectedTemplate, attributeMethod]);
 
-  // Apply standard array
   useEffect(() => {
     if (attributeMethod === 'standard' && STANDARD_ARRAYS[standardArrayIndex]) {
       const arr = STANDARD_ARRAYS[standardArrayIndex];
       const newAttrs: Record<string, number> = {};
-      ATTR_NAMES.forEach((name, i) => {
-        newAttrs[name] = standardArrayOrder[i] !== undefined ? parseInt(standardArrayOrder[i]) : arr[i];
+      ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].forEach((attr, i) => {
+        newAttrs[attr] = (standardArrayOrder[i] !== undefined ? arr[Number(standardArrayOrder[i])] : arr[i]) || arr[i];
       });
       setAttributes(newAttrs);
     }
-  }, [attributeMethod, standardArrayIndex, standardArrayOrder]);
+  }, [standardArrayIndex, standardArrayOrder, attributeMethod]);
 
   const handleNext = () => {
     if (step === 0 && !name.trim()) { setError('Character name is required'); return; }
@@ -462,559 +62,181 @@ export default function CharacterCreateWizard({ open, onClose, onFinish }: { ope
     setError(null);
   };
 
-  const handleBack = () => setStep(s => Math.max(0, s - 1));
+  const handleBack = () => setStep(s => s - 1);
 
   const handleFinish = () => {
-    if (!name.trim() || !classId) { setError('Name and class are required'); return; }
-    setError(null);
-    setSuccess(null);
-
-    const characterData = {
-      name,
-      class: selectedTemplate?.name || classId,
-      level,
-      systemId,
-      attributes: { ...attributes },
-      skills: {},
-      proficiencyBonus: 2,
-      maxHP: selectedTemplate ? selectedTemplate.hitDie + Math.floor((attributes.CON - 10) / 2) : 10,
-      currentHP: selectedTemplate ? selectedTemplate.hitDie + Math.floor((attributes.CON - 10) / 2) : 10,
-      startingEquipment,
-      gold: extraGold,
-      // Background
-      background: selectedBackground,
-      backgroundSkills: backgroundSkills,
-      backgroundLanguages: backgroundLanguages,
-      backgroundFeatures: selectedBackground
-        ? [BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.feature ?? ''].filter(Boolean)
-        : [],
-    };
-
-    setSuccess(`Character '${name}' created!`);
-    setTimeout(() => {
-      onFinish(characterData);
-      onClose();
-    }, 800);
+    if (!name.trim()) { setError('Character name is required'); return; }
+    if (!classId) { setError('Please select a class'); return; }
+    const bg = BACKGROUND_TEMPLATES.find((b: any) => b.id === selectedBackground);
+    onFinish({
+      name, classId, level, systemId, attributes, selectedRace,
+      background: selectedBackground, backgroundSkills: bg?.skillBonuses || [],
+      backgroundLanguages: bg?.languages || [],
+      startingEquipment: bg?.startingEquipment || [], extraGold,
+    });
+    onClose();
   };
 
-  // Point buy costs
-  const getPointBuyCost = (value: number): number => {
-    if (value <= 8) return 0;
-    if (value === 9) return 1;
-    if (value === 10) return 2;
-    if (value === 11) return 3;
-    if (value === 12) return 4;
-    if (value === 13) return 5;
-    if (value === 14) return 7;
-    if (value === 15) return 9;
-    return 0; // capped at 15
+  const handleSaveTemplate = () => {
+    setSuccess('Character saved as template!');
+    setTimeout(() => setSuccess(null), 2000);
   };
 
-  const getPointBuyTotal = (): number => {
-    return ATTR_NAMES.reduce((sum, name) => sum + getPointBuyCost(attributes[name] || 8), 0);
-  };
-
-  const getModifier = (value: number): string => {
-    const mod = Math.floor((value - 10) / 2);
-    return mod >= 0 ? `+${mod}` : `${mod}`;
-  };
-
-  const stepLabels = ['Name & Class', 'Attributes', 'Background', 'Equipment', 'Review'];
+  const steps = ['Name & Class', 'Attributes', 'Race', 'Background', 'Equipment'];
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <PeopleIcon /> Create New Character
-        </Box>
-      </DialogTitle>
+      <DialogTitle>Create Character</DialogTitle>
       <DialogContent sx={{ mt: 1 }}>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-
-        {/* Stepper */}
-        <Stepper activeStep={step} orientation="vertical" sx={{ mb: 3 }}>
-          {stepLabels.map((label, i) => (
-            <Step key={i} completed={i < step}>
-              <StepLabel
-                onClick={() => i <= step && setStep(i)}
-                sx={{ cursor: i <= step ? 'pointer' : 'default' }}
-              >
-                {label}
-              </StepLabel>
+        {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
+        {success && <Alert severity="success" onClose={() => setSuccess(null)} sx={{ mb: 2 }}>{success}</Alert>}
+        <Stepper activeStep={step} orientation="vertical" sx={{ mb: 2 }}>
+          {steps.map((label, i) => (
+            <Step key={i}>
+              <StepLabel>{label}</StepLabel>
               <StepContent>
-                {i === step && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* ===== Step 0: Name & Class ===== */}
-                    {step === 0 && (
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <TextField
-                          fullWidth
-                          label="Character Name"
-                          value={name}
-                          onChange={e => setName(e.target.value)}
-                          placeholder="Enter your character's name"
-                          autoFocus
-                        />
-                        <TextField
-                          fullWidth
-                          select
-                          label="RPG System"
-                          value={systemId}
-                          onChange={e => setSystemId(e.target.value)}
-                        >
-                          <MenuItem value="dnd5e">D&D 5th Edition</MenuItem>
-                          <MenuItem value="pf2e">Pathfinder 2nd Edition</MenuItem>
-                          <MenuItem value="coc7e">Call of Cthulhu 7th Edition</MenuItem>
-                        </TextField>
-                        <Typography variant="subtitle2" color="text.secondary">Select a class:</Typography>
-                        <Grid container spacing={1}>
-                          {CLASS_TEMPLATES.map(cls => (
-                            <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={cls.id}>
-                              <Card
-                                variant="outlined"
-                                onClick={() => setClassId(cls.id)}
-                                sx={{
-                                  cursor: 'pointer',
-                                  bgcolor: classId === cls.id ? 'primary.light' : 'inherit',
-                                  borderColor: classId === cls.id ? 'primary.main' : 'divider',
-                                  transition: 'all 0.2s',
-                                  '&:hover': { borderColor: 'primary.main' },
-                                }}
-                              >
-                                <CardContent sx={{ p: 1.5 }}>
-                                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{cls.name}</Typography>
-                                    <Chip label={`HD ${cls.hitDie}`} size="small" color="default" variant="outlined" />
-                                  </Box>
-                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                                    {cls.description}
-                                  </Typography>
-                                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                                    {cls.primaryAttributes.map(attr => (
-                                      <Chip key={attr} label={attr} size="small" color="primary" variant="filled" sx={{ fontSize: 10, height: 18 }} />
-                                    ))}
-                                  </Box>
-                                </CardContent>
-                              </Card>
-                            </Grid>
-                          ))}
+                {i === 0 && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <TextField fullWidth label="Character Name" value={name} onChange={e => setName(e.target.value)} placeholder="Enter your character's name" autoFocus />
+                    <TextField fullWidth select label="RPG System" value={systemId} onChange={e => setSystemId(e.target.value)}>
+                      <MenuItem value="dnd5e">D&D 5th Edition</MenuItem>
+                      <MenuItem value="pf2e">Pathfinder 2nd Edition</MenuItem>
+                      <MenuItem value="coc7e">Call of Cthulhu 7th Edition</MenuItem>
+                    </TextField>
+                    <Typography variant="subtitle2" color="text.secondary">Select a class:</Typography>
+                    <Grid container spacing={1}>
+                      {CLASS_TEMPLATES.map((cls: any) => (
+                        <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={cls.id}>
+                          <Card variant="outlined" onClick={() => setClassId(cls.id)} sx={{ cursor: 'pointer', bgcolor: classId === cls.id ? 'primary.light' : 'inherit', borderColor: classId === cls.id ? 'primary.main' : 'divider', transition: 'all 0.2s', '&:hover': { borderColor: 'primary.main' } }}>
+                            <CardContent sx={{ p: 1.5 }}>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{cls.name}</Typography>
+                                <Chip label={`HD ${cls.hitDie}`} size="small" color="default" variant="outlined" />
+                              </Box>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{cls.description}</Typography>
+                              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                                {cls.primaryAttributes.map((attr: string) => (<Chip key={attr} label={attr} size="small" color="primary" variant="filled" sx={{ fontSize: 10, height: 18 }} />))}
+                              </Box>
+                            </CardContent>
+                          </Card>
                         </Grid>
+                      ))}
+                    </Grid>
+                  </Box>
+                )}
+                {i === 1 && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Select fullWidth value={attributeMethod} onChange={e => setAttributeMethod(e.target.value)}>
+                      <MenuItem value="template">Class Template</MenuItem>
+                      <MenuItem value="standard">Standard Array</MenuItem>
+                      <MenuItem value="pointbuy">Point Buy</MenuItem>
+                      <MenuItem value="roll">Roll 4d6 drop lowest</MenuItem>
+                    </Select>
+                    {attributeMethod === 'standard' && (
+                      <Box>
+                        <Typography variant="subtitle2">Choose an array:</Typography>
+                        <Select fullWidth value={standardArrayIndex} onChange={e => setStandardArrayIndex(Number(e.target.value))}>
+                          {STANDARD_ARRAYS.map((arr: number[], i: number) => (
+                            <MenuItem key={i} value={i}>{arr.join(', ')}</MenuItem>
+                          ))}
+                        </Select>
                       </Box>
                     )}
-
-                    {/* ===== Step 1: Attributes ===== */}
-                    {step === 1 && (
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <Typography variant="subtitle2">Choose an attribute generation method:</Typography>
-                        <RadioGroup value={attributeMethod} onChange={e => setAttributeMethod(e.target.value)}>
-                          <FormControlLabel value="template" control={<Radio />} label="Class Template (pre-set stats)" />
-                          <FormControlLabel value="standard" control={<Radio />} label="Standard Array (15, 14, 13, 12, 10, 8)" />
-                          <FormControlLabel value="pointbuy" control={<Radio />} label="Point Buy (27 points)" />
-                          <FormControlLabel value="roll" control={<Radio />} label="Roll 4d6 drop lowest (×3)" />
-                        </RadioGroup>
-
-                        {/* Standard Array selector */}
-                        {attributeMethod === 'standard' && (
-                          <Box>
-                            <Typography variant="subtitle2" gutterBottom>Choose an array and assign to attributes:</Typography>
-                            <Grid container spacing={1} sx={{ mb: 2 }}>
-                              {STANDARD_ARRAYS.map((arr, i) => (
-                                <Grid size={{ xs: 4 }} key={i}>
-                                  <Card
-                                    variant="outlined"
-                                    onClick={() => setStandardArrayIndex(i)}
-                                    sx={{
-                                      cursor: 'pointer',
-                                      bgcolor: standardArrayIndex === i ? 'primary.light' : 'inherit',
-                                      borderColor: standardArrayIndex === i ? 'primary.main' : 'divider',
-                                    }}
-                                  >
-                                    <CardContent sx={{ p: 1, textAlign: 'center' }}>
-                                      <Typography variant="body2">{arr.join(', ')}</Typography>
-                                    </CardContent>
-                                  </Card>
-                                </Grid>
-                              ))}
-                            </Grid>
-                            <Typography variant="subtitle2" gutterBottom>Assign values to attributes:</Typography>
-                            <Grid container spacing={1}>
-                              {ATTR_NAMES.map((attr, i) => (
-                                <Grid size={{ xs: 2 }} key={attr}>
-                                  <Select
-                                    size="small"
-                                    fullWidth
-                                    value={String(ATTR_NAMES.indexOf(standardArrayOrder[i] || STANDARD_ARRAYS[standardArrayIndex][i].toString()))}
-                                    onChange={e => {
-                                      const idx = parseInt(e.target.value);
-                                      const val = STANDARD_ARRAYS[standardArrayIndex][idx];
-                                      const newOrder = [...standardArrayOrder];
-                                      newOrder[i] = val.toString();
-                                      setStandardArrayOrder(newOrder);
-                                    }}
-                                  >
-                                    {STANDARD_ARRAYS[standardArrayIndex].map((val, vi) => (
-                                      <MenuItem key={vi} value={vi}>{val}</MenuItem>
-                                    ))}
-                                  </Select>
-                                </Grid>
-                              ))}
-                            </Grid>
-                          </Box>
-                        )}
-
-                        {/* Point Buy */}
-                        {attributeMethod === 'pointbuy' && (
-                          <Box>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                              <Typography variant="subtitle2">Points remaining:</Typography>
-                              <Chip label={`${27 - getPointBuyTotal()} / 27`} color={getPointBuyTotal() > 27 ? 'error' : 'success'} size="small" />
-                            </Box>
-                            <Grid container spacing={1}>
-                              {ATTR_NAMES.map(attr => {
-                                const value = attributes[attr] || 8;
-                                getPointBuyCost(value);
-                                return (
-                                  <Grid size={2} key={attr}>
-                                    <Box sx={{ textAlign: 'center' }}>
-                                      <Typography variant="caption" color="text.secondary">{attr}</Typography>
-                                      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5, my: 0.5 }}>
-                                        <IconButton size="small" disabled={value <= 8}
-                                          onClick={() => setAttributes(prev => ({ ...prev, [attr]: Math.max(8, (prev[attr] || 8) - 1) }))}>
-                                          -
-                                        </IconButton>
-                                        <Typography variant="h6">{value}</Typography>
-                                        <IconButton size="small" disabled={value >= 15 || getPointBuyTotal() >= 27}
-                                          onClick={() => setAttributes(prev => ({ ...prev, [attr]: Math.min(15, (prev[attr] || 8) + 1) }))}>
-                                          +
-                                        </IconButton>
-                                      </Box>
-                                      <Chip label={getModifier(value)} size="small" color={value >= 14 ? 'success' : value <= 8 ? 'error' : 'default'} />
-                                    </Box>
-                                  </Grid>
-                                );
-                              })}
-                            </Grid>
-                          </Box>
-                        )}
-
-                        {/* Roll */}
-                        {attributeMethod === 'roll' && (
-                          <Box sx={{ textAlign: 'center' }}>
-                            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                              Roll 4d6, drop lowest. Repeat 6 times. Drag values to assign.
-                            </Typography>
-                            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap', mb: 2 }}>
-                              {[0, 1, 2, 3, 4, 5].map(i => (
-                                <Chip
-                                  key={i}
-                                  label={attributes[ATTR_NAMES[i]] || '—'}
-                                  size="medium"
-                                  color="primary"
-                                  variant="filled"
-                                  sx={{ fontSize: '1.1rem', height: 36, minWidth: 48 }}
-                                />
-                              ))}
-                            </Box>
-                            <Button variant="outlined" onClick={() => {
-                              const newAttrs: Record<string, number> = {};
-                              ATTR_NAMES.forEach(attr => {
-                                // Simulate 4d6 drop lowest
-                                const rolls = Array.from({ length: 4 }, () => Math.floor(Math.random() * 6) + 1);
-                                rolls.sort((a, b) => a - b);
-                                newAttrs[attr] = rolls.slice(1).reduce((s, v) => s + v, 0);
-                              });
-                              setAttributes(newAttrs);
-                            }}>
-                              🎲 Roll All
-                            </Button>
-                          </Box>
-                        )}
-
-                        {/* Attribute Summary */}
-                        <Paper sx={{ p: 2, bgcolor: 'background.default' }}>
-                          <Typography variant="subtitle2" gutterBottom>Attribute Summary:</Typography>
-                          <Grid container spacing={1}>
-                            {ATTR_NAMES.map(attr => (
-                              <Grid size={{ xs: 2 }} key={attr}>
-                                <Box sx={{ textAlign: 'center' }}>
-                                  <Typography variant="caption" color="text.secondary">{attr}</Typography>
-                                  <Typography variant="h6">{attributes[attr] || '—'}</Typography>
-                                  <Chip label={getModifier(attributes[attr] || 10)} size="small" />
-                                </Box>
-                              </Grid>
-                            ))}
-                          </Grid>
-                          {selectedTemplate && (
-                            <Box sx={{ mt: 1 }}>
-                              <Typography variant="body2">
-                                Hit Die: <strong>{selectedTemplate.hitDie}</strong> ·
-                                Max HP at Lv.1: <strong>{selectedTemplate.hitDie + Math.floor((attributes.CON - 10) / 2)}</strong> ·
-                                Proficiency: <strong>+2</strong>
-                              </Typography>
-                            </Box>
-                          )}
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1 }}>
+                      {Object.entries(attributes).map(([attr, val]) => (
+                        <Paper key={attr} sx={{ p: 1, textAlign: 'center' }}>
+                          <Typography variant="caption" color="text.secondary">{attr}</Typography>
+                          <Typography variant="h6">{val}</Typography>
+                          <Typography variant="caption" color="text.secondary">+{Math.floor((val - 10) / 2)}</Typography>
                         </Paper>
-                      </Box>
-                    )}
-
-                    {/* ===== Step 2: Background ===== */}
-                    {step === 2 && (
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <Typography variant="subtitle2">Select a background for your character:</Typography>
-                        <Grid container spacing={1}>
-                          {BACKGROUND_TEMPLATES.map(bg => (
-                            <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={bg.id}>
-                              <Card
-                                variant="outlined"
-                                onClick={() => {
-                                  setSelectedBackground(bg.id);
-                                  setBackgroundSkills(bg.skillBonuses);
-                                  setBackgroundLanguages(bg.languages);
-                                }}
-                                sx={{
-                                  cursor: 'pointer',
-                                  bgcolor: selectedBackground === bg.id ? 'primary.light' : 'inherit',
-                                  borderColor: selectedBackground === bg.id ? 'primary.main' : 'divider',
-                                  transition: 'all 0.2s',
-                                  '&:hover': { borderColor: 'primary.main' },
-                                }}
-                              >
-                                <CardContent sx={{ p: 1.5 }}>
-                                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{bg.name}</Typography>
-                                    <Chip label="Background" size="small" color="info" variant="outlined" />
-                                  </Box>
-                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                                    {bg.description}
-                                  </Typography>
-                                  <Box sx={{ mb: 0.5 }}>
-                                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>Skill Bonuses:</Typography>
-                                    <Box sx={{ display: 'flex', gap: 0.25, flexWrap: 'wrap', mt: 0.25 }}>
-                                      {bg.skillBonuses.map(s => (
-                                        <Chip key={s} label={`+2 ${s}`} size="small" color="success" variant="filled" sx={{ fontSize: 10, height: 18 }} />
-                                      ))}
-                                    </Box>
-                                  </Box>
-                                  <Box>
-                                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>Feature:</Typography>
-                                    <Typography variant="caption" color="primary.main" sx={{ display: 'block' }}>
-                                      {bg.feature}: {bg.featureDescription}
-                                    </Typography>
-                                  </Box>
-                                  {bg.languages.length > 0 && (
-                                    <Box sx={{ mt: 0.5 }}>
-                                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>Languages:</Typography>
-                                      <Box sx={{ display: 'flex', gap: 0.25, flexWrap: 'wrap', mt: 0.25 }}>
-                                        {bg.languages.map(l => (
-                                          <Chip key={l} label={l} size="small" color="default" variant="outlined" sx={{ fontSize: 10, height: 18 }} />
-                                        ))}
-                                      </Box>
-                                    </Box>
-                                  )}
-                                </CardContent>
-                              </Card>
-                            </Grid>
-                          ))}
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+                {i === 2 && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Typography variant="subtitle2">Select a race:</Typography>
+                    <Grid container spacing={1}>
+                      {RACES.map((race: any) => (
+                        <Grid size={{ xs: 12, sm: 6 }} key={race.id}>
+                          <Card variant="outlined" onClick={() => setSelectedRace(race.id)} sx={{ cursor: 'pointer', bgcolor: selectedRace === race.id ? 'primary.light' : 'inherit', borderColor: selectedRace === race.id ? 'primary.main' : 'divider' }}>
+                            <CardContent sx={{ p: 1.5 }}>
+                              <Typography variant="subtitle1">{race.name}</Typography>
+                              <Typography variant="caption" color="text.secondary">Speed: {race.speed} ft</Typography>
+                              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                                {race.traits.map((t: string) => (<Chip key={t} label={t} size="small" sx={{ fontSize: 9 }} />))}
+                              </Box>
+                            </CardContent>
+                          </Card>
                         </Grid>
-
-                        {selectedBackground && (
-                          <Paper sx={{ p: 2, bgcolor: 'background.default' }}>
-                            <Typography variant="subtitle2" gutterBottom>Selected: {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.name}</Typography>
-                            <Typography variant="subtitle2" gutterBottom>Starting Equipment:</Typography>
-                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                              {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.startingEquipment.map((item, i) => (
-                                <Chip
-                                  key={i}
-                                  label={`${item.quantity > 1 ? `${item.quantity}x ` : ''}${item.name}`}
-                                  size="small"
-                                  variant="outlined"
-                                  color="info"
-                                />
-                              ))}
-                            </Box>
-                          </Paper>
-                        )}
-                      </Box>
-                    )}
-
-                    {/* ===== Step 3: Equipment ===== */}
-                    {step === 3 && (
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        {selectedTemplate && (
-                          <>
-                            <Box>
-                              <Typography variant="subtitle2" gutterBottom>Proficiencies:</Typography>
-                              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                                {selectedTemplate.proficiencies.map(p => (
-                                  <Chip key={p} label={p} size="small" variant="outlined" color="primary" />
-                                ))}
-                              </Box>
-                            </Box>
-                            <Box>
-                              <Typography variant="subtitle2" gutterBottom>Starting Equipment:</Typography>
-                              <List dense>
-                                {startingEquipment.length === 0 ? (
-                                  <Typography variant="body2" color="text.secondary">
-                                    No equipment selected. Choose below or use defaults.
-                                  </Typography>
-                                ) : (
-                                  startingEquipment.map((item, i) => (
-                                    <ListItem key={i} sx={{ px: 0 }}>
-                                      <ListItemText
-                                        primary={`${item.quantity > 1 ? `${item.quantity}x ` : ''}${item.name}`}
-                                        secondary={item.type}
-                                      />
-                                      <ListItemSecondaryAction>
-                                        <IconButton size="small" color="error" onClick={() => setStartingEquipment(prev => prev.filter((_, idx) => idx !== i))}>
-                                          <DeleteIcon fontSize="small" />
-                                        </IconButton>
-                                      </ListItemSecondaryAction>
-                                    </ListItem>
-                                  ))
-                                )}
-                              </List>
-                            </Box>
-                            <Box>
-                              <Typography variant="subtitle2" gutterBottom>Available Starting Equipment:</Typography>
-                              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                                {selectedTemplate.startingEquipment.map((item, i) => {
-                                  const alreadyAdded = startingEquipment.some(e => e.name === item.name);
-                                  return (
-                                    <Chip
-                                      key={i}
-                                      label={`${item.quantity > 1 ? `${item.quantity}x ` : ''}${item.name}`}
-                                      size="small"
-                                      clickable
-                                      disabled={alreadyAdded}
-                                      onClick={() => setStartingEquipment(prev => [...prev, { ...item }])}
-                                      color={alreadyAdded ? 'default' : 'primary'}
-                                      variant={alreadyAdded ? 'outlined' : 'filled'}
-                                    />
-                                  );
-                                })}
-                              </Box>
-                            </Box>
-                          </>
-                        )}
-                        {!selectedTemplate && (
-                          <Typography color="text.secondary">Select a class to see equipment options.</Typography>
-                        )}
-                        <Box>
-                          <TextField
-                            fullWidth
-                            label="Extra Gold (CP)"
-                            type="number"
-                            value={extraGold}
-                            onChange={e => setExtraGold(parseInt(e.target.value) || 0)}
-                            inputProps={{ min: 0, max: 99999 }}
-                          />
+                      ))}
+                    </Grid>
+                    {selectedRaceData && (
+                      <Paper sx={{ p: 1 }}>
+                        <Typography variant="subtitle2">Ability Bonuses:</Typography>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {Object.entries(selectedRaceData.abilityScoreBonuses).map(([attr, bonus]) => (
+                            <Chip key={attr} label={`+${bonus} ${attr}`} size="small" color="primary" variant="outlined" />
+                          ))}
                         </Box>
-                      </Box>
-                    )}
-
-                    {/* ===== Step 4: Review ===== */}
-                    {step === 4 && selectedTemplate && (
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <Paper sx={{ p: 2 }}>
-                          <Typography variant="h6" gutterBottom>{name}</Typography>
-                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
-                            <Chip label={selectedTemplate.name} color="primary" />
-                            <Chip label={`Lv. ${level}`} />
-                            <Chip label={systemId} />
-                            <Chip label={`HP: ${selectedTemplate.hitDie + Math.floor((attributes.CON - 10) / 2)}`} color="error" />
-                          </Box>
-                        </Paper>
-
-                        <Paper sx={{ p: 2 }}>
-                          <Typography variant="subtitle2" gutterBottom>Attributes:</Typography>
-                          <Grid container spacing={1}>
-                            {ATTR_NAMES.map(attr => (
-                              <Grid size={{ xs: 2 }} key={attr}>
-                                <Box sx={{ textAlign: 'center' }}>
-                                  <Typography variant="caption" color="text.secondary">{attr}</Typography>
-                                  <Typography variant="h6">{attributes[attr]}</Typography>
-                                  <Chip label={getModifier(attributes[attr])} size="small" />
-                                </Box>
-                              </Grid>
-                            ))}
-                          </Grid>
-                        </Paper>
-
-                        {startingEquipment.length > 0 && (
-                          <Paper sx={{ p: 2 }}>
-                            <Typography variant="subtitle2" gutterBottom>Equipment ({startingEquipment.length} items):</Typography>
-                            <List dense>
-                              {startingEquipment.map((item, i) => (
-                                <ListItem key={i} sx={{ px: 0 }}>
-                                  <ListItemText
-                                    primary={`${item.quantity > 1 ? `${item.quantity}x ` : ''}${item.name}`}
-                                    secondary={item.type}
-                                  />
-                                </ListItem>
-                              ))}
-                            </List>
-                          </Paper>
-                        )}
-
-                        <Paper sx={{ p: 2 }}>
-                          <Typography variant="subtitle2" gutterBottom>Proficiencies:</Typography>
-                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                            {selectedTemplate.proficiencies.map(p => (
-                              <Chip key={p} label={p} size="small" variant="outlined" color="primary" />
-                            ))}
-                          </Box>
-                        </Paper>
-
-                        <Paper sx={{ p: 2 }}>
-                          <Typography variant="subtitle2" gutterBottom>Skills:</Typography>
-                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                            {selectedTemplate.skills.map(s => (
-                              <Chip key={s} label={s} size="small" variant="outlined" />
-                            ))}
-                          </Box>
-                        </Paper>
-
-                        {selectedBackground && (
-                          <Paper sx={{ p: 2 }}>
-                            <Typography variant="subtitle2" gutterBottom>Background: {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.name}</Typography>
-                            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                              {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.description}
-                            </Typography>
-                            <Typography variant="subtitle2" gutterBottom>Background Skill Bonuses:</Typography>
-                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
-                              {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.skillBonuses.map(s => (
-                                <Chip key={s} label={`+2 ${s}`} size="small" color="success" variant="filled" sx={{ fontSize: 10, height: 18 }} />
-                              ))}
-                            </Box>
-                            <Typography variant="subtitle2" gutterBottom>Background Feature:</Typography>
-                            <Typography variant="body2" color="primary.main">
-                              <strong>{BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.feature}:</strong>{' '}
-                              {BACKGROUND_TEMPLATES.find(b => b.id === selectedBackground)?.featureDescription}
-                            </Typography>
-                          </Paper>
-                        )}
-                      </Box>
+                      </Paper>
                     )}
                   </Box>
                 )}
+                {i === 3 && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Typography variant="subtitle2">Select a background:</Typography>
+                    <Grid container spacing={1}>
+                      {BACKGROUND_TEMPLATES.map((bg: any) => (
+                        <Grid size={{ xs: 12, sm: 6 }} key={bg.id}>
+                          <Card variant="outlined" onClick={() => setSelectedBackground(bg.id)} sx={{ cursor: 'pointer', bgcolor: selectedBackground === bg.id ? 'primary.light' : 'inherit', borderColor: selectedBackground === bg.id ? 'primary.main' : 'divider' }}>
+                            <CardContent sx={{ p: 1.5 }}>
+                              <Typography variant="subtitle1">{bg.name}</Typography>
+                              <Typography variant="caption" color="text.secondary">{bg.description}</Typography>
+                              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                                <Chip label={`Skills: ${bg.skillBonuses.join(', ')}`} size="small" sx={{ fontSize: 9 }} />
+                                <Chip label={`Feature: ${bg.feature}`} size="small" sx={{ fontSize: 9 }} />
+                              </Box>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Box>
+                )}
+                {i === 4 && selectedTemplate && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Typography variant="subtitle2">Starting Equipment (from {selectedTemplate.name} class):</Typography>
+                    {selectedTemplate.defaultAttributes && (
+                      <Paper sx={{ p: 1 }}>
+                        <Typography variant="body2">Gold: {Math.floor((selectedTemplate.defaultAttributes.CHA || 10) * 5) + extraGold} gp</Typography>
+                      </Paper>
+                    )}
+                    <Typography variant="subtitle2">Languages:</Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                      <Chip label="Common" size="small" />
+                      {selectedRaceData?.traits.includes('Extra Language') && <Chip label="Extra Language" size="small" color="primary" />}
+                    </Box>
+                  </Box>
+                )}
+                <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between' }}>
+                  <Button disabled={step === 0} onClick={handleBack} startIcon={<BackIcon />}>Back</Button>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    {step === steps.length - 1 ? (
+                      <Button variant="contained" onClick={handleFinish} startIcon={<SaveIcon />}>Finish</Button>
+                    ) : (
+                      <Button variant="contained" onClick={handleNext} endIcon={<NextIcon />}>Next</Button>
+                    )}
+                    <Button variant="outlined" onClick={handleSaveTemplate}>Save as Template</Button>
+                  </Box>
+                </Box>
               </StepContent>
             </Step>
           ))}
         </Stepper>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        {step > 0 && (
-          <Button onClick={handleBack} startIcon={<BackIcon />}>Back</Button>
-        )}
-        <Box sx={{ flex: 1 }} />
-        {step < stepLabels.length - 1 ? (
-          <Button onClick={handleNext} variant="contained" endIcon={<NextIcon />}>Next</Button>
-        ) : (
-          <Button onClick={handleFinish} variant="contained" color="success" startIcon={<SaveIcon />}>
-            Create Character
-          </Button>
-        )}
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
       </DialogActions>
     </Dialog>
   );
