@@ -18,6 +18,8 @@ public record GameNarrationStarted(Guid GameId, Guid MessageId) : INotification;
 
 public record GMStatusChanged(Guid GameId, Models.GMStatus NewStatus, string? LastAction) : INotification;
 
+public record GameStatusChanged(Guid GameId, Models.GameStatus NewStatus) : INotification;
+
 // ==================== Player Events ====================
 
 public record PlayerJoined(Guid GameId, Guid PlayerId, Guid UserId, string CharacterName) : INotification;

@@ -1,10 +1,12 @@
 using MediatR;
 using Adnd.Server.Events;
+using Adnd.Server.Hubs;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Adnd.Server.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.SignalR;
 using System.Text.Json;
 
 namespace Adnd.Server.Handlers;
@@ -23,13 +25,15 @@ public class GameLifecycleHandler :
     private readonly IGameAgentManager _gameAgentManager;
     private readonly IAgentBus _agentBus;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IHubContext<Adnd.Server.Hubs.GameHub> _hubContext;
     private readonly ILogger<GameLifecycleHandler> _logger;
 
-    public GameLifecycleHandler(IGameAgentManager gameAgentManager, IAgentBus agentBus, IServiceScopeFactory serviceScopeFactory, ILogger<GameLifecycleHandler> logger)
+    public GameLifecycleHandler(IGameAgentManager gameAgentManager, IAgentBus agentBus, IServiceScopeFactory serviceScopeFactory, IHubContext<Adnd.Server.Hubs.GameHub> hubContext, ILogger<GameLifecycleHandler> logger)
     {
         _gameAgentManager = gameAgentManager;
         _agentBus = agentBus;
         _serviceScopeFactory = serviceScopeFactory;
+        _hubContext = hubContext;
         _logger = logger;
     }
 
@@ -92,6 +96,14 @@ public class GameLifecycleHandler :
             game.Status = Models.GameStatus.Active;
             await context.SaveChangesAsync(ct);
             _logger.LogInformation("[STATE] GameActive | GameId={GameId} | Transition: Starting→Active", notification.GameId);
+
+            // Broadcast status change to frontend
+            await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GameStatusChanged", new
+            {
+                GameId = game.Id,
+                Status = game.Status,
+                ChangedAt = DateTime.UtcNow
+            });
         }
     }
 

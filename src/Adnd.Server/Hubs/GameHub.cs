@@ -56,6 +56,20 @@ public partial class GameHub : Hub
     }
 
     /// <summary>
+    /// Broadcast game status change to all players in a game.
+    /// </summary>
+    public async Task BroadcastGameStatusAsync(Guid gameId, Models.GameStatus status)
+    {
+        await _mediator.Publish(new GameStatusChanged(gameId, status));
+        await Clients.Group(gameId.ToString()).SendAsync("GameStatusChanged", new
+        {
+            GameId = gameId,
+            Status = status,
+            ChangedAt = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
     /// Publish a notification asynchronously to avoid blocking the SignalR Hub caller.
     /// Critical events (player join/leave) should still use await.
     /// Slow events (GM narrative queue) should use this.
