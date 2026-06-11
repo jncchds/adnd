@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using Adnd.Server.Data;
+using Adnd.Server.Events;
 using Adnd.Server.Hubs;
 using Adnd.Server.Models;
+using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -95,6 +97,7 @@ public class AgentBus : IAgentBus
     private readonly IApiKeyEncryptionService _encryption;
     private readonly ILogger<AgentBus> _logger;
     private readonly IHubContext<GameHub> _hubContext;
+    private readonly IMediator _mediator;
 
     public AgentBus(
         AppDbContext context,
@@ -108,7 +111,8 @@ public class AgentBus : IAgentBus
         IGMToolRegistry toolRegistry,
         IApiKeyEncryptionService encryption,
         ILogger<AgentBus> logger,
-        IHubContext<GameHub> hubContext)
+        IHubContext<GameHub> hubContext,
+        IMediator mediator)
     {
         _context = context;
         _providerFactory = providerFactory;
@@ -119,10 +123,10 @@ public class AgentBus : IAgentBus
         _presetService = presetService;
         _interactionLogger = interactionLogger;
         _toolRegistry = toolRegistry;
-        _providerFactory = providerFactory;
         _encryption = encryption;
         _logger = logger;
         _hubContext = hubContext;
+        _mediator = mediator;
     }
 
     private ILLMProvider? GetProvider(LLMPreset preset)
@@ -1032,6 +1036,9 @@ public class AgentBus : IAgentBus
 
             _context.Messages.Add(message);
             await _context.SaveChangesAsync();
+
+            // Emit event so GameLifecycleHandler can transition Starting → Active
+            await _mediator.Publish(new GameNarrationStarted(gameId, message.Id));
 
             // Broadcast to all players in the game
             await _hubContext.Clients.Group(gameId.ToString()).SendAsync("NewMessage", new
