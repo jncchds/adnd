@@ -1,0 +1,48 @@
+function InventoryTab({ items, setItems, isEditMode, onOpenDialog }: any) {
+  const totalWeight = items.reduce((sum: number, item: any) => sum + (item.weight || 0), 0);
+
+  if (items.length === 0) {
+    return (
+      <Box sx={{ textAlign: 'center', py: 4 }}>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>No items in inventory.</Typography>
+        {isEditMode && (
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={onOpenDialog}>
+            Add Item
+          </Button>
+        )}
+      </Box>
+    );
+  }
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="body2" color="text.secondary">
+          {items.length} item{items.length !== 1 ? 's' : ''} · {totalWeight.toFixed(1)} weight
+        </Typography>
+        {isEditMode && (
+          <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={onOpenDialog}>
+            Add Item
+          </Button>
+        )}
+      </Box>
+      <Divider sx={{ mb: 2 }} />
+      <List dense>
+        {items.map((item: any, i: number) => (
+          <ListItem key={i} sx={{ px: 0, borderBottom: 1, borderColor: 'divider' }}>
+            <ListItemText
+              primary={item.name}
+              secondary={item.description || `${item.weight ? item.weight + ' weight' : ''}`}
+            />
+            {isEditMode && (
+              <IconButton size="small" color="error" onClick={() => setItems((prev: any) => prev.filter((_: any, idx: number) => idx !== i))}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            )}
+          </ListItem>
+        ))}
+      </List>
+    </Box>
+  );
+}
+
