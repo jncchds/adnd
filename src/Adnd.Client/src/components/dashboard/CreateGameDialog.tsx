@@ -12,11 +12,13 @@ interface CreateGameDialogProps {
   selectedTemplateId: string | null;
   onSelectedTemplateChange: (id: string | null) => void;
   onDeleteTemplate: (id: string) => void;
+  onSaveTemplate?: (name: string, defaultName: string, systemId: string, llmPresetId: string | null, language: string, plotSeed: string, gameParameters: string) => Promise<void>;
 }
 
 export default function CreateGameDialog({
   open, onClose, onCreate, presets, presetsLoading,
   templates, selectedTemplateId, onSelectedTemplateChange, onDeleteTemplate,
+  onSaveTemplate,
 }: CreateGameDialogProps) {
   const [gameName, setGameName] = useState('');
   const [systemId, setSystemId] = useState('dnd5e');
@@ -27,6 +29,8 @@ export default function CreateGameDialog({
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [templateDefaultName, setTemplateDefaultName] = useState('');
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleClose = () => {
     onClose();
@@ -161,8 +165,22 @@ export default function CreateGameDialog({
         language={language}
         plotSeed={plotSeed}
         gameParameters={gameParameters}
-        onSave={async (_name, _defaultName) => {
-          // Will be passed down from parent
+        saveError={saveError}
+        isSaving={isSavingTemplate}
+        onSave={async (name, defaultName) => {
+          if (!onSaveTemplate) return;
+          setIsSavingTemplate(true);
+          setSaveError(null);
+          try {
+            await onSaveTemplate(name, defaultName, systemId, llmPresetId, language, plotSeed, gameParameters);
+            setShowTemplateDialog(false);
+            setTemplateName('');
+            setTemplateDefaultName('');
+          } catch (e: any) {
+            setSaveError(e.message || 'Failed to save template');
+          } finally {
+            setIsSavingTemplate(false);
+          }
         }}
       />
     </>
@@ -182,13 +200,15 @@ interface SaveTemplateDialogProps {
   language: string;
   plotSeed: string;
   gameParameters: string;
-  onSave: (_name: string, _defaultName: string) => Promise<void>;
+  saveError: string | null;
+  isSaving: boolean;
+  onSave: (name: string, defaultName: string, systemId: string, llmPresetId: string | null, language: string, plotSeed: string, gameParameters: string) => Promise<void>;
 }
 
-function SaveTemplateDialog({ open, onClose, templateName, setTemplateName, templateDefaultName, setTemplateDefaultName, systemId, llmPresetId, presets, language, plotSeed, gameParameters, onSave }: SaveTemplateDialogProps) {
+function SaveTemplateDialog({ open, onClose, templateName, setTemplateName, templateDefaultName, setTemplateDefaultName, systemId, llmPresetId, presets, language, plotSeed, gameParameters, saveError, isSaving, onSave }: SaveTemplateDialogProps) {
   const handleSave = async () => {
     if (!templateName.trim()) return;
-    await onSave(templateName, templateDefaultName);
+    await onSave(templateName, templateDefaultName, systemId, llmPresetId, language, plotSeed, gameParameters);
     onClose();
   };
 
@@ -196,21 +216,26 @@ function SaveTemplateDialog({ open, onClose, templateName, setTemplateName, temp
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Save as Template</DialogTitle>
       <DialogContent sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {saveError && (
+          <Typography variant="body2" color="error">{saveError}</Typography>
+        )}
         <Typography variant="body2" color="text.secondary">Save your current game configuration as a reusable template.</Typography>
         <TextField fullWidth label="Template Name" value={templateName} onChange={e => setTemplateName(e.target.value)} placeholder="e.g., D&D Fantasy Adventure" helperText="A short name to identify this template" />
         <TextField fullWidth label="Default Game Name" value={templateDefaultName} onChange={e => setTemplateDefaultName(e.target.value)} placeholder="e.g., My New Adventure" helperText="Pre-filled game name (optional)" />
         <Box sx={{ bgcolor: 'background.default', p: 1.5, borderRadius: 1 }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Will save:</Typography>
           <Typography variant="caption" sx={{ display: 'block' }}>🎮 System: {systemId}</Typography>
-          {llmPresetId && <Typography variant="caption" sx={{ display: 'block' }}>🤖 LLM Preset: {presets?.find(p => p.id === llmPresetId)?.name}</Typography>}
+          {llmPresetId && <Typography variant="caption" sx={{ display: 'block' }}>🤖 LLM Preset: {presets?.find(p => p.id === llmPresetId)?.name} (id: {llmPresetId})</Typography>}
           <Typography variant="caption" sx={{ display: 'block' }}>🌐 Language: {language}</Typography>
           {plotSeed && <Typography variant="caption" sx={{ display: 'block' }}>📖 Plot Seed: {plotSeed.substring(0, 60)}{plotSeed.length > 60 ? '...' : ''}</Typography>}
           {gameParameters && <Typography variant="caption" sx={{ display: 'block' }}>⚙️ Parameters: {gameParameters.substring(0, 60)}{gameParameters.length > 60 ? '...' : ''}</Typography>}
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleSave} variant="contained" disabled={!templateName.trim()}>Save Template</Button>
+        <Button onClick={onClose} disabled={isSaving}>Cancel</Button>
+        <Button onClick={handleSave} variant="contained" disabled={!templateName.trim() || isSaving}>
+          {isSaving ? <CircularProgress size={24} /> : 'Save Template'}
+        </Button>
       </DialogActions>
     </Dialog>
   );

@@ -16,7 +16,7 @@ export default function DashboardPage() {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { games, isLoading, refetch, createGame, deleteGame, leaveGame, generateInvite, archiveGame, joinByCode } = useGames();
   const { presets, isLoading: presetsLoading } = useLLMPresets();
-  const { templates, deleteTemplate } = useGameTemplates();
+  const { templates, createTemplate, deleteTemplate } = useGameTemplates();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -34,6 +34,29 @@ export default function DashboardPage() {
       setTimeout(() => navigate(`/game/${result.gameId}`), 500);
     } catch (e: any) {
       setErrorState(e.message);
+    }
+  };
+
+  const handleSaveTemplate = async (templateName: string, defaultName: string, systemId: string, llmPresetId: string | null, language: string, plotSeed: string, gameParameters: string) => {
+    if (!templateName.trim()) return;
+    setErrorState(null);
+    setSuccessState(null);
+    try {
+      await createTemplate({
+        name: templateName,
+        defaultName: defaultName || undefined,
+        systemId,
+        llmPresetId: llmPresetId || undefined,
+        llmPresetName: presets?.find(p => p.id === llmPresetId)?.name,
+        language,
+        plotSeed: plotSeed || undefined,
+        gameParameters: gameParameters || undefined,
+      });
+      setSuccessState('Template saved!');
+      setTimeout(() => setSuccessState(null), 2000);
+    } catch (e: any) {
+      setErrorState(e.message);
+      throw e;
     }
   };
 
@@ -144,6 +167,7 @@ export default function DashboardPage() {
         onSelectedTemplateChange={setSelectedTemplateId}
         
         onDeleteTemplate={deleteTemplate}
+        onSaveTemplate={handleSaveTemplate}
       />
     </Box>
   );
