@@ -153,7 +153,8 @@ export default function LLMPresetsPage() {
             {defaultProviders.map(p => <MenuItem key={p.value} value={p.value}>{p.icon} {p.label}</MenuItem>)}
           </TextField>
           <TextField fullWidth label="Endpoint" value={presetEndpoint} onChange={e => setPresetEndpoint(e.target.value)} placeholder={presetProvider === 'ollama' ? 'http://localhost:11434' : presetProvider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.example.com/v1'} />
-          <TextField fullWidth label="API Key" type={showApiKey ? 'text' : 'password'} value={presetApiKey} onChange={e => setPresetApiKey(e.target.value)} placeholder="sk-..." InputProps={{ endAdornment: <InputAdornment position="end"><IconButton onClick={() => setShowApiKey(!showApiKey)} edge="end">{showApiKey ? '👁️' : '🙈'}</IconButton></InputAdornment> }} />
+          <TextField fullWidth label="API Key" type={showApiKey ? 'text' : 'password'} value={presetApiKey} onChange={e => setPresetApiKey(e.target.value)} placeholder={editingPreset ? 'Leave empty to keep existing key' : 'sk-...'} InputProps={{ endAdornment: <InputAdornment position="end"><IconButton onClick={() => setShowApiKey(!showApiKey)} edge="end">{showApiKey ? '👁️' : '🙈'}</IconButton></InputAdornment> }} />
+          {editingPreset && presetApiKey === '' && <Typography variant="body2" color="text.secondary">API key is hidden for existing presets. Leave blank to keep the current key, or enter a new one to update it.</Typography>}
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             <Button variant="outlined" size="small" onClick={fetchModels} disabled={modelsLoading} startIcon={modelsLoading ? <CircularProgress size={14} /> : undefined}>
               {modelsLoading ? 'Loading...' : 'Load Models'}

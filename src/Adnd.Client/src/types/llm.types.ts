@@ -15,6 +15,7 @@ export interface LLMPreset {
   temperature: number;
   maxTokens: number;
   topP: number;
+  embeddingModel?: string;
   isDefault: boolean;
   isActive: boolean;
   createdAt: string;
