@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../api/authHook';
 import { useGame, useSessions, usePlayers, useGMStatus, useSway } from '../api/gameHooks';
 import { useGameHub } from '../api/hubHook';
+import { useGameGameState } from '../api/gameStateHook';
 import { useToolCalls } from '../api/toolCallsHook';
 import { useMessagesInfiniteScroll, UnifiedMessage, UnifiedMessageType } from '../api/gameToolsHook';
 import { api } from '../api/client';
@@ -18,7 +19,7 @@ import {
   IconButton, Divider, Alert, AlertTitle, Collapse,
   InputAdornment, MenuItem, Select, FormControl,
 
-  InputLabel, useMediaQuery, useTheme
+  InputLabel, useMediaQuery, useTheme, Skeleton
 } from '@mui/material';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { Send as SendIcon, SportsEsports as DiceIcon,
@@ -145,7 +146,8 @@ export default function GameRoomPage() {
   const { user } = useAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px
-  const { game, isLoading } = useGame(id);
+  const { game, isLoading: isLoadingGame } = useGame(id);
+  const gameState = useGameGameState(id);
   const { sessions, refetch: refetchSessions } = useSessions(id);
   const { players, refetch: refetchPlayers } = usePlayers(id);
 
@@ -1103,8 +1105,44 @@ export default function GameRoomPage() {
     }
   };
 
-  if (isLoading) {
-    return <Box sx={{ textAlign: 'center', mt: 8 }}><Typography>Loading game...</Typography></Box>;
+  // Loading skeleton
+  if (gameState.isLoading || isLoadingGame) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Skeleton variant="rectangular" width="100%" height={48} sx={{ mb: 2 }} />
+        <Skeleton variant="rectangular" width="100%" height={300} sx={{ mb: 2 }} />
+        <Skeleton variant="rectangular" width="100%" height={60} />
+      </Box>
+    );
+  }
+
+  // Error recovery with retry
+  if (gameState.error) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {gameState.error}
+          <Button size="small" onClick={() => gameState.refreshState()} sx={{ ml: 2 }}>
+            Retry
+          </Button>
+        </Alert>
+        <Button onClick={() => navigate('/dashboard')}>Back to Dashboard</Button>
+      </Box>
+    );
+  }
+
+  // Archived game banner
+  if (game && (game.status === 'Archived' || game.status === 'Finished')) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          This game has been {game.status === 'Archived' ? 'archived' : 'finished'}.
+          <Button size="small" onClick={() => navigate('/dashboard')} sx={{ ml: 1 }}>
+            Back to Dashboard
+          </Button>
+        </Alert>
+      </Box>
+    );
   }
 
   if (!game) {
@@ -1119,6 +1157,11 @@ export default function GameRoomPage() {
 
   return (
     <Box>
+      {/* Reconnecting banner */}
+      {gameState.isReconnecting && (
+        <Alert severity="warning" sx={{ mb: 2 }}>Reconnecting...</Alert>
+      )}
+
       {/* Game Info Header */}
       <Box sx={{
         display: 'flex',
@@ -1133,21 +1176,33 @@ export default function GameRoomPage() {
           <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
             <Chip label={game.systemId} size="small" />
             {game.language && <Chip label={`🌐 ${game.language}`} size="small" variant="outlined" color="info" />}
-            <Chip label={game.status} size="small" color={game.status === 'Active' ? 'success' : 'default'} />
+            <Chip
+              label={gameState.gameStatus === 'Starting' ? 'Starting...' : gameState.gameStatus}
+              size="small"
+              color={gameState.gameStatus === 'Active' ? 'success' : gameState.gameStatus === 'Starting' ? 'info' : 'default'}
+            />
             {game.llmPresetName && <Chip label={game.llmPresetName} size="small" variant="outlined" />}
             {game.inviteCode && (
               <Chip label={`Code: ${game.inviteCode}`} size="small" variant="outlined" color="primary" />
             )}
-            {gmStatus && (
+            {gameState.gmStatus && (
               <Chip
-                label={`AI-GM: ${gmStatus.status}`}
+                label={`AI-GM: ${gameState.gmStatus}`}
                 size="small"
-                color={gmStatus.status === 'running' ? 'success' : gmStatus.status === 'paused' ? 'warning' : 'default'}
+                color={gameState.gmStatus === 'running' ? 'success' : gameState.gmStatus === 'paused' ? 'warning' : 'default'}
               />
             )}
             {isConnected && <Chip label="Connected" size="small" color="success" icon={<ReplayIcon fontSize="small" />}></Chip>}
             {!isConnected && <Chip label="Disconnected" size="small" color="error" />}
             {activeSession && <Chip label={`Session: ${activeSession.title}`} size="small" variant="outlined" />}
+            {gameState.lastGMAction && (
+              <Chip
+                label={`Last: ${gameState.lastGMAction.action}`}
+                size="small"
+                variant="outlined"
+                color="default"
+              />
+            )}
           </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
@@ -1156,6 +1211,21 @@ export default function GameRoomPage() {
           )}
           {game.status === 'Active' && gmStatus?.status === 'paused' && (
             <Button size="small" variant="outlined" onClick={handleResumeGM}>Resume GM</Button>
+          )}
+          {isCreator && gameState.gmStatus !== 'running' && gameState.gameStatus !== 'Starting' && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={async () => {
+                try {
+                  await api.swayStory(id!, 'Continue the narrative.');
+                } catch (e: any) {
+                  setErrorState(e.message);
+                }
+              }}
+            >
+              Nudge GM
+            </Button>
           )}
           <Button variant="outlined" color="error" size={isMobile ? 'medium' : 'small'} startIcon={<LeaveIcon />} onClick={handleLeave}>
             Leave
