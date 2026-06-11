@@ -3,6 +3,7 @@ using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Adnd.Server.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
@@ -120,10 +121,12 @@ public class PlayerHandler :
     INotificationHandler<PlayerDisconnected>,
     INotificationHandler<PlayerReconnected>
 {
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PlayerHandler> _logger;
 
-    public PlayerHandler(ILogger<PlayerHandler> logger)
+    public PlayerHandler(IServiceScopeFactory scopeFactory, ILogger<PlayerHandler> logger)
     {
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -141,11 +144,35 @@ public class PlayerHandler :
         return Task.CompletedTask;
     }
 
-    public Task Handle(PlayerDisconnected notification, CancellationToken ct)
+    public async Task Handle(PlayerDisconnected notification, CancellationToken ct)
     {
         _logger.LogInformation("[PLAYER] Disconnected | GameId={GameId} | PlayerId={PlayerId} | Character={Character} | UserId={UserId} | DisconnectedAt={DisconnectedAt}",
             notification.GameId, notification.PlayerId, notification.CharacterName, notification.UserId, notification.DisconnectedAt);
-        return Task.CompletedTask;
+
+        // If during combat, log that the player's participant may be AFK
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var combat = await context.Combats
+                .FirstOrDefaultAsync(c => c.GameId == notification.GameId && c.Status == Models.CombatStatus.Active, ct);
+
+            if (combat != null)
+            {
+                var participant = await context.CombatParticipants
+                    .FirstOrDefaultAsync(p => p.CombatId == combat.Id && p.PlayerId == notification.PlayerId, ct);
+
+                if (participant != null)
+                {
+                    _logger.LogInformation("[PLAYER] CombatDisconnect | GameId={GameId} | PlayerId={PlayerId} | CombatId={CombatId} | Participant={ParticipantId} — may be AFK",
+                        notification.GameId, notification.PlayerId, combat.Id, participant.Id);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[PLAYER] Failed to check combat state for disconnected player {PlayerId}", notification.PlayerId);
+        }
     }
 
     public Task Handle(PlayerReconnected notification, CancellationToken ct)
