@@ -83,7 +83,7 @@ public class GameAgent : IGameAgent
         {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             game = await context.Games.FindAsync(gameId);
-            game.Status = Models.GameStatus.Active;
+            game.Status = Models.GameStatus.Starting;
             game.StartedAt = DateTime.UtcNow;
             game.GMStatus = Models.GMStatus.Running;
             await context.SaveChangesAsync();

@@ -16,16 +16,19 @@ public class GameLifecycleHandler :
     INotificationHandler<GameStarted>,
     INotificationHandler<GameArchived>,
     INotificationHandler<GamePaused>,
-    INotificationHandler<GameResumed>
+    INotificationHandler<GameResumed>,
+    INotificationHandler<GameNarrationStarted>
 {
     private readonly IGameAgentManager _gameAgentManager;
     private readonly IAgentBus _agentBus;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<GameLifecycleHandler> _logger;
 
-    public GameLifecycleHandler(IGameAgentManager gameAgentManager, IAgentBus agentBus, ILogger<GameLifecycleHandler> logger)
+    public GameLifecycleHandler(IGameAgentManager gameAgentManager, IAgentBus agentBus, IServiceScopeFactory serviceScopeFactory, ILogger<GameLifecycleHandler> logger)
     {
         _gameAgentManager = gameAgentManager;
         _agentBus = agentBus;
+        _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
     }
 
@@ -38,7 +41,7 @@ public class GameLifecycleHandler :
 
     public async Task Handle(GameStarted notification, CancellationToken ct)
     {
-        _logger.LogInformation("[STATE] GameStarted | GameId={GameId} | CreatorId={CreatorId} | Transition: Created→Active", 
+        _logger.LogInformation("[STATE] GameStarted | GameId={GameId} | CreatorId={CreatorId} | Transition: Draft→Starting", 
             notification.GameId, notification.CreatorId);
 
         var agent = _gameAgentManager.GetOrCreate(notification.GameId);
@@ -73,6 +76,22 @@ public class GameLifecycleHandler :
             notification.GameId);
         var agent = _gameAgentManager.GetOrCreate(notification.GameId);
         await agent.PauseAsync(notification.GameId);
+    }
+
+    public async Task Handle(GameNarrationStarted notification, CancellationToken ct)
+    {
+        _logger.LogInformation("[STATE] GameNarrationStarted | GameId={GameId} | MessageId={MessageId} | Transition: Starting→Active",
+            notification.GameId, notification.MessageId);
+
+        using var scope = _serviceScopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var game = await context.Games.FindAsync(notification.GameId);
+        if (game != null && game.Status == Models.GameStatus.Starting)
+        {
+            game.Status = Models.GameStatus.Active;
+            await context.SaveChangesAsync(ct);
+            _logger.LogInformation("[STATE] GameActive | GameId={GameId} | Transition: Starting→Active", notification.GameId);
+        }
     }
 
     public async Task Handle(GameResumed notification, CancellationToken ct)

@@ -14,6 +14,8 @@ public record GamePaused(Guid GameId) : INotification;
 
 public record GameResumed(Guid GameId) : INotification;
 
+public record GameNarrationStarted(Guid GameId, Guid MessageId) : INotification;
+
 // ==================== Player Events ====================
 
 public record PlayerJoined(Guid GameId, Guid PlayerId, Guid UserId, string CharacterName) : INotification;
