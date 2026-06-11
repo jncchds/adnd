@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, ToolCallInfo, ToolCallConfirmationResponse, PlayerRollConfirmationResponse } from './client';
+import { api } from './client';
+import type { ToolCallInfo, ToolCallConfirmationResponse, PlayerRollConfirmationResponse } from '../types';
 
 export interface PendingToolCall extends ToolCallInfo {
   argumentsParsed?: Record<string, unknown>;

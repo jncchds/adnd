@@ -34,14 +34,26 @@ export interface PlotThreadResponse {
   title: string;
   category: PlotThreadCategory;
   description: string;
-  status: PlotThreadStatus;
+  status: string;
   momentum: number;
   relevanceScore: number;
   nextMilestone: string | null;
   foreshadowing: string | null;
   adaptationHistory: string[];
+  milestoneEvents: MilestoneEventResponse[];
+  isDynamic: boolean;
   createdAt: string;
   updatedAt: string | null;
+}
+
+export interface MilestoneEventResponse {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  triggeredAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
 }
 
 export interface ThreadUpdate {
@@ -69,6 +81,18 @@ export interface PlotReviewResponse {
 export interface AdjustMomentumRequest {
   delta: number;
   reason: string;
+}
+
+export interface StoryOpportunityResponse {
+  type: string;
+  title: string;
+  description: string;
+  threadId: string | null;
+  momentumDelta: number | null;
+  newThreadCategory: string | null;
+  newThreadTitle: string | null;
+  newThreadDescription: string | null;
+  newMilestone: string | null;
 }
 
 

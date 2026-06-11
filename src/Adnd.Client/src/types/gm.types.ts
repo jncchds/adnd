@@ -17,37 +17,35 @@ export enum ToolCategory {
 
 export interface ToolCallInfo {
   id: string;
-  gameId: string;
-  sessionId?: string;
-  toolId: string;
   toolName: string;
-  category: ToolCategory;
   status: ToolCallStatus;
-  prompt?: string;
-  response?: string;
-  error?: string;
-  metadata?: Record<string, any>;
+  arguments?: string;
+  outputMessage?: string;
   createdAt: string;
-  completedAt?: string;
+  requiresConfirmation: boolean;
+}
+
+export interface PendingToolCall extends ToolCallInfo {
+  argumentsParsed?: Record<string, unknown>;
+  outputMessage?: string;
 }
 
 export interface ToolCallConfirmationResponse {
-  callId: string;
-  toolId: string;
+  id: string;
   toolName: string;
-  prompt: string;
-  metadata?: Record<string, any>;
-  expiresAt: string;
+  approved: boolean;
+  outputMessage?: string;
+  status: ToolCallStatus;
 }
 
 export interface PlayerRollConfirmationResponse {
-  callId: string;
-  toolId: string;
-  toolName: string;
-  diceFormula: string;
-  modifiers: Record<string, number>;
-  targetDC?: number;
-  expiresAt: string;
+  toolCallId: string;
+  approved: boolean;
+  skill: string;
+  formula: string;
+  dc: number;
+  context: string;
+  optional: boolean;
 }
 
 export interface ToolCallNotification {
@@ -64,58 +62,65 @@ export interface ToolCallNotification {
 }
 
 export interface GMToolDefinition {
-  id: string;
   name: string;
   description: string;
   category: ToolCategory;
+  requiresConfirmation: boolean;
   parameters: Record<string, any>;
-  isActive: boolean;
 }
 
 export interface GMToolResponse {
-  tool: GMToolDefinition;
-  result?: Record<string, any>;
-  error?: string;
+  gameId: string;
+  count: number;
+  tools: GMToolDefinition[];
 }
 
 export interface ExecuteToolRequest {
-  toolId: string;
-  parameters: Record<string, any>;
+  toolName: string;
+  arguments: string;
 }
 
 export interface ExecuteToolResponse {
-  toolId: string;
-  result: Record<string, any>;
-  error?: string;
+  toolName: string;
+  success: boolean;
+  output: string | null;
+  outputMessage: string | null;
+  requiresUserInput: boolean;
+  userInputType: string | null;
 }
 
 export interface DiceHistoryEntry {
   id: string;
-  gameId: string;
-  sessionId?: string;
-  playerId?: string;
-  playerName?: string;
   formula: string;
-  result: number;
-  breakdown: string[];
-  metadata: Record<string, any>;
+  total: number | null;
+  diceCount: number | null;
+  diceType: number | null;
+  modifier: number;
+  rolls: number[];
+  sessionId: string | null;
+  sessionTitle: string | null;
+  playerId: string | null;
+  characterName: string | null;
   createdAt: string;
 }
 
 export interface DiceHistoryResponse {
   gameId: string;
-  entries: DiceHistoryEntry[];
-  total: number;
-  hasMore: boolean;
+  count: number;
+  rolls: DiceHistoryEntry[];
 }
 
 export interface CombatSummaryEntry {
-  combatId: string;
-  name?: string;
+  id: string;
+  name: string;
   status: string;
   currentRound: number;
   participantCount: number;
+  eventCount: number;
   startedAt: string;
+  endedAt: string | null;
+  sessionId: string | null;
+  sessionTitle: string | null;
 }
 
 export interface CombatLogResponse {
@@ -174,13 +179,29 @@ export interface SpellSlotInfo {
 export interface SpellManagementResponse {
   characterId: string;
   characterName: string;
+  characterClass: string;
+  characterLevel: number;
   spells: SpellEntry[];
   spellSlots: SpellSlotInfo[];
+  updatedAt: string;
 }
 
 export interface SpellUpdateRequest {
-  spellName: string;
-  castCount?: number;
+  name?: string;
+  level?: string;
+  school?: string;
+  castingTime?: string;
+  range?: string;
+  duration?: string;
+  components?: string;
+  description?: string;
+  saveType?: string;
+  saveDC?: number;
+  damageFormula?: string;
+  damageBonus?: number;
+  damageType?: string;
+  isPrepared?: boolean;
+  isKnown?: boolean;
   spellSlots?: SpellSlotInfo[];
 }
 

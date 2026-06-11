@@ -1,3 +1,7 @@
+import type { ConditionEntry } from './combat.types';
+import type { SpellEntry, SpellSlotInfo } from './gm.types';
+import type { PendingAgentCall } from './agent.types';
+
 export enum MessageType {
   // === In-game messages (influence narrative) ===
   InGamePublic = 0,
@@ -144,5 +148,78 @@ export interface NPCUpdateRequest {
   plotThreadId?: string;
 }
 
-export type JsonElement = any;
-export type CharacterDetail = any;
+export interface PlotThreadListItem {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  keyEventMessageIds: string[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface PlotThreadUpdateRequest {
+  title?: string;
+  description?: string;
+  status?: string;
+  keyEventMessageIds?: string[];
+}
+
+export interface CharacterListItem {
+  id: string;
+  name: string;
+  characterClass: string;
+  level: number;
+  systemId: string;
+  gameName: string;
+  createdAt: string;
+}
+
+export interface CharacterDetail {
+  id: string;
+  name: string;
+  characterClass: string;
+  class: string;
+  level: number;
+  systemId: string;
+  gameName: string;
+  playerUserId?: string;
+  playerName?: string;
+  stats: Record<string, number>;
+  conditions: ConditionEntry[];
+  spells: SpellEntry[];
+  spellSlots: SpellSlotInfo[];
+  equipment: JsonElement;
+  inventory: JsonElement;
+  skills: JsonElement;
+  attributes: JsonElement;
+  notes: string;
+  maxHP: number;
+  currentHP: number;
+  proficiencyBonus: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CharacterUpdateRequest {
+  name?: string;
+  characterClass?: string;
+  level?: number;
+  stats?: Record<string, number>;
+  conditions?: ConditionEntry[];
+  spells?: SpellEntry[];
+  spellSlots?: SpellSlotInfo[];
+  equipment?: JsonElement;
+  notes?: string;
+}
+
+export interface PendingCallsResponse {
+  pendingCalls: PendingAgentCall[];
+  pendingCount: number;
+  runningCount: number;
+}
+
+import type { JsonElement } from './llm.types';
+
+// Re-export for convenience
+export type { JsonElement };

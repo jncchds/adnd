@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { api, SessionNote, DiceStatsResponse, PlayerDiceStatsResponse, MessagePaginationResponse, MessageSearchResponse, PromptTemplate, MessagePaginated } from './client';
+import { api } from './client';
+import type { SessionNote, DiceStatsResponse, PlayerDiceStatsResponse, MessagePaginationResponse, MessageSearchResponse, PromptTemplate, MessagePaginated } from '../types';
 
 // ==================== Unified Message Type ====================
 // All game events flow through the unified chat

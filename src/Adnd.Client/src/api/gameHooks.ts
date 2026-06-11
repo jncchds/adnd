@@ -1,5 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem, NPCListItem, PlotThreadListItem, PlotThreadResponse, CharacterListItem, CharacterDetail, ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest, LLMInteractionLog, PresetUsageSummary, GameProviderUsageSummary, GMStatusResponse, SwayResponse, PlotReviewResponse, PendingCallsResponse, DiceHistoryEntry, CombatSummaryEntry, CombatLogResponse, GMToolDefinition, SpellEntry, SpellSlotInfo, SpellUpdateRequest, GameTemplate, CreateGameTemplateRequest, UpdateGameTemplateRequest } from './client';
+import { api } from './client';
+import type {
+  GameListItem, GameDetail, GameSessionListItem, GameSessionDetail, PlayerListItem,
+  NPCListItem, PlotThreadListItem, PlotThreadResponse, CharacterListItem, CharacterDetail,
+  ConsistencyReport, LLMPreset, LLMPresetDetail, CreateLLMPresetRequest, UpdateLLMPresetRequest,
+  LLMInteractionLog, PresetUsageSummary, GameProviderUsageSummary, GMStatusResponse,
+  SwayResponse, PlotReviewResponse, PendingCallsResponse, DiceHistoryEntry,
+  CombatSummaryEntry, CombatLogResponse, GMToolDefinition, SpellEntry, SpellSlotInfo,
+  SpellUpdateRequest, GameTemplate, CreateGameTemplateRequest, UpdateGameTemplateRequest,
+} from '../types';
 import { useEntity } from './useEntity';
 
 export function useGames() {

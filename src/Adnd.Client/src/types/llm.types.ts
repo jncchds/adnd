@@ -90,3 +90,78 @@ export interface ConsistencyReport {
   inconsistencies: string[];
   checkedAt: string;
 }
+
+export interface LLMPresetDetail {
+  id: string;
+  name: string;
+  providerType: string;
+  baseModel: string;
+  endpointUrl?: string;
+  hasApiKey: boolean;
+  temperature: number;
+  maxTokens: number;
+  topP: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  stream: boolean;
+  embeddingModel?: string;
+  embeddingEndpointUrl?: string;
+  isDefault: boolean;
+  isActive: boolean;
+  extraParams?: Record<string, any>;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface CreateLLMPresetRequest {
+  name: string;
+  providerType: string;
+  baseModel: string;
+  endpointUrl?: string;
+  apiKey?: string;
+  temperature: number;
+  maxTokens: number;
+  topP: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  stream?: boolean;
+  embeddingModel?: string;
+  embeddingEndpointUrl?: string;
+  extraParams?: Record<string, any>;
+}
+
+export interface UpdateLLMPresetRequest {
+  name?: string;
+  providerType?: string;
+  baseModel?: string;
+  endpointUrl?: string;
+  apiKey?: string;
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  stream?: boolean;
+  embeddingModel?: string;
+  embeddingEndpointUrl?: string;
+  extraParams?: Record<string, any>;
+  isDefault?: boolean;
+  isActive?: boolean;
+}
+
+export interface LLMInteractionLogDetail extends LLMInteractionLog {
+  requestJson?: string;
+  responseJson?: string;
+}
+
+export interface TestConnectionResponse {
+  success: boolean;
+  message: string;
+  model?: string;
+}
+
+export interface ProviderModelsResponse {
+  models: string[];
+}
+
+export type JsonElement = Record<string, any> | string | number | boolean | null;

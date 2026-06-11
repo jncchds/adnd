@@ -11,7 +11,7 @@ import {
   Refresh as RefreshIcon, ArrowUpward as UpIcon, ArrowDownward as DownIcon,
   History as HistoryIcon, Lightbulb as BulbIcon,
 } from '@mui/icons-material';
-import { PlotThreadCategory, PlotReviewResponse, ThreadUpdate, StoryOpportunityResponse } from '../api/client';
+import { PlotThreadCategory, PlotReviewResponse, ThreadUpdate, StoryOpportunityResponse } from '../types/plot.types';
 
 const CATEGORY_LABELS: Record<PlotThreadCategory, string> = {
   [PlotThreadCategory.General]: 'General',

@@ -49,10 +49,12 @@ export interface AgentCallItem {
 
 export interface PendingAgentCall {
   id: string;
-  gameId: string;
-  agentType: AgentType;
-  action: AgentAction;
-  prompt: string;
-  metadata?: Record<string, any>;
+  fromAgent: number;
+  toAgent: number;
+  action: number;
+  status: string; // 'pending' | 'running'
+  input?: string;
   createdAt: string;
+  startedAt?: string;
+  outputMessage?: string;
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { api, GameDetail, GMStatusResponse } from './client';
+import { api } from './client';
+import type { GameDetail, GMStatusResponse } from '../types';
 import { useGameHub } from './hubHook';
 
 export interface PlayerState {
