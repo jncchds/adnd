@@ -1,28 +1,48 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Box, Typography, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Chip, Alert, IconButton, List, ListItemButton, ListItemText, ListItemAvatar, Avatar, ListItemSecondaryAction, Autocomplete, CircularProgress, InputAdornment } from '@mui/material';
-import { useLLMPresets, useProviderModels } from '../api/hooks/useLLM';
+import { useLLMPresets } from '../api/hooks/useLLM';
+import { llmGetProviderModels } from '../api/llm/llmApi';
 import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Link as LinkIcon, WifiOff as WifiOffIcon, CheckCircle as CheckIcon } from '@mui/icons-material';
 
 export default function LLMPresetsPage() {
   const { presets, isLoading, createPreset, updatePreset, deletePreset, setDefault, testConnection } = useLLMPresets();
-  const { models, isLoading: modelsLoading } = useProviderModels();
 
   const [openDialog, setOpenDialog] = useState(false);
   const [editingPreset, setEditingPreset] = useState<any>(null);
   const [presetName, setPresetName] = useState('');
   const [presetProvider, setPresetProvider] = useState('ollama');
-  const [presetModel, setPresetModel] = useState('');
   const [presetEndpoint, setPresetEndpoint] = useState('');
   const [presetApiKey, setPresetApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
+  const [presetBaseModel, setPresetBaseModel] = useState('');
+  const [presetEmbeddingModel, setPresetEmbeddingModel] = useState('');
+  const [models, setModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [_actionError, setActionError] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
 
+  const fetchModels = useCallback(async () => {
+    setModelsLoading(true);
+    setModelsError(null);
+    setModels([]);
+    try {
+      const data = await llmGetProviderModels(presetProvider, presetEndpoint || undefined, presetApiKey || undefined);
+      setModels(data);
+    } catch (e: any) {
+      setModelsError(e.message || 'Failed to load models');
+      setModels([]);
+    } finally {
+      setModelsLoading(false);
+    }
+  }, [presetProvider, presetEndpoint, presetApiKey]);
+
   useEffect(() => {
     if (openDialog && !editingPreset) {
-      setPresetName(''); setPresetProvider('ollama'); setPresetModel('');
-      setPresetEndpoint(''); setPresetApiKey(''); setSuccessMsg(null); setActionError(null);
+      setPresetName(''); setPresetProvider('ollama'); setPresetBaseModel('');
+      setPresetEmbeddingModel(''); setPresetEndpoint(''); setPresetApiKey('');
+      setSuccessMsg(null); setActionError(null);
     }
   }, [openDialog, editingPreset]);
 
@@ -38,8 +58,9 @@ export default function LLMPresetsPage() {
     setEditingPreset(preset);
     setPresetName(preset.name);
     setPresetProvider(preset.providerType);
-    setPresetModel(preset.baseModel);
-    setPresetEndpoint(preset.endpoint || '');
+    setPresetBaseModel(preset.baseModel);
+    setPresetEmbeddingModel(preset.embeddingModel || '');
+    setPresetEndpoint(preset.endpointUrl || '');
     setPresetApiKey(preset.apiKey || '');
     setOpenDialog(true);
   };
@@ -47,11 +68,15 @@ export default function LLMPresetsPage() {
   const handleSave = async () => {
     setActionError(null);
     try {
+      const body: any = { name: presetName, providerType: presetProvider, baseModel: presetBaseModel, temperature: 0.7, maxTokens: 4096, topP: 0.9 };
+      if (presetEndpoint) body.endpointUrl = presetEndpoint;
+      if (presetApiKey) body.apiKey = presetApiKey;
+      if (presetEmbeddingModel) body.embeddingModel = presetEmbeddingModel;
       if (editingPreset) {
-        await updatePreset(editingPreset.id, { name: presetName, temperature: 0.7, maxTokens: 4096, topP: 0.9 });
+        await updatePreset(editingPreset.id, body);
         setSuccessMsg('Preset updated!');
       } else {
-        await createPreset({ name: presetName, providerType: presetProvider, baseModel: presetModel, temperature: 0.7, maxTokens: 4096, topP: 0.9 });
+        await createPreset(body);
         setSuccessMsg('Preset created!');
       }
       setOpenDialog(false);
@@ -100,12 +125,12 @@ export default function LLMPresetsPage() {
         </Paper>
       ) : (
         <List>
-          {presets.map(preset => (
+          {presets.map((preset: any) => (
             <ListItemButton key={preset.id} onClick={() => handleOpenEdit(preset)}>
               <ListItemAvatar>
                 <Avatar>{defaultProviders.find(p => p.value === preset.providerType)?.icon || '🤖'}</Avatar>
               </ListItemAvatar>
-              <ListItemText primary={preset.name} secondary={`${preset.providerType} · ${preset.baseModel}`} />
+              <ListItemText primary={preset.name} secondary={`${preset.providerType} · ${preset.baseModel}${preset.embeddingModel ? ' · embed: ' + preset.embeddingModel : ''}`} />
               <ListItemSecondaryAction>
                 <Chip label={preset.isDefault ? 'Default' : ''} size="small" color={preset.isDefault ? 'primary' : 'default'} sx={{ mr: 1 }} />
                 <IconButton size="small" onClick={e => { e.stopPropagation(); handleTest(preset.id); }} disabled={testingId === preset.id} color="inherit">
@@ -127,9 +152,16 @@ export default function LLMPresetsPage() {
           <TextField fullWidth select label="Provider" value={presetProvider} onChange={e => setPresetProvider(e.target.value)}>
             {defaultProviders.map(p => <MenuItem key={p.value} value={p.value}>{p.icon} {p.label}</MenuItem>)}
           </TextField>
-          <Autocomplete options={models || []} value={presetModel} onChange={(_, v) => setPresetModel(v || '')} renderInput={p => <TextField {...p} fullWidth label="Model" placeholder={modelsLoading ? 'Loading...' : 'Select or type a model'} />} />
-          <TextField fullWidth label="Endpoint" value={presetEndpoint} onChange={e => setPresetEndpoint(e.target.value)} placeholder="https://api.openai.com/v1" />
-          <TextField fullWidth label="API Key" type={showApiKey ? 'text' : 'password'} value={presetApiKey} onChange={e => setPresetApiKey(e.target.value)} InputProps={{ endAdornment: <InputAdornment position="end"><IconButton onClick={() => setShowApiKey(!showApiKey)} edge="end">{showApiKey ? '👁️' : '🙈'}</IconButton></InputAdornment> }} />
+          <TextField fullWidth label="Endpoint" value={presetEndpoint} onChange={e => setPresetEndpoint(e.target.value)} placeholder={presetProvider === 'ollama' ? 'http://localhost:11434' : presetProvider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.example.com/v1'} />
+          <TextField fullWidth label="API Key" type={showApiKey ? 'text' : 'password'} value={presetApiKey} onChange={e => setPresetApiKey(e.target.value)} placeholder="sk-..." InputProps={{ endAdornment: <InputAdornment position="end"><IconButton onClick={() => setShowApiKey(!showApiKey)} edge="end">{showApiKey ? '👁️' : '🙈'}</IconButton></InputAdornment> }} />
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Button variant="outlined" size="small" onClick={fetchModels} disabled={modelsLoading} startIcon={modelsLoading ? <CircularProgress size={14} /> : undefined}>
+              {modelsLoading ? 'Loading...' : 'Load Models'}
+            </Button>
+            {modelsError && <Typography variant="body2" color="error">{modelsError}</Typography>}
+            {models.length > 0 && <Chip label={`${models.length} models loaded`} size="small" color="success" variant="outlined" />}          </Box>
+          <Autocomplete options={models} value={presetBaseModel} onChange={(_, v) => setPresetBaseModel(v || '')} renderInput={p => <TextField {...p} fullWidth label="Base Model" placeholder={models.length > 0 ? 'Select or type a model' : 'Type a model name or click "Load Models"'} />} />
+          <Autocomplete options={models} value={presetEmbeddingModel} onChange={(_, v) => setPresetEmbeddingModel(v || '')} renderInput={p => <TextField {...p} fullWidth label="Embedding Model" placeholder={models.length > 0 ? 'Select or type a model' : 'Type a model name or click "Load Models"'} />} />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
