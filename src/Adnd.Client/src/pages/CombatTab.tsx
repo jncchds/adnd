@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { useAuth } from '../api/authHook';
-import { useGameHub } from '../api/hubHook';
+import { useAuth } from '../api/hooks/useAuth';
+import { useGameHub } from '../api/hooks/useHub';
 import {
   Box, Typography, Paper, Button, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,

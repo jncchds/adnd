@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { useGameHub } from '../api/hubHook';
+import { useGameHub } from '../api/hooks/useHub';
 import { api } from '../api/client';
 import { AgentType, AgentAction, MessageType } from '../types';
 import {

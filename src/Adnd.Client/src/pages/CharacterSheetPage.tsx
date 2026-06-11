@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useCharacter } from '../api/gameHooks';
+import { useCharacter } from '../api/hooks/useGame';
 import {
   Container, Box, Typography, Paper, Tabs, Tab,
   TextField, Button, IconButton, Chip,

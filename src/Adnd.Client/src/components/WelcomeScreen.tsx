@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../api/authHook';
+import { useAuth } from '../api/hooks/useAuth';
 import {
   Box,
   Typography,

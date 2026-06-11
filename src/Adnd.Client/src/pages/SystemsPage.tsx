@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useGameHub } from '../api/hubHook';
+import { useGameHub } from '../api/hooks/useHub';
 import {
   Box,
   Typography,

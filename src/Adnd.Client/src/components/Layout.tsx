@@ -35,8 +35,9 @@ import {
   ChevronRight as ChevronRightIcon,
   Shield as ShieldIcon,
 } from '@mui/icons-material';
-import { useGames, useLLMPresets } from '../api/gameHooks';
-import { useAuth } from '../api/authHook';
+import { useGames } from '../api/hooks/useGame';
+import { useLLMPresets } from '../api/hooks/useLLM';
+import { useAuth } from '../api/hooks/useAuth';
 
 const DRAWER_WIDTH = 260;
 const DRAWER_COLLAPSED_WIDTH = 56;

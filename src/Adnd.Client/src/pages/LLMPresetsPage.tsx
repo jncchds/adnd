@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useLLMPresets, useProviderModels } from '../api/gameHooks';
+import { useLLMPresets, useProviderModels } from '../api/hooks/useLLM';
 import {
   Box,
   Typography,

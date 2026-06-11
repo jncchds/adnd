@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../api/authHook';
-import { useGame, useSessions, usePlayers, useGMStatus, useSway } from '../api/gameHooks';
-import { useGameHub } from '../api/hubHook';
-import { useGameGameState } from '../api/gameStateHook';
+import { useAuth } from '../api/hooks/useAuth';
+import { useGame, useSessions, usePlayers, useGMStatus, useSway } from '../api/hooks/useGame';
+import { useGameHub } from '../api/hooks/useHub';
+import { useGameGameState } from '../api/hooks/useGameState';
 import { useToolCalls } from '../api/toolCallsHook';
-import { useMessagesInfiniteScroll, UnifiedMessage, UnifiedMessageType } from '../api/gameToolsHook';
+import { useMessagesInfiniteScroll, UnifiedMessage, UnifiedMessageType } from '../api/hooks/useMessages';
 import { api } from '../api/client';
 import { WhisperType, AgentType, AgentAction } from '../types';
 import CombatTab from './CombatTab';

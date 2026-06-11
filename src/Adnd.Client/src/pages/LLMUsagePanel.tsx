@@ -20,7 +20,8 @@ import {
 } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
 import { useState } from 'react';
-import { useGameProviderUsage, usePendingCalls } from '../api/gameHooks';
+import { useGameProviderUsage } from '../api/hooks/useLLM';
+import { usePendingCalls } from '../api/hooks/useAgent';
 import type { GameProviderUsageSummary } from '../types';
 
 // ==================== Summary Card ====================

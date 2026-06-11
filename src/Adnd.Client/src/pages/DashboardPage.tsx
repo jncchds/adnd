@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../api/authHook';
-import { useGames, useLLMPresets, useGameTemplates } from '../api/gameHooks';
+import { useAuth } from '../api/hooks/useAuth';
+import { useGames } from '../api/hooks/useGame';
+import { useLLMPresets } from '../api/hooks/useLLM';
+import { useGameTemplates } from '../api/hooks/useTemplates';
 import { api } from '../api/client';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,

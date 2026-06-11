@@ -36,7 +36,7 @@ import {
   AutoFixHigh as ConsistencyIcon,
   Mic as MicIcon,
 } from '@mui/icons-material';
-import { useAuth } from '../api/authHook';
+import { useAuth } from '../api/hooks/useAuth';
 import type { GameListItem } from '../types';
 import type { LLMPreset } from '../types';
 

@@ -9,7 +9,7 @@ import type {
   CombatSummaryEntry, CombatLogResponse, GMToolDefinition, SpellEntry, SpellSlotInfo,
   SpellUpdateRequest, GameTemplate, CreateGameTemplateRequest, UpdateGameTemplateRequest,
 } from '../types';
-import { useEntity } from './useEntity';
+import { useEntity } from './hooks/useEntity';
 
 export function useGames() {
   const [games, setGames] = useState<GameListItem[]>([]);

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { useAuth } from '../api/authHook';
-import { useUserLLMUsage, useLLMInteractions } from '../api/gameHooks';
+import { useAuth } from '../api/hooks/useAuth';
+import { useUserLLMUsage, useLLMInteractions } from '../api/hooks/useLLM';
 import {
   Box,
   Typography,

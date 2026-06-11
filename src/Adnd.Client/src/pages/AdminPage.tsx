@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { useGames, useGame, useNPCs, useCharacters, useConsistency, usePlotWeaver } from '../api/gameHooks';
-import { useGameHub } from '../api/hubHook';
+import { useGames, useGame, useNPCs, useCharacters, useConsistency } from '../api/hooks/useGame';
+import { usePlotWeaver } from '../api/hooks/usePlot';
+import { useGameHub } from '../api/hooks/useHub';
 import { AgentType, AgentAction, AgentCallStatus } from '../types';
 import CharacterCreateWizard from './CharacterCreateWizard';
 import PlotBoardAdminTab from './PlotBoardAdminTab';
