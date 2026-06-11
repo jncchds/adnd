@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { Box, Alert, AlertTitle, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { useAuth } from '../api/authHook';
-import { useGames, useLLMPresets } from '../api/gameHooks';
+import { useAuth } from '../api/hooks/useAuth';
+import { useGames } from '../api/hooks/useGame';
+import { useLLMPresets } from '../api/hooks/useLLM';
 import SidePanel, { type AppView } from './SidePanel';
 import WelcomeScreen from './WelcomeScreen';
 

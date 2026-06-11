@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { useGMTools } from '../api/gameHooks';
+import { useGMTools } from '../api/hooks/useGM';
 import {
   Box, Typography, Paper, Chip, List, ListItem, ListItemText,
   ListItemAvatar, Avatar, Button, TextField, Alert, AlertTitle,

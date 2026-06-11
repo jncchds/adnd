@@ -1,11 +1,7 @@
 import { Box, Typography, Button, Paper, Chip, Collapse, IconButton, Divider, List, ListItem, ListItemText, ListItemAvatar, Avatar } from '@mui/material';
 import { Close as CloseIcon, Check as CheckIcon, Replay as ReplayIcon, Warning as WarningIcon } from '@mui/icons-material';
-import type { ToolCallInfo } from '../api/client';
+import type { PendingToolCall } from '../types/gm.types';
 import { useState } from 'react';
-
-export interface PendingToolCall extends ToolCallInfo {
-  argumentsParsed?: Record<string, unknown>;
-}
 
 interface ToolCallBannerProps {
   pendingCalls: PendingToolCall[];

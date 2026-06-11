@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { useDiceHistory, useSessions } from '../api/gameHooks';
-import { useGameHub } from '../api/hubHook';
+import { useDiceHistory } from '../api/hooks/useDice';
+import { useSessions } from '../api/hooks/useSessionPlayers';
+import { useGameHub } from '../api/hooks/useHub';
 import {
   Box, Typography, Paper, Chip, Table, TableBody, TableCell,
   TableHead, TableRow, IconButton, Collapse, Button, Grid,

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { usePlotWeaver } from '../api/gameHooks';
+import { usePlotWeaver } from '../api/hooks/usePlot';
 import {
   Box, Typography, Paper, Button, Chip, List, ListItem, ListItemText,
   ListItemSecondaryAction, Dialog, DialogTitle, DialogContent, DialogActions,

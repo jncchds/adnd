@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { useCombats, useCombat } from '../api/gameHooks';
+import { useCombats, useCombat } from '../api/hooks/useCombat';
 import {
   Box, Typography, Paper, Chip, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Button, IconButton, Collapse, Grid,

@@ -36,9 +36,9 @@ import {
   AutoFixHigh as ConsistencyIcon,
   Mic as MicIcon,
 } from '@mui/icons-material';
-import { useAuth } from '../api/authHook';
-import type { GameListItem } from '../api/client';
-import type { LLMPreset } from '../api/client';
+import { useAuth } from '../api/hooks/useAuth';
+import type { GameListItem } from '../types';
+import type { LLMPreset } from '../types';
 
 const DRAWER_WIDTH = 260;
 const DRAWER_COLLAPSED_WIDTH = 56;
