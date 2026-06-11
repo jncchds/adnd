@@ -1,3 +1,9 @@
+export enum PlotThreadStatus {
+  Active = 0,
+  Resolved = 1,
+  Abandoned = 2,
+}
+
 export enum PlotThreadCategory {
   General = 0,
   Faction = 1,
@@ -65,5 +71,4 @@ export interface AdjustMomentumRequest {
   reason: string;
 }
 
-// Re-export for cross-references
-export type PlotThreadStatus = any;
+

@@ -42,11 +42,6 @@ export enum PlayerStatus {
   Left = 2,
 }
 
-export enum PlotThreadStatus {
-  Active = 0,
-  Resolved = 1,
-  Abandoned = 2,
-}
 
 export interface GameListItem {
   id: string;
@@ -149,7 +144,5 @@ export interface NPCUpdateRequest {
   plotThreadId?: string;
 }
 
-// Re-export for cross-references
 export type JsonElement = any;
 export type CharacterDetail = any;
-export type PendingAgentCall = any;

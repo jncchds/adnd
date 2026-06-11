@@ -128,6 +128,8 @@ export interface CombatLogResponse {
   events: CombatEventEntry[];
 }
 
+import type { ConditionEntry } from './combat.types';
+
 export interface CombatParticipantEntry {
   id: string;
   displayName: string;
@@ -261,5 +263,4 @@ export interface MessageSearchResult {
   distance: number;
 }
 
-// Re-export for cross-references
-export type ConditionEntry = any;
+
