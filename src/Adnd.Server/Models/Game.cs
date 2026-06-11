@@ -42,7 +42,9 @@ public class Game
 public enum GameStatus
 {
     Draft,
+    Starting,
     Active,
+    Ending,
     Archived,
     Finished
 }
