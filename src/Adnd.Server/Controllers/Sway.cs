@@ -15,10 +15,13 @@ public partial class AdminController
         if (game == null) return NotFound(new { error = "Game not found." });
         if (game.CreatorId != userId) return Forbid();
 
-        if (game.GMStatus != GMStatus.Running)
-            return BadRequest(new { error = "Cannot sway: GM agent is not running." });
+        if (game.GMStatus != GMStatus.Running && game.GMStatus != GMStatus.Idle)
+            return BadRequest(new { error = "Cannot sway: GM agent is not available." });
 
-        if (string.IsNullOrWhiteSpace(request.Direction))
+        // For Idle GM, Direction is optional (triggers auto-narrate)
+        if (game.GMStatus == GMStatus.Idle && string.IsNullOrWhiteSpace(request.Direction))
+            request.Direction = "Continue the narrative.";
+        else if (string.IsNullOrWhiteSpace(request.Direction))
             return BadRequest(new { error = "Direction is required." });
 
         // Queue the sway event for the game agent to process
