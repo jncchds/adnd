@@ -77,6 +77,42 @@ This document captures improvement ideas, feature requests, and architectural en
 - [x] Connection pooling: `MaxPoolSize=100;MinPoolSize=10;Connection Idle Lifetime=300`
 - [x] EF query logging enabled in dev via `ConfigureWarnings`
 
+### 🔍 Deep Audit & Fixes (2026-06-11)
+- [x] **Subplan 1 — Critical Blockers (8 fixes)**:
+  - SignalR `_playerConnections` key mismatch (user ID → player ID)
+  - Agent DbContext lifetime (per-iteration scopes)
+  - Agent recovery (StartAsync on recovered agents)
+  - Resilience circuit breaker (singleton-scoped, cached)
+  - Dice Engine thread safety (Random.Shared)
+  - PlotWeaverHandler per-game counter (ConcurrentDictionary)
+  - Frontend skills tab (setEditSkills wired)
+  - Frontend attribute loading (flat object, not nested)
+- [x] **Subplan 2 — Core Correctness (30+ fixes)**:
+  - Auth transaction wrapping + LastLoginAt + CanAdminAsync
+  - SignalR connection validation + combat fixes
+  - Game Management: delete cascade → NULL, invite code datetime concat, leave as player
+  - DB: whisper duplicate column fix, soft-delete pattern
+  - Agent: race condition fix, game-scoped checks
+  - Resilience: policy ordering, exception handling
+  - Dice: formula parsing, combat state dedup
+  - Character: type fixes, create wizard fix
+- [x] **Subplan 3 — Performance (22 items)**:
+  - Agent polling → MediatR (AgentCallQueued event + WakeUp TCS)
+  - N+1 query fixes, PlotWeaver pagination (limit 20)
+  - IHttpClientFactory for LLM providers
+  - RAG NPC limit, SignalR connection cleanup timer
+- [x] **Subplan 4 — Completeness (61 items)**:
+  - Soft-delete: ISoftDelete + HasQueryFilter on 6 entities
+  - Agent DLQ: DeadLetterQueue with 3-retry limit
+  - Health checks: Real LLM provider + pgvector checks
+  - Dice Engine: formula limits, type validation
+  - PlotWeaver: dedup, merge, archival (30-day TTL)
+  - RAG: embedding cache (60min), dimension validation
+  - GM Tool Calls: 5-min expiration, validation, history
+  - LLM Provider: health monitoring
+- [x] **Migration**: `SoftDeleteAndWhispersCleanup` — adds IsDeleted/DeletedAt to 6 entities, drops Whisper.Targets column
+- [x] **Deep Audit**: 100+ issues found across 24 systems, all fixed or documented
+
 ### ⚡ Quick Wins (Batch 4 — 2026-06-09)
 - [x] **Session notes** — `SessionNote` model + CRUD endpoints (`ISessionNoteService`)
 - [x] **Dice roll statistics** — per-game and per-player stats (`IDiceStatsService`)
@@ -390,7 +426,7 @@ This document captures improvement ideas, feature requests, and architectural en
 | Priority | Criteria | Items |
 |----------|----------|-------|
 | 🔴 Critical | Production blockers, security, data integrity | 1, 2, 3, 4 |
-| ✅ Done | Completed items | 2 (partial), 3 (partial) |
+| ✅ Done | Completed items | 2 (partial), 3 (partial), Deep Audit |
 | 🟠 High | Major features that define the product | 5, 6, 7, 8, 9, 10 |
 | 🟡 Medium | Important enhancements to existing features | 11-19 |
 | 🟢 Low | Nice-to-have, future exploration | 20-24 |
@@ -405,6 +441,7 @@ This document captures improvement ideas, feature requests, and architectural en
 - [x] Error handling & resilience
 - [x] Database performance improvements
 - [x] Quick-win features (pagination, search, stats, notes, templates, game templates)
+- [x] Deep audit & fixes (100+ issues across 24 systems)
 - [ ] Add unit/integration tests
 
 ### Phase 2: Core Features
@@ -463,4 +500,4 @@ This document captures improvement ideas, feature requests, and architectural en
 
 ---
 
-*Last updated: 2026-06-09 — Added Game Templates feature*
+*Last updated: 2026-06-11 — Deep audit & fixes (Subplans 1-4), migration created*

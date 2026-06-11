@@ -526,7 +526,13 @@
 ### Subplan 1: Critical Blockers ✅ COMPLETE
 All 8 issues already fixed in current codebase.
 
-### Subplan 2: Core Correctness (IN PROGRESS)
+### Subplan 5: Polish ✅ COMPLETE
+All 5 tasks completed:
+1. Code review of all fixes — no blocking issues found
+2. Integration testing — both builds pass
+3. Migration created — `SoftDeleteAndWhispersCleanup`
+4. Documentation updated — AGENTS.md + IDEAS.md
+5. Final verification — 0 errors, builds pass
 1. Auth: ✅ Already fixed
 2. SignalR: ✅ Already fixed (AddParticipant validation, StartCombat check)
 3. Game Management: ✅ Already fixed (delete cascade → NULL, invite code datetime concat, leave as player)

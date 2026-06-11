@@ -37,15 +37,16 @@ src/
 │   │   ├── GamesController.cs    # Games, sessions, players CRUD
 │   │   └── AdminController.cs    # NPCs, plots, characters, LLM, RAG, systems, GM agent
 │   ├── Data/
-│   │   ├── AppDbContext.cs         # EF Core DbContext with all entities
+│   │   ├── AppDbContext.cs         # EF Core DbContext with all entities + soft-delete filters
 │   │   ├── MigrationService.cs     # Auto-applies migrations on startup
 │   │   ├── GameExtensions.cs       # EF query helpers for games
-│   │   └── Migrations/             # EF Core migrations
+│   │   └── Migrations/             # EF Core migrations (latest: SoftDeleteAndWhispersCleanup)
 │   ├── Events/               # MediatR events
-│   │   └── GameEvents.cs     # 30+ game event types (added PlayerDisconnected, PlayerReconnected)
+│   │   └── GameEvents.cs     # 30+ game event types (added PlayerDisconnected, PlayerReconnected, AgentCallQueued)
 │   ├── Handlers/             # MediatR event handlers
-│   │   ├── GameEventHandlers.cs  # GameLifecycle, GameAction, Chat, Plot, Session, Player
-│   │   └── PlotWeaverHandler.cs  # PlotWeaver event handler
+│   │   ├── GameEventHandlers.cs      # GameLifecycle, GameAction, Chat, Plot, Session, Player
+│   │   ├── PlotWeaverHandler.cs      # PlotWeaver event handler (per-game counter)
+│   │   └── AgentCallQueuedHandler.cs # Wakes up GameAgent on new call (MediatR → polling replacement)
 │   ├── Hubs/
 │   │   ├── GameHub.cs            # SignalR: chat, dice, skill checks, attacks, whispers
 │   │   ├── GameHub.Combat.cs     # Combat hub methods (incl. action economy)
@@ -57,6 +58,7 @@ src/
 │   │   ├── AgentCall.cs, Whisper.cs, LLMPreset.cs, LLMInteractionLog.cs
 │   │   ├── Combat.cs (initiative, attack, skill check entities + action economy fields)
 │   │   ├── GMTool.cs (GM tool calls, tool call status enum)
+│   │   ├── SoftDelete.cs (ISoftDelete interface + HasQueryFilter)
 │   │   └── PlotReview.cs
 │   ├── Services/
 │   │   ├── AuthService.cs                # JWT + refresh tokens
@@ -69,7 +71,7 @@ src/
 │   │   ├── LmStudioLLMProvider.cs        # LM Studio (OpenAI-compatible) provider
 │   │   ├── OpenAILLMProvider.cs          # OpenAI provider
 │   │   ├── GoogleAIStudioLLMProvider.cs  # Google AI Studio provider
-│   │   ├── ProviderFromPresets.cs        # Preset-based provider wrappers
+│   │   ├── ProviderFromPresets.cs        # Preset-based provider wrappers (IHttpClientFactory)
 │   │   ├── LLMInteractionLogger.cs       # Logs LLM calls to DB
 │   │   ├── LLMPresetService.cs           # LLM preset CRUD
 │   │   ├── RAGService.cs                 # Embedding search, plot consistency, summaries
@@ -95,7 +97,13 @@ src/
 │   │   ├── ICombatDomain.cs              # Combat domain services
 │   │   ├── ICombatData.cs                # Combat data services
 │   │   ├── ICombatQuery.cs               # Combat query service
-│   │   └── ICombatService.cs             # Combat service facade
+│   │   ├── ICombatService.cs             # Combat service facade
+│   │   ├── ResiliencePolicies.cs         # Polly retry + circuit breaker (singleton-scoped)
+│   │   ├── DeadLetterQueue.cs           # Agent call dead letter queue (3-retry limit)
+│   │   ├── GMToolCallService.cs          # GM tool call validation, expiration, history
+│   │   ├── HealthCheckClasses.cs         # Database, LLM providers, pgvector health checks
+│   │   ├── IGameManagement.cs            # Game CRUD (delete → NULL FK, invite code datetime)
+│   │   └── IPlayerManagement.cs          # Player join/leave/promote (creator ownership transfer)
 │   └── Program.cs            # DI, auth, Swagger, CORS, SPA, MediatR, GameAgent recovery
 └── Adnd.Client/              # Frontend (React 19 + TS + MUI)
     ├── src/
