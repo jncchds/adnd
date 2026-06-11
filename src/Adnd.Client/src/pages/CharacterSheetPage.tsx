@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useCharacter } from '../api/hooks/useGame';
+import { useCharacter } from '../api/hooks/useCharacters';
 import { Box, Typography, Paper, Tabs, Tab, Button, Chip, Slider, Alert } from '@mui/material';
 import { ArrowBack as BackIcon, Healing as HPIcon, Shield as ShieldIcon, AutoFixHigh as StatsIcon, MenuBook as MenuBookIcon, ShoppingCart as InvIcon, AutoStories as SpellIcon, Warning as CondIcon } from '@mui/icons-material';
 import CharacterOverviewTab from '../components/admin/CharacterOverviewTab';

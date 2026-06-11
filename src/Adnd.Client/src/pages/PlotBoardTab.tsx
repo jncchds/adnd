@@ -11,51 +11,8 @@ import {
   Refresh as RefreshIcon, ArrowUpward as UpIcon, ArrowDownward as DownIcon,
   History as HistoryIcon, Lightbulb as BulbIcon,
 } from '@mui/icons-material';
-import { PlotThreadCategory, PlotReviewResponse, ThreadUpdate, StoryOpportunityResponse } from '../types/plot.types';
-
-const CATEGORY_LABELS: Record<PlotThreadCategory, string> = {
-  [PlotThreadCategory.General]: 'General',
-  [PlotThreadCategory.Faction]: 'Faction',
-  [PlotThreadCategory.Mystery]: 'Mystery',
-  [PlotThreadCategory.Personal]: 'Personal',
-  [PlotThreadCategory.Threat]: 'Threat',
-  [PlotThreadCategory.WorldEvent]: 'World Event',
-  [PlotThreadCategory.Relationship]: 'Relationship',
-};
-
-const CATEGORY_COLORS: Record<PlotThreadCategory, 'default' | 'primary' | 'secondary' | 'error' | 'warning' | 'success' | 'info'> = {
-  [PlotThreadCategory.General]: 'default',
-  [PlotThreadCategory.Faction]: 'primary',
-  [PlotThreadCategory.Mystery]: 'info',
-  [PlotThreadCategory.Personal]: 'success',
-  [PlotThreadCategory.Threat]: 'error',
-  [PlotThreadCategory.WorldEvent]: 'warning',
-  [PlotThreadCategory.Relationship]: 'secondary',
-};
-
-const MOMENTUM_COLORS: Record<string, string> = {
-  urgent: '#f44336',
-  high: '#ff9800',
-  moderate: '#ffeb3b',
-  low: '#4caf50',
-  abandoned: '#9e9e9e',
-};
-
-function getMomentumLabel(momentum: number): string {
-  if (momentum >= 7) return 'Urgent';
-  if (momentum >= 4) return 'High';
-  if (momentum >= 1) return 'Moderate';
-  if (momentum >= -2) return 'Low';
-  return 'Fading';
-}
-
-function getMomentumColor(momentum: number): string {
-  if (momentum >= 7) return MOMENTUM_COLORS.urgent;
-  if (momentum >= 4) return MOMENTUM_COLORS.high;
-  if (momentum >= 1) return MOMENTUM_COLORS.moderate;
-  if (momentum >= -2) return MOMENTUM_COLORS.low;
-  return MOMENTUM_COLORS.abandoned;
-}
+import { PlotReviewResponse, ThreadUpdate, StoryOpportunityResponse } from '../types/plot.types';
+import { CATEGORY_LABELS, CATEGORY_COLORS, getMomentumLabel, getMomentumColor } from './plotBoardHelpers';
 
 interface Props {
   gameId: string;

@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/hooks/useAuth';
-import { useGame, usePlayers, useGMStatus } from '../api/hooks/useGame';
+import { useGame, useGMStatus } from '../api/hooks/useGameDetail';
+import { usePlayers } from '../api/hooks/useSessionPlayers';
 import { useGameGameState } from '../api/hooks/useGameState';
 import { useToolCalls } from '../api/hooks/useAgent';
 import { useMessagesInfiniteScroll } from '../api/hooks/useMessages';

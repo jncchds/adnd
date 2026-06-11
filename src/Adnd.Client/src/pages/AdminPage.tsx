@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { useGame } from '../api/hooks/useGame';
-import { useNPCs } from '../api/hooks/useGame';
-import { useCharacters } from '../api/hooks/useGame';
-import { useConsistency } from '../api/hooks/useGame';
+import { useGame } from '../api/hooks/useGameDetail';
+import { useNPCs } from '../api/hooks/useNPCs';
+import { useCharacters } from '../api/hooks/useCharacters';
+import { useConsistency } from '../api/hooks/useCharacters';
 import { usePlotWeaver } from '../api/hooks/usePlot';
 import { useGameHub } from '../api/hooks/useHub';
 import { AgentType, AgentAction } from '../types';

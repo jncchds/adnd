@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDiceHistory } from '../api/hooks/useDice';
-import { useSessions } from '../api/hooks/useGame';
+import { useSessions } from '../api/hooks/useSessionPlayers';
 import { useGameHub } from '../api/hooks/useHub';
 import {
   Box, Typography, Paper, Chip, Table, TableBody, TableCell,

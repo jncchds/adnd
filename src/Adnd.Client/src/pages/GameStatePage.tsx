@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useGame, useGMStatus } from '../api/hooks/useGame';
+import { useGame, useGMStatus } from '../api/hooks/useGameDetail';
 import { Box, Typography, Tabs, Tab, Chip } from '@mui/material';
 import GameStateOverview from '../components/game-state/GameStateOverview';
 import GameStateCombat from '../components/game-state/GameStateCombat';
