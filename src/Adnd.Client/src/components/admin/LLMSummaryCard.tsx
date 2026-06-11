@@ -1,3 +1,5 @@
+import { Card, CardContent, Box, Typography } from '@mui/material';
+
 interface SummaryCardProps {
   label: string;
   value: string;
@@ -6,7 +8,7 @@ interface SummaryCardProps {
   icon?: string;
 }
 
-function SummaryCard({ label, value, sublabel, color = 'primary', icon }: SummaryCardProps) {
+export default function SummaryCard({ label, value, sublabel, color = 'primary', icon }: SummaryCardProps) {
   const colorMap = {
     primary: 'success',
     success: 'success',

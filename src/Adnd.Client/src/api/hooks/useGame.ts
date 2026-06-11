@@ -383,7 +383,7 @@ export function useCharacters(gameId: string | undefined) {
 }
 
 export function useCharacter(characterId: string | undefined) {
-  const [character, setCharacter] = useState<{ id: string; name: string; characterClass: string; level: number } | null>(null);
+  const [character, setCharacter] = useState<import('../../types/game.types').CharacterDetail | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

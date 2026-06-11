@@ -1,15 +1,8 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { useAuth } from '../api/hooks/useAuth';
 import { useGameHub } from '../api/hooks/useHub';
 import { useCombats, useCombat } from '../api/hooks/useCombat';
-import { Box, Typography, Paper, Tabs, Tab, Grid, IconButton, Collapse, Chip, Divider, Button, TextField, InputAdornment, MenuItem, Select, FormControl, InputLabel } from '@mui/material';
-import { Send as SendIcon, SportsEsports as DiceIcon, Replay as ReplayIcon, ExitToApp as LeaveIcon, People as PeopleIcon } from '@mui/icons-material';
+import { Box, Typography, Tabs, Tab, Button } from '@mui/material';
 import CombatLogPanel from '../components/combat/CombatLogPanel';
-import DeathSaveTracker from '../components/combat/DeathSaveTracker';
-import ActionEconomyTracker from '../components/combat/ActionEconomyTracker';
-import ConditionManager from '../components/combat/ConditionManager';
-import CharacterSheetPopup from '../components/combat/CharacterSheetPopup';
 
 interface CombatTabProps {
   gameId: string;
@@ -18,12 +11,11 @@ interface CombatTabProps {
 export default function CombatTab({ gameId }: CombatTabProps) {
   const [activeTab, setActiveTab] = useState(0);
   const [showCombatLog, setShowCombatLog] = useState(false);
-  const [selectedParticipant, setSelectedParticipant] = useState<string | null>(null);
-  const [showSheet, setShowSheet] = useState(false);
+  const [_selectedParticipant, _setSelectedParticipant] = useState<string | null>(null);
+  const [_showSheet, _setShowSheet] = useState(false);
 
-  const { combats, refetch: refetchCombats } = useCombats(gameId);
-  const { combat, refetch: refetchCombat } = useCombat(undefined, gameId);
-  const { user } = useAuth();
+  const { refetch: refetchCombats } = useCombats(gameId);
+  const { combat } = useCombat(undefined, gameId);
   const hub = useGameHub();
 
   const handleStartCombat = async () => {

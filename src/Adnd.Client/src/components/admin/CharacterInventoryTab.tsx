@@ -1,4 +1,7 @@
-function InventoryTab({ items, setItems, isEditMode, onOpenDialog }: any) {
+import { Box, Typography, IconButton, ListItem, ListItemText, List, Button, Divider } from '@mui/material';
+import { Delete as DeleteIcon, Add as AddIcon } from '@mui/icons-material';
+
+export default function InventoryTab({ items, setItems, isEditMode, onOpenDialog }: any) {
   const totalWeight = items.reduce((sum: number, item: any) => sum + (item.weight || 0), 0);
 
   if (items.length === 0) {

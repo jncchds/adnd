@@ -1,4 +1,7 @@
-function SpellSlotTracker({ spellSlots, onSlotChange, canEdit }: any) {
+import { Box, Typography, Paper, Grid, Button, IconButton } from '@mui/material';
+import { Add as AddIcon, Remove as RemoveIcon } from '@mui/icons-material';
+
+export default function SpellSlotTracker({ spellSlots, onSlotChange, canEdit }: any) {
   const spellLevels = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
   const handleSlotChange = (level: number, type: 'total' | 'remaining', value: number) => {

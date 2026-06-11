@@ -1,5 +1,5 @@
-import { Box, Typography, Paper, Chip, Divider, Grid, Button, IconButton } from '@mui/material';
-import { PlayArrow as PlayIcon, Pause as PauseIcon, SportsEsports as CombatIcon, AutoFixHigh as ReviewIcon, SmartToy as AgentIcon } from '@mui/icons-material';
+import { Box, Typography, Paper, Chip, Button, Alert, CircularProgress } from '@mui/material';
+import { Warning as WarningIcon } from '@mui/icons-material';
 
 interface GameStateTriggersProps {
   gameState: any;
@@ -96,7 +96,7 @@ export default function GameStateTriggers({ gameState, onTrigger, loading, onOpe
                 size="small"
                 variant="outlined"
                 disabled={!isRunning && !t.action}
-                onClick={() => t.action ? t.action() : onTrigger(t.endpoint, t.label)}
+                onClick={() => t.action ? t.action() : onTrigger(t.endpoint)}
                 startIcon={loading === t.label ? <CircularProgress size={16} /> : undefined}
                 sx={{ textTransform: 'none' }}
               >

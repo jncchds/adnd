@@ -1,6 +1,5 @@
-import { Box, Typography, Paper, Chip, Divider, Button, IconButton } from '@mui/material';
-import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
-import MarkdownRenderer from '../MarkdownRenderer';
+import { Box, Typography, Paper, Chip, LinearProgress } from '@mui/material';
+import { SportsEsports as CombatIcon } from '@mui/icons-material';
 
 interface GameStateCombatProps {
   gameState: any;

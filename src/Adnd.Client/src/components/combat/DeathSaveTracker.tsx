@@ -1,4 +1,4 @@
-import { Box, Typography, Chip, Button, Divider } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import type { CombatParticipantSummary } from '../../types/combat.types';
 
 export default function DeathSaveTracker({ participant }: { participant: CombatParticipantSummary }) {

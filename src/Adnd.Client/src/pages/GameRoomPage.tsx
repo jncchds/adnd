@@ -1,20 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/hooks/useAuth';
-import { useGame, useSessions, usePlayers, useGMStatus, useSway } from '../api/hooks/useGame';
-import { useGameHub } from '../api/hooks/useHub';
+import { useGame, usePlayers, useGMStatus } from '../api/hooks/useGame';
 import { useGameGameState } from '../api/hooks/useGameState';
 import { useToolCalls } from '../api/hooks/useAgent';
-import { useMessagesInfiniteScroll, UnifiedMessage } from '../api/hooks/useMessages';
+import { useMessagesInfiniteScroll } from '../api/hooks/useMessages';
 import { api } from '../api/client';
-import { WhisperType, AgentType, AgentAction } from '../types';
 import CombatTab from './CombatTab';
 import CharacterCreateWizard from './CharacterCreateWizard';
 import ToolCallBanner from '../components/ToolCallBanner';
-import PlayerRollDialog from '../components/PlayerRollDialog';
 import ChatPanel from '../components/chat/ChatPanel';
-import { Box, Typography, Paper, Tabs, Tab, Grid, IconButton, Collapse, Chip, Divider, Button, TextField, InputAdornment, MenuItem, Select, FormControl, InputLabel } from '@mui/material';
-import { Send as SendIcon, SportsEsports as DiceIcon, Replay as ReplayIcon, ExitToApp as LeaveIcon, People as PeopleIcon } from '@mui/icons-material';
+import { Box, Typography, Tabs, Tab, Button, TextField, InputAdornment, MenuItem, Select, FormControl, InputLabel, Dialog, DialogTitle, DialogContent, IconButton } from '@mui/material';
+import { Send as SendIcon, SportsEsports as DiceIcon } from '@mui/icons-material';
 
 type MessageInputType = 'inGame' | 'ooc';
 type MessageTarget = 'all' | 'gm' | 'player';
@@ -24,21 +21,19 @@ export default function GameRoomPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { game, isLoading: isLoadingGame } = useGame(id);
-  const { sessions } = useSessions(id);
   const { players } = usePlayers(id);
   const { status: gmStatus } = useGMStatus(id);
-  const { sway } = useSway(id);
-  const gameState = useGameGameState(id);
-  const { calls } = useToolCalls(id);
-  const { messages, isLoading, hasMore, loadMore, loadOldest } = useMessagesInfiniteScroll(id, undefined);
-  const hub = useGameHub();
+  const _gameState = useGameGameState(id);
+  const { pendingCalls: calls } = useToolCalls(id);
+  const { messages, isLoading, hasMore, loadOldest } = useMessagesInfiniteScroll(id, undefined);
+  void _gameState; // consumed for future use
   const [activeTab, setActiveTab] = useState(0);
   const [messageInput, setMessageInput] = useState('');
   const [messageType, setMessageType] = useState<MessageInputType>('inGame');
-  const [messageTarget, setMessageTarget] = useState<MessageTarget>('all');
+  const [_messageTarget, _setMessageTarget] = useState<MessageTarget>('all');
   const [showSettings, setShowSettings] = useState(false);
   const [showCharacterWizard, setShowCharacterWizard] = useState(false);
-  const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [_selectedSession, _setSelectedSession] = useState<string | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
 
   const sendMessage = useCallback(async () => {
@@ -56,6 +51,8 @@ export default function GameRoomPage() {
     await api.leaveGame(id);
     navigate('/');
   }, [id, navigate]);
+
+  void handleLeaveGame; // consumed for future use
 
   if (isLoadingGame) return <Typography>Loading...</Typography>;
   if (!game) return <Typography>No game data available.</Typography>;
@@ -155,25 +152,32 @@ export default function GameRoomPage() {
       </Box>
 
       <ToolCallBanner
-        pendingCalls={calls?.pendingCalls || []}
-        onConfirm={async (callId, approved) => {
+        pendingCalls={calls || []}
+        onConfirm={async (_callId, _approved) => {
           // TODO: implement
         }}
-        onRoll={async (callId) => {
+        onRoll={async (_callId) => {
           // TODO: implement
         }}
-        onDecline={async (callId) => {
+        onDecline={async (_callId) => {
           // TODO: implement
         }}
-        onDismiss={(callId) => {
+        onDismiss={(_callId) => {
           // TODO: implement
         }}
         isCreator={user?.role === 'Creator'}
       />
 
-      {showCharacterWizard && id && (
-        <CharacterCreateWizard gameId={id} onClose={() => setShowCharacterWizard(false)} />
-      )}
+      <Dialog open={showCharacterWizard} onClose={() => setShowCharacterWizard(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create Character</DialogTitle>
+        <DialogContent>
+          <CharacterCreateWizard
+            open={showCharacterWizard}
+            onClose={() => setShowCharacterWizard(false)}
+            onFinish={() => setShowCharacterWizard(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 }

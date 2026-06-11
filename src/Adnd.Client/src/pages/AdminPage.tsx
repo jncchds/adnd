@@ -64,7 +64,7 @@ export default function AdminPage() {
   const handleCreateNPC = async () => {
     if (!npcName.trim()) return;
     try {
-      await createNPC!({ name: npcName, description: npcDesc });
+      await createNPC!(npcName, npcDesc);
       setNpcDialogOpen(false);
       setNpcName('');
       setNpcDesc('');
@@ -169,7 +169,7 @@ export default function AdminPage() {
       </Box>
 
       {/* Content */}
-      {view === 'dashboard' && <GameStatePage />}
+      {view === 'dashboard' && id && <GameStatePage gameId={id} />}
       {view === 'plot-board' && <PlotBoardAdminTab threads={plotThreads} isLoading={plotThreadsLoading} gameId={id || ''} />}
       {view === 'npcs' && (
         <NPCsTab npcs={npcs} npcsLoading={npcsLoading} onOpenDialog={() => setNpcDialogOpen(true)} onDelete={deleteNPC} onUpdate={updateNPC} />

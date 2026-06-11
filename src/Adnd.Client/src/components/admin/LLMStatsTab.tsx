@@ -1,4 +1,23 @@
-function LLMStatsTab() {
+import { useState } from 'react';
+import { Box, Typography, Paper, Table, TableContainer, TableHead, TableCell, TableRow, TableBody, CircularProgress, Chip, LinearProgress, Grid } from '@mui/material';
+import SummaryCard from './LLMSummaryCard';
+import { useUserLLMUsage } from '../../api/hooks/useLLM';
+
+function formatTokens(tokens: number): string {
+  if (!tokens) return '0';
+  if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
+  return tokens.toString();
+}
+
+function formatDuration(seconds: number): string {
+  if (!seconds) return '0s';
+  if (seconds >= 3600) return `${(seconds / 3600).toFixed(1)}h`;
+  if (seconds >= 60) return `${(seconds / 60).toFixed(1)}m`;
+  return `${seconds}s`;
+}
+
+export default function LLMStatsTab() {
   const { usage, isLoading, refetch } = useUserLLMUsage();
   const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d' | '90d'>('all');
 

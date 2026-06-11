@@ -1,4 +1,6 @@
-function OverviewTab({ editName, setEditName, editClass, setEditClass, editLevel, setEditLevel, editMaxHP, editCurrentHP, setEditCurrentHP, isEditMode, onSave, onCancel }: any) {
+import { Box, Typography, Paper, TextField, Button, MenuItem } from '@mui/material';
+
+export default function OverviewTab({ editName, setEditName, editClass, setEditClass, editLevel, setEditLevel, editMaxHP, editCurrentHP, setEditCurrentHP, isEditMode, onSave, onCancel }: any) {
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
       <Box sx={{ flex: '1 1 300px' }}>

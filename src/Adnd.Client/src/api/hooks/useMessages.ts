@@ -2,6 +2,137 @@ import { useState, useCallback, useEffect } from 'react';
 import { api } from '../client';
 import type { SessionNote, DiceStatsResponse, PlayerDiceStatsResponse, MessageSearchResponse, MessagePaginated } from '../../types';
 
+// ==================== Unified Message Types ====================
+
+export type UnifiedMessageType =
+  // Chat messages
+  | 'inGamePublic'
+  | 'inGameWhisper'
+  | 'oocPublic'
+  | 'oocWhisper'
+  // Game actions
+  | 'dice'
+  | 'skillCheck'
+  | 'attack'
+  | 'spellCast'
+  // Combat
+  | 'combatStart'
+  | 'combatEnd'
+  | 'combatPause'
+  | 'combatResume'
+  | 'initiative'
+  | 'initiativeComplete'
+  | 'turnAdvanced'
+  | 'turnRetreated'
+  | 'turnSet'
+  | 'damage'
+  | 'heal'
+  | 'deathSave'
+  | 'conditionApplied'
+  | 'conditionRemoved'
+  | 'xpGranted'
+  | 'levelUp'
+  | 'sanLoss'
+  | 'sanRecovery'
+  | 'sanCheck'
+  // Action economy
+  | 'actionSpent'
+  | 'bonusActionSpent'
+  | 'reactionSpent'
+  | 'movementSpent'
+  | 'actionsRefreshed'
+  // Combat state
+  | 'participantAdded'
+  | 'participantRemoved'
+  | 'gridSet'
+  | 'positionSet'
+  | 'combatMove'
+  | 'itemAdded'
+  | 'itemRemoved'
+  | 'itemEquipped'
+  | 'itemUnequipped'
+  // Player lifecycle
+  | 'playerJoined'
+  | 'playerLeft'
+  | 'playerDisconnected'
+  | 'playerReconnected'
+  | 'playerRoleChanged'
+  // Character lifecycle
+  | 'characterCreated'
+  | 'characterUpdated'
+  // Session/Game lifecycle
+  | 'sessionCreated'
+  | 'sessionClosed'
+  | 'gameStarted'
+  | 'gamePaused'
+  | 'gameResumed'
+  | 'gameArchived'
+  // GM / AI
+  | 'gm'
+  | 'narration'
+  | 'suggestion'
+  | 'consistencyCheck'
+  | 'plotReview'
+  | 'plotThreadCreated'
+  | 'plotThreadUpdated'
+  | 'npcEvent'
+  // System / meta
+  | 'system'
+  | 'agentCall'
+  | 'agentResponse'
+  | 'toolCall'
+  | 'toolCallConfirmed'
+  | 'toolCallDenied'
+  | 'playerRollRequest'
+  | 'playerRollConfirmed'
+  | 'playerRollDeclined'
+  | 'playerRollResult'
+  | 'stateChange'
+  | 'aiCombatSuggestion'
+  | 'aiCombatAutoResolve';
+
+export interface UnifiedMessage {
+  id: string | number;
+  type: UnifiedMessageType;
+  content: string;
+  senderName: string;
+  senderRole: string;
+  timestamp: string;
+  isSystem?: boolean;
+  isWhisper?: boolean;
+  whisperTo?: string;
+  // Dice
+  diceFormula?: string;
+  diceTotal?: number;
+  diceRolls?: number[];
+  // Skill check
+  skill?: string;
+  skillDC?: number;
+  skillResult?: string;
+  // Attack
+  attackWeapon?: string;
+  attackTarget?: string;
+  attackHit?: boolean;
+  attackDamage?: number;
+  // Combat
+  combatName?: string;
+  participantName?: string;
+  participantType?: string;
+  // Action economy
+  actionsRemaining?: number;
+  bonusActionsRemaining?: number;
+  reactionsRemaining?: number;
+  movementsRemaining?: number;
+  // Agent
+  agentStatus?: string;
+  // Character stats (for combat events)
+  hp?: number;
+  maxHP?: number;
+  ac?: number;
+  // Condition
+  conditionDuration?: number;
+}
+
 export function useSessionNotes(gameId: string | undefined, sessionId: string | undefined) {
   const [notes, setNotes] = useState<SessionNote[]>([]);
   const [isLoading, setIsLoading] = useState(false);

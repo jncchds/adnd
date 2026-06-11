@@ -1,6 +1,5 @@
-import { Box, Typography, Paper, Chip, Divider, Button } from '@mui/material';
-import MarkdownRenderer from '../MarkdownRenderer';
-import type { PlotThreadResponse } from '../../types/plot.types';
+import { Box, Typography, Paper, Chip } from '@mui/material';
+import { PlotThreadCard } from './GameStateCards';
 
 interface GameStatePlotProps {
   gameState: any;

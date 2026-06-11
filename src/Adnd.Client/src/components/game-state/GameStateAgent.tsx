@@ -1,6 +1,27 @@
-import { Box, Typography, Paper, Chip, Divider, Button, IconButton } from '@mui/material';
-import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
-import MarkdownRenderer from '../MarkdownRenderer';
+import { Box, Typography, Button, Table, TableContainer, TableHead, TableCell, TableRow, TableBody } from '@mui/material';
+import { NotificationAdd as NotificationIcon, Speed as SpeedIcon } from '@mui/icons-material';
+import { SectionCard } from './GameStateCards';
+
+function getAgentLabel(type: string): string {
+  const labels: Record<string, string> = {
+    GameMaster: 'GM', Planner: 'Planner', Combat: 'Combat', NPC: 'NPC',
+    Environment: 'Environment', Player: 'Player', System: 'System',
+  };
+  return labels[type] || type;
+}
+
+function getActionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    Narrate: 'Narrate', QueryRAG: 'RAG Query', QueryPlot: 'Plot Query',
+    QueryCharacter: 'Character Query', QueryPlayers: 'Player Query',
+    ManageState: 'State Update', RollDice: 'Roll Dice',
+    RollSkillCheck: 'Skill Check', RollAttack: 'Attack',
+    StartCombat: 'Start Combat', EndCombat: 'End Combat',
+    CreateNPC: 'Create NPC', UpdateNPC: 'Update NPC',
+    ApplyDamage: 'Apply Damage', ApplyCondition: 'Apply Condition',
+  };
+  return labels[action] || action;
+}
 
 interface GameStateAgentProps {
   gameState: any;

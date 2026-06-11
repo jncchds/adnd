@@ -1,10 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { useGameHub } from '../api/hooks/useHub';
+import { useCallback, useState } from 'react';
 import { useGame, useGMStatus } from '../api/hooks/useGame';
-import { Box, Typography, Paper, Tabs, Tab, Grid, IconButton, Collapse, Chip, Divider, Button } from '@mui/material';
-import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
-import MarkdownRenderer from '../components/MarkdownRenderer';
+import { Box, Typography, Tabs, Tab, Chip } from '@mui/material';
 import GameStateOverview from '../components/game-state/GameStateOverview';
 import GameStateCombat from '../components/game-state/GameStateCombat';
 import GameStatePlot from '../components/game-state/GameStatePlot';
@@ -12,7 +8,6 @@ import GameStateAgent from '../components/game-state/GameStateAgent';
 import GameStateMessages from '../components/game-state/GameStateMessages';
 import GameStateLLM from '../components/game-state/GameStateLLM';
 import GameStateTriggers from '../components/game-state/GameStateTriggers';
-import GameStateCards from '../components/game-state/GameStateCards';
 
 interface GameStatePageProps {
   gameId: string;
@@ -21,11 +16,8 @@ interface GameStatePageProps {
 export default function GameStatePage({ gameId }: GameStatePageProps) {
   const [activeTab, setActiveTab] = useState(0);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
-  const [showAgentDialog, setShowAgentDialog] = useState(false);
-
   const { game, isLoading } = useGame(gameId);
-  const { gmStatus } = useGMStatus(gameId);
-  const hub = useGameHub();
+  const { status: gmStatus } = useGMStatus(gameId);
 
   const onToggleSection = useCallback((section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));

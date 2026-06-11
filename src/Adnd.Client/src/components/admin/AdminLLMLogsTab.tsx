@@ -1,4 +1,7 @@
-function LLMLogsTab({ logs, isLoading, onRefresh, onOpenDetail, onDelete, filterProvider, onFilterProviderChange, filterFrom, onFilterFromChange, filterTo, onFilterToChange }: any) {
+import { Box, Typography, Paper, Table, TableContainer, TableHead, TableCell, TableRow, TableBody, IconButton, Chip, Select, MenuItem, TextField, Button, Divider } from '@mui/material';
+import { History as HistoryIcon, Delete as DeleteIcon } from '@mui/icons-material';
+
+export default function LLMLogsTab({ logs, isLoading, onRefresh, onOpenDetail, onDelete, filterProvider, onFilterProviderChange, filterFrom, onFilterFromChange, filterTo, onFilterToChange }: any) {
   const getStatusColor = (success: boolean) => success ? 'success' : 'error';
 
   const getProviderIcon = (provider: string) => {

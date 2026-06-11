@@ -1,46 +1,78 @@
-import { Box, Typography, Paper, IconButton, Collapse, Skeleton, Divider, Chip } from '@mui/material';
-import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
+import { useState, useCallback, useRef } from 'react';
+import { Box, Typography, Paper, IconButton, Collapse, Chip, InputAdornment, Button, MenuItem, Select, FormControl, TextField, InputLabel } from '@mui/material';
+import { Send as SendIcon } from '@mui/icons-material';
 import MessageBubble from './MessageBubble';
+import type { MessagePaginated } from '../../types';
 import type { UnifiedMessage } from '../../api/hooks/useMessages';
 
+type MessageInputType = 'inGame' | 'ooc';
+type MessageTarget = 'all' | 'gm' | 'player';
+
 interface UnifiedChatPanelProps {
-  messages: UnifiedMessage[];
+  messages: MessagePaginated[];
   isLoadingMore: boolean;
   hasMore: boolean;
   loadMoreOldest: () => void;
-  inputType: MessageInputType;
-  setInputType: (t: MessageInputType) => void;
-  inputTarget: MessageTarget;
-  setInputTarget: (t: MessageTarget) => void;
-  whisperTargetPlayer: string | null;
-  setWhisperTargetPlayer: (t: string | null) => void;
-  whisperInput: string;
-  setWhisperInput: (t: string) => void;
-  onSend: () => Promise<void>;
-  onDiceRoll: () => void;
-  onSkillCheck: (skill: string, dc: number) => void;
-  showDiceHistory: boolean;
-  setShowDiceHistory: (v: boolean) => void;
-  messagesEndRef: React.RefObject<HTMLDivElement | null>;
-  players: any[];
-  isConnected: boolean;
-  activeSession: any;
-  isCreator: boolean;
-  isMobile: boolean;
-  onOpenCharacter: () => void;
+  inputType?: MessageInputType;
+  setInputType?: (t: MessageInputType) => void;
+  inputTarget?: MessageTarget;
+  setInputTarget?: (t: MessageTarget) => void;
+  whisperTargetPlayer?: string | null;
+  setWhisperTargetPlayer?: (t: string | null) => void;
+  _whisperInput?: string;
+  setWhisperInput?: (t: string) => void;
+  onSend?: () => Promise<void>;
+  onDiceRoll?: () => void;
+  onSkillCheck?: (skill: string, dc: number) => void;
+  showDiceHistory?: boolean;
+  setShowDiceHistory?: (v: boolean) => void;
+  messagesEndRef?: React.RefObject<HTMLDivElement | null>;
+  players?: any[];
+  isConnected?: boolean;
+  activeSession?: any;
+  isCreator?: boolean;
+  isMobile?: boolean;
+  onOpenCharacter?: () => void;
 }
 
-function UnifiedChatPanel({
+export default function ChatPanel({
   messages, isLoadingMore, hasMore, loadMoreOldest,
   inputType, setInputType, inputTarget, setInputTarget,
-  whisperTargetPlayer, setWhisperTargetPlayer, whisperInput, setWhisperInput,
-  onSend, onDiceRoll, onSkillCheck, showDiceHistory, setShowDiceHistory: _setShowDiceHistory,
+  whisperTargetPlayer, setWhisperTargetPlayer, _whisperInput, setWhisperInput,
+  onSend, onDiceRoll, onSkillCheck, showDiceHistory: _showDiceHistory, setShowDiceHistory: _setShowDiceHistory,
   messagesEndRef, players, isConnected: _isConnected, activeSession, isCreator, isMobile,
   onOpenCharacter
 }: UnifiedChatPanelProps) {
   const [quickSkill, setQuickSkill] = useState('Perception');
   const [quickDC, setQuickDC] = useState(15);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  void (messagesEndRef || { current: null });
+
+  // Default no-op functions for optional callbacks
+  const _onSend = onSend ?? (() => Promise.resolve());
+  const _onSkillCheck = onSkillCheck ?? ((_skill: string, _dc: number) => {});
+  const _setInputType = setInputType ?? (() => {});
+  const _setInputTarget = setInputTarget ?? (() => {});
+  const _setWhisperTargetPlayer = setWhisperTargetPlayer ?? (() => {});
+  const _setWhisperInput = setWhisperInput ?? (() => {});
+  const _whisperInputVal = _whisperInput ?? '';
+  const _players = players ?? [];
+
+  // Convert MessagePaginated to UnifiedMessage for MessageBubble
+  const toUnifiedMessage = (msg: MessagePaginated): UnifiedMessage => ({
+    id: msg.id,
+    type: msg.isOOC ? 'oocPublic' : 'inGamePublic',
+    content: msg.content,
+    senderName: msg.playerName,
+    senderRole: '',
+    timestamp: msg.createdAt,
+    isSystem: msg.type === 0,
+    isWhisper: false,
+    diceFormula: msg.metadata?.diceFormula,
+    diceTotal: msg.metadata?.diceTotal,
+    skill: msg.metadata?.skill,
+    skillDC: msg.metadata?.skillDC,
+  });
 
   // Scroll detection: load older messages when scrolling to the top
   const handleScroll = useCallback(() => {
@@ -53,7 +85,7 @@ function UnifiedChatPanel({
   }, [hasMore, isLoadingMore, loadMoreOldest]);
 
   const handleSend = () => {
-    onSend();
+    _onSend();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -85,7 +117,7 @@ function UnifiedChatPanel({
         <Box sx={{ display: 'flex', bgcolor: 'background.default', borderRadius: 1, overflow: 'hidden' }}>
           <Button
             size="small"
-            onClick={() => setInputType('inGame')}
+            onClick={() => _setInputType('inGame')}
             sx={{
               bgcolor: inputType === 'inGame' ? 'success.lighter' : 'transparent',
               color: inputType === 'inGame' ? 'success.dark' : 'text.secondary',
@@ -100,7 +132,7 @@ function UnifiedChatPanel({
           </Button>
           <Button
             size="small"
-            onClick={() => setInputType('ooc')}
+            onClick={() => _setInputType('ooc')}
             sx={{
               bgcolor: inputType === 'ooc' ? 'info.lighter' : 'transparent',
               color: inputType === 'ooc' ? 'info.dark' : 'text.secondary',
@@ -121,7 +153,7 @@ function UnifiedChatPanel({
           <Select
             value={inputTarget}
             label="Receiver"
-            onChange={e => setInputTarget(e.target.value as MessageTarget)}
+            onChange={e => _setInputTarget(e.target.value as MessageTarget)}
             sx={{ fontSize: 12, height: 32 }}
           >
             <MenuItem value="all">🌐 All (Public)</MenuItem>
@@ -155,7 +187,7 @@ function UnifiedChatPanel({
             label="📋 Check"
             size="small"
             clickable
-            onClick={() => onSkillCheck(quickSkill, quickDC)}
+            onClick={() => _onSkillCheck(quickSkill, quickDC)}
             sx={{ fontSize: 11 }}
           />
         </Box>
@@ -179,7 +211,7 @@ function UnifiedChatPanel({
         <Box sx={{ display: 'flex', bgcolor: 'background.default', borderRadius: 1, overflow: 'hidden' }}>
           <Button
             size="small"
-            onClick={() => setInputType('inGame')}
+            onClick={() => _setInputType('inGame')}
             sx={{
               bgcolor: inputType === 'inGame' ? 'success.lighter' : 'transparent',
               color: inputType === 'inGame' ? 'success.dark' : 'text.secondary',
@@ -194,7 +226,7 @@ function UnifiedChatPanel({
           </Button>
           <Button
             size="small"
-            onClick={() => setInputType('ooc')}
+            onClick={() => _setInputType('ooc')}
             sx={{
               bgcolor: inputType === 'ooc' ? 'info.lighter' : 'transparent',
               color: inputType === 'ooc' ? 'info.dark' : 'text.secondary',
@@ -215,7 +247,7 @@ function UnifiedChatPanel({
           <Select
             value={inputTarget}
             label="Receiver"
-            onChange={e => setInputTarget(e.target.value as MessageTarget)}
+            onChange={e => _setInputTarget(e.target.value as MessageTarget)}
             sx={{ fontSize: 12, height: 32 }}
           >
             <MenuItem value="all">🌐 All (Public)</MenuItem>
@@ -249,7 +281,7 @@ function UnifiedChatPanel({
             label="📋 Check"
             size="small"
             clickable
-            onClick={() => onSkillCheck(quickSkill, quickDC)}
+            onClick={() => _onSkillCheck(quickSkill, quickDC)}
             sx={{ fontSize: 11 }}
           />
         </Box>
@@ -274,13 +306,13 @@ function UnifiedChatPanel({
           <Typography variant="caption" color="text.secondary">
             {inputType === 'inGame' ? 'In-game whisper to:' : 'OOC whisper to:'}
           </Typography>
-          {players.filter((p: any) => p.status === 'Active').map((p: any) => (
+          {_players.filter((p: any) => p.status === 'Active').map((p: any) => (
             <Chip
               key={p.id}
               label={p.characterName}
               size="small"
               clickable
-              onClick={() => setWhisperTargetPlayer(p.id)}
+              onClick={() => _setWhisperTargetPlayer(p.id)}
               sx={{ m: 0.25 }}
             />
           ))}
@@ -288,7 +320,7 @@ function UnifiedChatPanel({
       )}
 
       {/* Dice History */}
-      <Collapse in={showDiceHistory}>
+      <Collapse in={_showDiceHistory}>
         <Box sx={{
           p: 1,
           maxHeight: 120,
@@ -299,14 +331,17 @@ function UnifiedChatPanel({
         }}>
           <Typography variant="caption" color="text.secondary">Recent Rolls:</Typography>
           {messages
-            .filter(m => m.type === 'dice')
+            .filter(m => m.type === 5)
             .slice(-10)
             .reverse()
-            .map((m, i) => (
-              <Typography key={i} variant="caption" sx={{ display: 'block' }}>
-                {m.diceFormula}: {m.diceTotal} [{m.diceRolls?.join(',')}]{m.diceRolls ? '' : ''} — {m.senderName}
-              </Typography>
-            ))}
+            .map((m, i) => {
+              const meta = m.metadata || {};
+              return (
+                <Typography key={i} variant="caption" sx={{ display: 'block' }}>
+                  {(meta.diceFormula as string) || 'roll'}: {(meta.diceTotal as number) || '?'} [{(meta.diceRolls as number[])?.join(',')}]{(meta.diceRolls as number[]) ? '' : ''} — {m.playerName}
+                </Typography>
+              );
+            })}
         </Box>
       </Collapse>
 
@@ -324,7 +359,7 @@ function UnifiedChatPanel({
           </Typography>
         ) : (
           messages.map((msg) => (
-            <MessageBubble key={msg.id} msg={msg} />
+            <MessageBubble key={msg.id} msg={toUnifiedMessage(msg)} />
           ))
         )}
         <div ref={messagesEndRef} />
@@ -341,9 +376,9 @@ function UnifiedChatPanel({
         {whisperTargetPlayer && (
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, gap: 1 }}>
             <Typography variant="caption" color="text.secondary" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-              📩 Whispering to: {players.find(p => p.id === whisperTargetPlayer)?.characterName}
+              📩 Whispering to: {_players.find(p => p.id === whisperTargetPlayer)?.characterName}
             </Typography>
-            <Button size="small" onClick={() => setWhisperTargetPlayer(null)}>Clear</Button>
+            <Button size="small" onClick={() => _setWhisperTargetPlayer(null)}>Clear</Button>
           </Box>
         )}
 
@@ -360,15 +395,15 @@ function UnifiedChatPanel({
                     ? 'Speak in-character (visible to all)...'
                     : 'Speak out-of-character (never influences narrative)...'
             }
-            value={whisperInput}
-            onChange={e => setWhisperInput(e.target.value)}
+            value={_whisperInputVal}
+            onChange={e => _setWhisperInput(e.target.value)}
             onKeyDown={handleKeyDown}
             multiline
             maxRows={4}
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">
-                  <IconButton onClick={handleSend} size="small" disabled={!whisperInput.trim()}>
+                  <IconButton onClick={handleSend} size="small" disabled={!_whisperInputVal.trim()}>
                     <SendIcon />
                   </IconButton>
                 </InputAdornment>
@@ -378,7 +413,7 @@ function UnifiedChatPanel({
           <Button
             variant="contained"
             onClick={handleSend}
-            disabled={!whisperInput.trim()}
+            disabled={!_whisperInputVal.trim()}
             sx={{ minWidth: isMobile ? 60 : 80 }}
           >
             Send

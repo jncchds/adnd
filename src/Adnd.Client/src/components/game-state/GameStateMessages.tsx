@@ -1,5 +1,5 @@
-import { Box, Typography, Paper, Chip, Divider, Button } from '@mui/material';
-import MarkdownRenderer from '../MarkdownRenderer';
+import { Box, Typography, Chip } from '@mui/material';
+import { MessageType } from '../../types/game.types';
 
 interface GameStateMessagesProps {
   gameState: any;

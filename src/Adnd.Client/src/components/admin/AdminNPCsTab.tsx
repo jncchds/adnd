@@ -1,4 +1,7 @@
-function NPCsTab({ npcs, npcsLoading, onOpenDialog, onDelete }: any) {
+import { Box, Typography, Paper, List, ListItem, ListItemAvatar, ListItemText, Avatar, IconButton, Button, Divider } from '@mui/material';
+import { Delete as DeleteIcon, Add as AddIcon } from '@mui/icons-material';
+
+export default function NPCsTab({ npcs, npcsLoading, onOpenDialog, onDelete }: any) {
   return (
     <Paper>
       <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

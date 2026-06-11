@@ -1,4 +1,8 @@
-function AgentCallsTab({ calls, isLoading, onRefresh, onOpenDialog, onDelete, filter, onFilterChange }: any) {
+import { Box, Typography, Paper, Table, TableContainer, TableHead, TableCell, TableRow, TableBody, IconButton, Chip, Select, MenuItem, Button, Divider } from '@mui/material';
+import { Delete as DeleteIcon } from '@mui/icons-material';
+import { AgentType, AgentAction, AgentCallStatus } from '../../types/agent.types';
+
+export default function AgentCallsTab({ calls, isLoading, onRefresh, onOpenDialog, onDelete, filter, onFilterChange }: any) {
   const getStatusColor = (status: number) => {
     switch (status) {
       case AgentCallStatus.Running: return 'warning';

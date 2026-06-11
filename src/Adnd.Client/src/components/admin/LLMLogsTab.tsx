@@ -1,9 +1,28 @@
+import { useState, useMemo } from 'react';
+import { Box, Typography, Paper, Table, TableContainer, TableHead, TableCell, TableRow, TableBody, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Chip, IconButton, CircularProgress } from '@mui/material';
+import { Refresh as RefreshIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { useLLMInteractions } from '../../api/hooks/useLLM';
+
+function formatTokens(tokens: number): string {
+  if (!tokens) return '0';
+  if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
+  return tokens.toString();
+}
+
+function formatDuration(seconds: number): string {
+  if (!seconds) return '0s';
+  if (seconds >= 3600) return `${(seconds / 3600).toFixed(1)}h`;
+  if (seconds >= 60) return `${(seconds / 60).toFixed(1)}m`;
+  return `${seconds}s`;
+}
+
 interface LLMLogsTabProps {
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
 }
 
-function LLMLogsTab({ onError, onSuccess }: LLMLogsTabProps) {
+export default function LLMLogsTab({ onError, onSuccess }: LLMLogsTabProps) {
   const [selectedLog, setSelectedLog] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [filterProvider, setFilterProvider] = useState('');

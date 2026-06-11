@@ -1,4 +1,8 @@
-function SpellsTab({ spells, setSpells, isEditMode, onOpenDialog, spellSlots, onSlotChange }: any) {
+import { Box, Typography, Chip, IconButton, ListItem, ListItemText, List, Button, Divider } from '@mui/material';
+import { Delete as DeleteIcon, Add as AddIcon } from '@mui/icons-material';
+import SpellSlotTracker from './SpellSlotTracker';
+
+export default function SpellsTab({ spells, setSpells, isEditMode, onOpenDialog, spellSlots, onSlotChange }: any) {
   const spellLevels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
   const groupedSpells = spellLevels.reduce((acc: any, level) => {

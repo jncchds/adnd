@@ -1,4 +1,8 @@
-function CharactersTab({ characters }: { characters: any[] }) {
+import { useNavigate } from 'react-router-dom';
+import { Box, Typography, Paper, Card, CardContent, Button, Chip, Divider } from '@mui/material';
+import { MenuBook as SheetIcon } from '@mui/icons-material';
+
+export default function CharactersTab({ characters }: { characters: any[] }) {
   const navigate = useNavigate();
   return (
     <Paper>

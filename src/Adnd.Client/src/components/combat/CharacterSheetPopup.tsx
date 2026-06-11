@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Box, Typography, Paper, IconButton, Collapse, TextField, Button } from '@mui/material';
-import { Add as AddIcon, Remove as RemoveIcon, Close as CloseIcon } from '@mui/icons-material';
+import { Box, Typography, Paper, TextField, Button, Grid, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Avatar, Slider } from '@mui/material';
 import type { CombatParticipantSummary } from '../../types/combat.types';
+import type { ConditionEntry } from '../../types/combat.types';
+import DeathSaveTracker from './DeathSaveTracker';
 
 export default function CharacterSheetPopup({ participant, open, onClose, onHeal, onDamage }: {
   participant: CombatParticipantSummary | null; open: boolean; onClose: () => void;

@@ -1,4 +1,22 @@
-import { Box, Typography, Paper, Chip, Divider, Grid, Button } from '@mui/material';
+import { Box, Typography, Paper, Chip, Table, TableContainer, TableHead, TableCell, TableRow, TableBody } from '@mui/material';
+import { StatCard } from './GameStateCards';
+
+function getProviderIcon(provider: string): string {
+  switch (provider) {
+    case 'ollama': return '🦙';
+    case 'lmstudio': return '🏠';
+    case 'openai': return '🔵';
+    case 'google': return '🟢';
+    default: return '🤖';
+  }
+}
+
+function formatTokens(tokens: number): string {
+  if (!tokens) return '0';
+  if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
+  return tokens.toString();
+}
 
 interface GameStateLLMProps {
   gameState: any;

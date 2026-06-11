@@ -1,5 +1,6 @@
-import { Box, Typography, Chip, Button, Paper, IconButton, Collapse, Dialog, DialogTitle, DialogContent, DialogActions, Divider, TextField, MenuItem, Select, FormControl, InputLabel } from '@mui/material';
-import { Add as AddIcon, Remove as RemoveIcon, Close as CloseIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
+import { useState } from 'react';
+import { Box, Typography, Chip, Button, Paper, Dialog, DialogTitle, DialogContent, DialogActions, TextField, ListItem, ListItemText, ListItemAvatar, Avatar, Tooltip, IconButton, List, Grid } from '@mui/material';
+import { Delete as DeleteIcon, Remove as RemoveIcon, HealthAndSafety as ConditionIcon } from '@mui/icons-material';
 import type { CombatParticipantSummary, ConditionEntry } from '../../types/combat.types';
 
 interface ConditionManagerProps {
@@ -12,7 +13,7 @@ interface ConditionManagerProps {
   onCloseDialog?: () => void;
 }
 
-function ConditionManager({ participant, open, onClose, onRemoveCondition, onAddCondition, isEditable, onCloseDialog }: ConditionManagerProps) {
+export default function ConditionManager({ participant, open, onClose, onRemoveCondition, onAddCondition, isEditable, onCloseDialog }: ConditionManagerProps) {
   const [newConditionName, setNewConditionName] = useState('');
   const [newConditionDuration, setNewConditionDuration] = useState(1);
   const [newConditionDesc, setNewConditionDesc] = useState('');

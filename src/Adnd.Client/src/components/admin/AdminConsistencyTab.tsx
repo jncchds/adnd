@@ -1,4 +1,7 @@
-function ConsistencyTab({ report, isLoading, onCheck }: any) {
+import { Box, Typography, Paper, Alert, AlertTitle, Button, Divider } from '@mui/material';
+import { CheckCircle as CheckCircleIcon } from '@mui/icons-material';
+
+export default function ConsistencyTab({ report, isLoading, onCheck }: any) {
   return (
     <Paper>
       <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

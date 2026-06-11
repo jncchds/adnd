@@ -1,13 +1,30 @@
-import { useState } from 'react';
-import { Box, Typography, Paper, IconButton, Collapse, Chip, Divider, Grid, Button } from '@mui/material';
-import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
-import MarkdownRenderer from '../MarkdownRenderer';
-import type { GameDetail } from '../../types/game.types';
+import { Box, Typography, Chip, Table, TableContainer, TableHead, TableCell, TableRow, TableBody, Avatar, LinearProgress } from '@mui/material';
+import { People as PeopleIcon, Event as EventIcon, MenuBook as StoryIcon, EmojiEvents as TrophyIcon, Dashboard as DashboardIcon } from '@mui/icons-material';
+import { SectionCard, StatCard, PlotThreadCard } from './GameStateCards';
 
 interface OverviewTabProps {
   gameState: any;
   expandedSections: Record<string, boolean>;
   onToggleSection: (section: string) => void;
+}
+
+function getRoleIcon(role: string): string {
+  switch (role) {
+    case 'Creator': return '👑';
+    case 'Player': return '👤';
+    case 'Spectator': return '👁️';
+    case 'Observer': return '🔍';
+    default: return '❓';
+  }
+}
+
+function parseConditions(conditions: any): any[] {
+  if (!conditions) return [];
+  try {
+    return typeof conditions === 'string' ? JSON.parse(conditions) : conditions;
+  } catch {
+    return [];
+  }
 }
 
 export default function OverviewTab({ gameState, expandedSections, onToggleSection }: OverviewTabProps) {

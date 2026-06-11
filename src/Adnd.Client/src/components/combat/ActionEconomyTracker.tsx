@@ -1,5 +1,5 @@
-import { Box, Typography, Chip, Button, Divider, IconButton, Collapse } from '@mui/material';
-import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
+import { Box, Typography, Tooltip, IconButton } from '@mui/material';
+import { Refresh as RefreshIcon } from '@mui/icons-material';
 import type { CombatParticipantSummary } from '../../types/combat.types';
 
 interface ActionEconomyTrackerProps {
@@ -16,7 +16,7 @@ interface ActionEconomyTrackerProps {
   isEditable?: boolean;
 }
 
-function ActionEconomyTracker({
+export default function ActionEconomyTracker({
   participant: _participant, actionsRemaining, bonusActionsRemaining, reactionsRemaining, movementsRemaining,
   onSpendAction, onSpendBonusAction, onSpendReaction, onSpendMovement, onRefresh, isEditable = false,
 }: ActionEconomyTrackerProps) {

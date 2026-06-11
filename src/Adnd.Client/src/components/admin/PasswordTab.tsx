@@ -1,10 +1,14 @@
-interface PasswordTabProps {
+import { useState } from 'react';
+import { Box, Typography, Paper, Button, TextField, IconButton, InputAdornment, CircularProgress } from '@mui/material';
+import { Lock as LockIcon, Visibility as EyeIcon, VisibilityOff as EyeOffIcon } from '@mui/icons-material';
+
+export interface PasswordTabProps {
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
   onRefreshUser: () => Promise<void>;
 }
 
-function PasswordTab({ onError, onSuccess, onRefreshUser }: PasswordTabProps) {
+export default function PasswordTab({ onError, onSuccess, onRefreshUser }: PasswordTabProps) {
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);

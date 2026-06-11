@@ -1,3 +1,8 @@
+import { useState } from 'react';
+import { Box, Typography, Grid, Chip, Tooltip, Divider, Collapse, IconButton, LinearProgress, TableCell, TableRow } from '@mui/material';
+import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
+import type { GameProviderUsageSummary } from '../../types/llm.types';
+
 interface ProviderRowProps {
   summary: GameProviderUsageSummary;
 }
@@ -17,7 +22,7 @@ function formatDuration(ms: number): string {
   return `${mins}m ${remSecs}s`;
 }
 
-function timeAgo(dateStr?: string): string {
+export function timeAgo(dateStr?: string): string {
   if (!dateStr) return 'now';
   const diff = Date.now() - new Date(dateStr).getTime();
   const secs = Math.floor(diff / 1000);
@@ -28,7 +33,7 @@ function timeAgo(dateStr?: string): string {
   return `${hours}h ago`;
 }
 
-function ProviderRow({ summary }: ProviderRowProps) {
+export default function ProviderRow({ summary }: ProviderRowProps) {
   const [expanded, setExpanded] = useState(false);
 
   const successRate = summary.totalCalls > 0

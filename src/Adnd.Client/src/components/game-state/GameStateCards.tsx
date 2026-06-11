@@ -1,8 +1,6 @@
 import React from 'react';
-import { Box, Typography, Paper, IconButton, Collapse, Divider, Chip } from '@mui/material';
+import { Box, Typography, Paper, Collapse, Divider, Chip, LinearProgress } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
-import MarkdownRenderer from '../MarkdownRenderer';
-import type { PlotThreadResponse } from '../../types/plot.types';
 
 interface SectionCardProps {
   title: string;
@@ -12,7 +10,7 @@ interface SectionCardProps {
   children: React.ReactNode;
 }
 
-function SectionCard({ title, icon, expanded, onToggle, children }: SectionCardProps) {
+export function SectionCard({ title, icon, expanded, onToggle, children }: SectionCardProps) {
   return (
     <Paper>
       <Box sx={{
@@ -40,7 +38,7 @@ interface StatCardProps {
   color?: 'success' | 'error' | 'warning' | 'info' | 'default';
 }
 
-function StatCard({ label, value, sub }: StatCardProps) {
+export function StatCard({ label, value, sub }: StatCardProps) {
   return (
     <Paper sx={{ p: 1.5, bgcolor: 'background.default' }}>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{label}</Typography>
@@ -54,7 +52,7 @@ interface PlotThreadCardProps {
   thread: any;
 }
 
-function PlotThreadCard({ thread }: PlotThreadCardProps) {
+export function PlotThreadCard({ thread }: PlotThreadCardProps) {
   const getMomentumColor = (momentum: number) => {
     if (momentum >= 7) return '#f44336';
     if (momentum >= 4) return '#ff9800';

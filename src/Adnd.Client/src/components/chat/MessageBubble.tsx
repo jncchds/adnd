@@ -1,4 +1,4 @@
-import { Box, Typography, Paper, Chip, Divider } from '@mui/material';
+import { Box, Typography, Chip } from '@mui/material';
 import MarkdownRenderer from '../MarkdownRenderer';
 import { MESSAGE_STYLES } from './messageStyles';
 import type { UnifiedMessage } from '../../api/hooks/useMessages';

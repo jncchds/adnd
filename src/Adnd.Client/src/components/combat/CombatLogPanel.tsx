@@ -1,6 +1,6 @@
-import { Box, Typography, Paper, Collapse, IconButton } from '@mui/material';
-import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
-import MarkdownRenderer from '../MarkdownRenderer';
+import { Box, Typography, Paper, Chip, Divider } from '@mui/material';
+import { History as HistoryIcon } from '@mui/icons-material';
+import { useRef, useEffect } from 'react';
 import type { CombatLogEvent } from '../../types/combat.types';
 
 export default function CombatLogPanel({ events, showCombatLog }: {

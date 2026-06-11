@@ -1,4 +1,7 @@
-function ConditionsTab({ conditions, setConditions, isEditMode, onOpenDialog }: any) {
+import { Box, Typography, IconButton, ListItem, ListItemText, List, Button, Divider } from '@mui/material';
+import { Delete as DeleteIcon, Add as AddIcon } from '@mui/icons-material';
+
+export default function ConditionsTab({ conditions, setConditions, isEditMode, onOpenDialog }: any) {
   const conditionIcons: Record<string, string> = {
     'blinded': '👁️',
     'deafened': '👂',

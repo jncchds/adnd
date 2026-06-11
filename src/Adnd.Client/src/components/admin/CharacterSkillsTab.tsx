@@ -1,4 +1,6 @@
-function SkillsTab({ skills, setSkills: _setSkills, proficiency, setProficiency, isEditMode }: any) {
+import { Box, Typography, Chip, TextField, ListItem, ListItemText, List } from '@mui/material';
+
+export default function SkillsTab({ skills, setSkills: _setSkills, proficiency, setProficiency, isEditMode }: any) {
   void _setSkills; // used when skills become editable
   const skillNames = Object.keys(skills).sort();
 

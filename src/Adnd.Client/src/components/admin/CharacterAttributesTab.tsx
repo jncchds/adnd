@@ -1,4 +1,6 @@
-function AttributesTab({ attributes, setAttributes, isEditMode }: any) {
+import { Box, Typography, Paper, IconButton, Chip } from '@mui/material';
+
+export default function AttributesTab({ attributes, setAttributes, isEditMode }: any) {
   const attrNames = Object.keys(attributes).sort();
 
   if (attrNames.length === 0) {
