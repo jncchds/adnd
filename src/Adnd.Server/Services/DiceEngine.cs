@@ -12,12 +12,11 @@ public interface IDiceEngine
 
 public class DiceEngine : IDiceEngine
 {
-    private readonly Random _random;
+    // Random.Shared is thread-safe — avoids biased results from concurrent new Random() calls
     private readonly ILogger<DiceEngine> _logger;
 
     public DiceEngine(ILogger<DiceEngine> logger)
     {
-        _random = new Random();
         _logger = logger;
     }
 
@@ -34,7 +33,7 @@ public class DiceEngine : IDiceEngine
         var rolls = new int[diceCount];
         for (int i = 0; i < diceCount; i++)
         {
-            rolls[i] = _random.Next(1, diceType + 1);
+            rolls[i] = Random.Shared.Next(1, diceType + 1);
         }
 
         // Apply keep/drop options
@@ -74,6 +73,10 @@ public class DiceEngine : IDiceEngine
             parts.Add($"({string.Join(" + ", result.FinalRolls)}" +
                 (result.Modifier != 0 ? $" {result.Modifier:+#;-#;0})" : ")"));
         }
+        else
+        {
+            parts.Add("(no rolls)");
+        }
 
         if (result.Rolls.Length != result.FinalRolls.Length)
         {
@@ -88,8 +91,8 @@ public class DiceEngine : IDiceEngine
         var trimmed = formula.Trim();
         var options = new DiceOptions();
 
-        // Parse keep/drop modifiers (e.g., "kh1", "kl3", "dr2")
-        var kMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"(kh|kl|hr|hl|dr|dh)(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // Parse keep/drop modifiers (e.g., "kh1", "kl3", "dr2") — allow spaces between parts
+        var kMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"(kh|kl|hr|hl|dr|dh)\s*(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         if (kMatch.Success)
         {
             var mode = kMatch.Groups[1].Value.ToLower();
@@ -104,11 +107,11 @@ public class DiceEngine : IDiceEngine
                 case "dr":
                 case "dh": options.DropLowest = count; break;
             }
-            trimmed = trimmed.Remove(kMatch.Index, kMatch.Length);
+            trimmed = trimmed.Remove(kMatch.Index, kMatch.Length).Trim();
         }
 
-        // Parse modifier at the end (e.g., "2d6+3", "1d20-2")
-        var modMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(\d+)d(\d+)([+-]\d+)$");
+        // Parse modifier at the end (e.g., "2d6+3", "1d20-2") — allow spaces
+        var modMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"^\s*(\d+)\s*d\s*(\d+)\s*([+-]\d+)\s*$");
         if (modMatch.Success)
         {
             var count = int.Parse(modMatch.Groups[1].Value);
@@ -117,8 +120,8 @@ public class DiceEngine : IDiceEngine
             return (count, type, modifier, options);
         }
 
-        // Parse simple dice (e.g., "2d6")
-        var simpleMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(\d+)d(\d+)$");
+        // Parse simple dice (e.g., "2d6") — allow spaces
+        var simpleMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"^\s*(\d+)\s*d\s*(\d+)\s*$");
         if (simpleMatch.Success)
         {
             var count = int.Parse(simpleMatch.Groups[1].Value);
@@ -138,6 +141,14 @@ public class DiceEngine : IDiceEngine
     private int[] ApplyOptions(int[] rolls, DiceOptions options)
     {
         var result = rolls;
+
+        // Validate mutual exclusivity: can't keep and drop in the same direction
+        if (options.KeepHighest > 0 && options.KeepLowest > 0)
+            throw new ArgumentException("Cannot use both KeepHighest and KeepLowest in the same roll.");
+        if (options.DropHighest > 0 && options.DropLowest > 0)
+            throw new ArgumentException("Cannot use both DropHighest and DropLowest in the same roll.");
+        if ((options.KeepHighest > 0 || options.KeepLowest > 0) && (options.DropHighest > 0 || options.DropLowest > 0))
+            throw new ArgumentException("Cannot mix keep and drop options in the same roll.");
 
         if (options.KeepHighest > 0)
         {

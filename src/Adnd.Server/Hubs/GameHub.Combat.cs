@@ -17,9 +17,9 @@ public partial class GameHub
         var userId = Context.UserIdentifier;
         if (!string.IsNullOrEmpty(userId) && Guid.TryParse(userId, out var uid))
         {
-            var player = await _context.Players
-                .FirstOrDefaultAsync(p => p.UserId == uid && p.GameId == gameId);
-            if (player == null || player.Role != PlayerRole.Creator)
+            // Check if caller is the game creator OR has GM status (GM agent running)
+            var game = await _context.Games.FindAsync(gameId);
+            if (game == null || (game.CreatorId != uid && game.GMStatus != GMStatus.Running))
                 throw new ForbiddenException("Only the GM can start combat.");
         }
 
@@ -95,6 +95,16 @@ public partial class GameHub
     {
         var combat = await _combatService.GetCombatAsync(combatId)
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
+
+        // Validate caller is in the game
+        var userId = Context.UserIdentifier;
+        if (!string.IsNullOrEmpty(userId) && Guid.TryParse(userId, out var uid))
+        {
+            var isInGame = await _context.Players.AnyAsync(
+                p => p.GameId == combat.GameId && p.UserId == uid && p.Status == PlayerStatus.Active);
+            if (!isInGame)
+                throw new ForbiddenException("Must be a player in this game to add combatants.");
+        }
 
         var participant = await _combatService.AddParticipantAsync(
             combatId, participantType, playerId, npcId, displayName, ac, currentHP, maxHP);
@@ -456,7 +466,6 @@ public partial class GameHub
             JsonDocument.Parse($"{{\"damage\":{damage},\"source\":\"{source ?? ""}\",\"currentHP\":{participant?.CurrentHP ?? 0},\"maxHP\":{participant?.MaxHP ?? 0}}}").RootElement);
 
         // Update character HP if it's a player
-        if (participant?.PlayerId.HasValue == true)
         if (participant?.PlayerId.HasValue == true)
         {
             var player = await _context.Players.FindAsync(participant.PlayerId.Value);

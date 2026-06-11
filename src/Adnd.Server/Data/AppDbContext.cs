@@ -155,10 +155,10 @@ public class AppDbContext : DbContext
             .HasIndex(a => new { a.GameId, a.Status, a.CreatedAt })
             .IsDescending(new[] { false, false, true });
 
-        // Whisper targets stored as JSON-friendly string
-        modelBuilder.Entity<Whisper>()
-            .Property(w => w.Targets)
-            .HasColumnType("text");
+        // Whisper targets stored as JSON-friendly string — DEPRECATED: use TargetPlayerIds instead
+        // modelBuilder.Entity<Whisper>()
+        //     .Property(w => w.Targets)
+        //     .HasColumnType("text");
 
         // AgentCall input/output as text (JSON)
         modelBuilder.Entity<AgentCall>()

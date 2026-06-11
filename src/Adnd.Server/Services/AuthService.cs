@@ -52,9 +52,8 @@ public class AuthService : IAuthService
         };
 
         _context.Users.Add(user);
-        await _context.SaveChangesAsync();
 
-        // Generate tokens
+        // Generate tokens before saving — avoids second DB round-trip
         var (accessToken, refreshToken) = GenerateTokens(user);
 
         // Save refresh token
@@ -65,7 +64,19 @@ public class AuthService : IAuthService
             ExpiresAt = DateTime.UtcNow.AddDays(7)
         };
         _context.RefreshTokens.Add(refreshTokenEntity);
-        await _context.SaveChangesAsync();
+
+        // Wrap in transaction — if refresh token insert fails, user creation is rolled back
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
 
         return (new AuthResponse
         {
@@ -84,6 +95,10 @@ public class AuthService : IAuthService
             return (null!, "Invalid email or password.");
         }
 
+        // Update LastLoginAt
+        user.LastLoginAt = DateTime.UtcNow;
+        _context.Users.Update(user);
+
         // Generate tokens
         var (accessToken, refreshToken) = GenerateTokens(user);
 
@@ -95,7 +110,19 @@ public class AuthService : IAuthService
             ExpiresAt = DateTime.UtcNow.AddDays(7)
         };
         _context.RefreshTokens.Add(refreshTokenEntity);
-        await _context.SaveChangesAsync();
+
+        // Wrap in transaction — ensures LastLoginAt and refresh token are atomic
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
 
         return (new AuthResponse
         {

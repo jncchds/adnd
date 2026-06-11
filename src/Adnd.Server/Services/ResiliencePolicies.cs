@@ -1,8 +1,10 @@
 using Polly;
 using Polly.CircuitBreaker;
 using Polly.Retry;
-using System.Net;
 using Polly.Timeout;
+using System.Net;
+using System.Net.Sockets;
+using System.Security.Cryptography;
 
 namespace Adnd.Server.Services;
 
@@ -36,6 +38,11 @@ public class ResiliencePolicies : IResiliencePolicies
     private readonly int _failureThreshold;
     private readonly TimeSpan _halfOpenAfter;
 
+    // Cached policies — singleton-scoped to preserve circuit breaker state across calls
+    private AsyncRetryPolicy? _retryPolicy;
+    private AsyncCircuitBreakerPolicy? _circuitBreakerPolicy;
+    private IAsyncPolicy? _combinedPolicy;
+
     public ResiliencePolicies(
         ILogger<ResiliencePolicies> logger,
         IConfiguration configuration)
@@ -49,12 +56,16 @@ public class ResiliencePolicies : IResiliencePolicies
 
     public IAsyncPolicy GetRetryPolicy()
     {
-        return Policy
+        // Max retry delay cap at 30 seconds
+        const double maxDelayMs = 30000.0;
+        return _retryPolicy ??= Policy
             .Handle<HttpRequestException>()
             .Or<TimeoutRejectedException>()
+            .Or<TaskCanceledException>()
+            .Or<SocketException>()
             .WaitAndRetryAsync(
                 _maxRetries,
-                attempt => TimeSpan.FromMilliseconds(_retryDelayMs * Math.Pow(2, attempt)),
+                attempt => TimeSpan.FromMilliseconds(Math.Min(maxDelayMs, _retryDelayMs * Math.Pow(2, attempt))),
                 onRetry: (_, span, attempt, _) =>
                 {
                     _logger.LogWarning(
@@ -65,7 +76,7 @@ public class ResiliencePolicies : IResiliencePolicies
 
     public IAsyncPolicy GetCircuitBreakerPolicy()
     {
-        return Policy
+        return _circuitBreakerPolicy ??= Policy
             .Handle<HttpRequestException>()
             .Or<TimeoutRejectedException>()
             .CircuitBreakerAsync(
@@ -90,9 +101,8 @@ public class ResiliencePolicies : IResiliencePolicies
 
     public IAsyncPolicy GetCombinedPolicy()
     {
-        var circuitBreaker = GetCircuitBreakerPolicy();
-        var retry = GetRetryPolicy();
-        return Policy.WrapAsync(circuitBreaker, retry);
+        // Retry should be OUTER, circuit breaker INNER — retry first, then check circuit
+        return _combinedPolicy ??= Policy.WrapAsync(GetRetryPolicy(), GetCircuitBreakerPolicy());
     }
 }
 
@@ -121,7 +131,8 @@ public static class ResilienceExtensions
         }
         catch (Exception ex)
         {
-            return Result.Failure($"Error: {ex.Message}");
+            // Include full exception type and message — don't lose diagnostic info
+            return Result.Failure($"Error ({ex.GetType().Name}): {ex.Message}");
         }
     }
 

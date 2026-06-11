@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +31,8 @@ public class PlotWeaverHandler :
     private readonly IPlotWeaver _plotWeaver;
     private readonly ILogger<PlotWeaverHandler> _logger;
     private readonly AppDbContext _context;
-    private int _messageCountSinceReview;
+    // Per-game message counter — prevents cross-game review threshold pollution (singleton handler)
+    private readonly ConcurrentDictionary<Guid, int> _messageCountsByGame = new();
     private const int ReviewThreshold = 15; // Review every N in-game messages
 
     public PlotWeaverHandler(
@@ -41,7 +43,6 @@ public class PlotWeaverHandler :
         _plotWeaver = plotWeaver;
         _logger = logger;
         _context = context;
-        _messageCountSinceReview = 0;
     }
 
     // ==================== Game Lifecycle ====================
@@ -341,15 +342,19 @@ public class PlotWeaverHandler :
             notification.Type != Adnd.Server.Events.MessageType.InGameWhisper)
             return;
 
-        _messageCountSinceReview++;
+        // Per-game counter to avoid cross-game review threshold pollution
+        var count = _messageCountsByGame.AddOrUpdate(
+            notification.GameId,
+            _ => 1,
+            (_, existing) => existing + 1);
 
         // Periodic review every N messages
-        if (_messageCountSinceReview >= ReviewThreshold)
+        if (count >= ReviewThreshold)
         {
-            _messageCountSinceReview = 0;
+            _messageCountsByGame[notification.GameId] = 0;
 
             _logger.LogInformation("[PLOTWEAVER] PeriodicReview | GameId={GameId} | Trigger=MessageCount ({Count}/{Threshold})",
-                notification.GameId, _messageCountSinceReview, ReviewThreshold);
+                notification.GameId, count, ReviewThreshold);
 
             try
             {

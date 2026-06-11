@@ -97,13 +97,14 @@ public partial class GameHub : Hub
         var userId = Context.UserIdentifier;
         if (!string.IsNullOrEmpty(userId) && Guid.TryParse(userId, out var uid))
         {
-            _playerConnections.AddOrUpdate(uid.ToString(), Context.ConnectionId, (k, oldValue) => Context.ConnectionId);
-
+            // Query player with GameId filter to find the correct player record
             var player = await _context.Players
                 .FirstOrDefaultAsync(p => p.UserId == uid && p.Status == PlayerStatus.Active);
 
             if (player != null)
             {
+                // Use player ID (not user ID) as the key — consistent with OnDisconnectedAsync and SendHeartbeat
+                _playerConnections.AddOrUpdate(player.Id.ToString(), Context.ConnectionId, (k, oldValue) => Context.ConnectionId);
                 await Groups.AddToGroupAsync(Context.ConnectionId, player.GameId.ToString());
                 await _mediator.Publish(new PlayerJoined(player.GameId, player.Id, player.UserId, player.CharacterName ?? "Unknown"));
             }

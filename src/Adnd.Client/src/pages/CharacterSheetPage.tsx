@@ -49,11 +49,10 @@ export default function CharacterSheetPage() {
 
     const attrs: Record<string, number> = {};
     if (character.attributes && typeof character.attributes === 'object') {
-      const attrObj = character.attributes as any;
-      if (attrObj.attributes && typeof attrObj.attributes === 'object') {
-        for (const [key, val] of Object.entries(attrObj.attributes)) {
-          if (typeof val === 'number') attrs[key] = val;
-        }
+      // character.attributes is a flat object { str, dex, con, int, wis, cha }, not nested
+      const attrObj = character.attributes as Record<string, number>;
+      for (const [key, val] of Object.entries(attrObj)) {
+        if (typeof val === 'number') attrs[key] = val;
       }
     }
     setEditAttributes(attrs);
@@ -80,7 +79,7 @@ export default function CharacterSheetPage() {
       await updateCharacter({
         name: editName, class: editClass, level: editLevel,
         maxHP: editMaxHP, currentHP: editCurrentHP,
-        attributes: { attributes: editAttributes }, skills: editSkills,
+        attributes: editAttributes, skills: editSkills,
         proficiencyBonus: editProficiency, spells: editSpells,
         inventory: editInventory, conditions: editConditions,
       });
@@ -186,7 +185,7 @@ export default function CharacterSheetPage() {
         />
       )}
       {activeTab === 1 && <CharacterAttributesTab attributes={editAttributes} setAttributes={setEditAttributes} isEditMode={editMode} />}
-      {activeTab === 2 && <CharacterSkillsTab skills={editSkills} setSkills={() => {}} proficiency={editProficiency} setProficiency={setEditProficiency} isEditMode={editMode} />}
+      {activeTab === 2 && <CharacterSkillsTab skills={editSkills} setSkills={setEditSkills} proficiency={editProficiency} setProficiency={setEditProficiency} isEditMode={editMode} />}
       {activeTab === 3 && (
         <CharacterSpellsTab
           spells={editSpells} setSpells={setEditSpells}

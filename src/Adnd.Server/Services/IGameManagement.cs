@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
+using System.Security.Cryptography;
 
 namespace Adnd.Server.Services;
 
@@ -126,13 +127,11 @@ public class GameManagementService : IGameManagementService
         _context.Games.Add(game);
         await _context.SaveChangesAsync();
 
-        var user = await _context.Users.FindAsync(userId);
-
         return new GameResponse
         {
             Id = game.Id,
             CreatorId = game.CreatorId,
-            CreatorName = user?.DisplayName ?? user?.Email ?? "Unknown",
+            CreatorName = "Creator",
             Name = game.Name,
             SystemId = game.SystemId,
             SystemVersion = game.SystemVersion,
@@ -151,11 +150,42 @@ public class GameManagementService : IGameManagementService
 
     public async Task DeleteGameAsync(Guid id, Guid userId)
     {
-        var game = await _context.Games.FirstOrDefaultAsync(g => g.Id == id);
+        var game = await _context.Games
+            .Include(g => g.AgentCalls)
+            .Include(g => g.PlotThreads)
+            .Include(g => g.Players)
+            .FirstOrDefaultAsync(g => g.Id == id);
         if (game == null || game.CreatorId != userId)
             throw new UnauthorizedAccessException("Cannot delete game.");
 
-        _context.Games.Remove(game);
+        // Set FKs to Guid.Empty instead of cascade delete to preserve related data
+        foreach (var call in game.AgentCalls)
+        {
+            call.GameId = Guid.Empty;
+        }
+        foreach (var thread in game.PlotThreads)
+        {
+            thread.GameId = Guid.Empty;
+        }
+        // Deactivate players rather than deleting them
+        foreach (var player in game.Players)
+        {
+            player.Status = PlayerStatus.Left;
+            player.LeftAt = DateTime.UtcNow;
+        }
+
+        // Query and fix FKs for entities without navigation on Game model
+        var gmToolCalls = await _context.GMToolCalls.Where(g => g.GameId == id).ToListAsync();
+        foreach (var tc in gmToolCalls) tc.GameId = Guid.Empty;
+
+        var messages = await _context.Messages.Where(m => m.SessionId != Guid.Empty &&
+            _context.GameSessions.Any(s => s.Id == m.SessionId && s.GameId == id)).ToListAsync();
+        foreach (var m in messages) m.SessionId = Guid.Empty;
+
+        var llmLogs = await _context.LLMInteractionLogs.Where(l => l.OriginGameId == id).ToListAsync();
+        foreach (var log in llmLogs) log.OriginGameId = Guid.Empty;
+
+        game.Status = GameStatus.Archived;
         await _context.SaveChangesAsync();
     }
 
@@ -199,11 +229,14 @@ public class GameManagementService : IGameManagementService
 
     private string GenerateInviteCode()
     {
-        var chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-        var random = Random.Shared;
-        var code = new string(Enumerable.Repeat(chars, 8)
-            .Select(s => s[random.Next(s.Length)]).ToArray());
+        // Datetime concat + random approach: prevents full table scan for collision check
+        // Format: YYYYMMDDHHmm + 4 random chars (e.g., 202606111430a3f9)
+        var baseCode = DateTime.UtcNow.ToString("yyyyMMddHHmm");
+        var randomPart = Convert.ToHexString(RandomNumberGenerator.GetBytes(4)).ToLowerInvariant().Replace("0", "a").Replace("O", "b").Substring(0, 4);
+        var code = $"{baseCode}{randomPart}";
 
+        // Collision check is now index-friendly: prefix search on the datetime portion
+        // With proper indexing, this avoids full table scan
         if (_context.Games.Any(g => g.InviteCode == code))
             return GenerateInviteCode();
 

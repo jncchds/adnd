@@ -142,7 +142,7 @@ public class PlayerManagementService : IPlayerManagementService
             throw new KeyNotFoundException("Player not found.");
 
         if (!Enum.TryParse(role, true, out PlayerRole parsedRole))
-            throw new ArgumentException($"Invalid role. Use: Creator, Player, Spectator");
+            throw new ArgumentException($"Invalid role. Valid roles: Creator, Player, Spectator, Observer");
 
         player.Role = parsedRole;
         await _context.SaveChangesAsync();
@@ -195,6 +195,25 @@ public class PlayerManagementService : IPlayerManagementService
         if (player == null)
             throw new InvalidOperationException("You are not a player in this game.");
 
+        // If creator is leaving, they must transfer ownership first or delete the game
+        if (game.CreatorId == uid)
+        {
+            var otherPlayers = game.Players.Where(p => p.Id != player.Id).ToList();
+            if (otherPlayers.Any(p => p.Role == PlayerRole.Player))
+            {
+                // Promote the first active player to creator
+                var newCreator = otherPlayers.First(p => p.Role == PlayerRole.Player);
+                game.CreatorId = newCreator.UserId;
+                player.Role = PlayerRole.Player;
+                _logger.LogInformation("Creator {UserId} left game {GameId} — promoted player {PlayerId} to creator",
+                    uid, gameId, newCreator.Id);
+            }
+            else
+            {
+                throw new InvalidOperationException("Cannot leave as creator while other players are present. Transfer ownership first or delete the game.");
+            }
+        }
+
         player.Status = PlayerStatus.Left;
         player.LeftAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
@@ -209,7 +228,7 @@ public class PlayerManagementService : IPlayerManagementService
 
         var game = await _context.Games
             .Include(g => g.Players)
-            .FirstOrDefaultAsync(g => g.InviteCode != null && g.InviteCode.ToLower() == code.ToLower());
+            .FirstOrDefaultAsync(g => g.InviteCode != null && g.InviteCode!.ToLower() == code.ToLower());
 
         if (game == null)
             throw new KeyNotFoundException("Game not found with this invite code.");

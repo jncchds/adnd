@@ -129,19 +129,27 @@ public class AgentBus : IAgentBus
         _mediator = mediator;
     }
 
+    private readonly object _decryptionLock = new();
+
     private ILLMProvider? GetProvider(LLMPreset preset)
     {
-        // Decrypt the API key if needed
+        // Decrypt the API key if needed — use lock to prevent concurrent decryption on shared EF entity
         if (preset.ApiKey != null && preset.DecryptedApiKey == null)
         {
-            try
+            lock (_decryptionLock)
             {
-                preset.DecryptedApiKey = _encryption.Decrypt(preset.ApiKey);
-            }
-            catch (CryptographicException ex)
-            {
-                _logger.LogError(ex, "Failed to decrypt API key for preset '{PresetName}'", preset.Name);
-                return null;
+                // Double-check after acquiring lock
+                if (preset.DecryptedApiKey != null) return _providerFactory.CreateFromPreset(preset);
+
+                try
+                {
+                    preset.DecryptedApiKey = _encryption.Decrypt(preset.ApiKey);
+                }
+                catch (CryptographicException ex)
+                {
+                    _logger.LogError(ex, "Failed to decrypt API key for preset '{PresetName}'", preset.Name);
+                    return null;
+                }
             }
         }
 
@@ -532,9 +540,11 @@ public class AgentBus : IAgentBus
             var options = JsonSerializer.Deserialize<NPCDispatchOptions>(call.Input ?? "{}")
                 ?? new NPCDispatchOptions();
 
-            var npc = await _context.NPCs.FindAsync(options.NpcId);
+            // Game-scoped check: ensure NPC belongs to this game
+            var npc = await _context.NPCs
+                .FirstOrDefaultAsync(n => n.Id == options.NpcId && n.GameId == call.GameId);
             if (npc == null)
-                return "NPC not found.";
+                return "NPC not found in this game.";
 
             var output = new
             {
@@ -564,9 +574,12 @@ public class AgentBus : IAgentBus
 
             if (call.Action == AgentAction.Query)
             {
-                var character = await _context.Characters.FindAsync(options.CharacterId);
+                // Game-scoped check: ensure character belongs to this game
+                var character = await _context.Characters
+                    .Include(c => c.Player)
+                    .FirstOrDefaultAsync(c => c.Id == options.CharacterId && c.Player!.GameId == call.GameId);
                 if (character == null)
-                    return "Character not found.";
+                    return "Character not found in this game.";
 
                 var output = new
                 {

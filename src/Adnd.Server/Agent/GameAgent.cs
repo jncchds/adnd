@@ -189,18 +189,20 @@ public class GameAgent : IGameAgent
     {
         _logger.LogInformation("Game agent processing loop started for game {GameId}", _gameId);
 
-        // Create a dedicated scope for the long-running processing loop
-        using var scope = _scopeFactory.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
         try
         {
             while (!_cts.Token.IsCancellationRequested)
             {
                 try
                 {
-                    // Check if game is still active
-                    var game = await context.Games.FindAsync(_gameId);
+                    // Use per-iteration scope to avoid DbContext lifetime issues
+                    // (single scope for long-running loop causes stale data and ObjectDisposedException)
+                    Game? game;
+                    using (var scope = _scopeFactory.CreateScope())
+                    {
+                        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        game = await context.Games.FindAsync(_gameId);
+                    }
                     if (game == null || game.Status != Models.GameStatus.Active || game.GMStatus == Models.GMStatus.Idle)
                     {
                         await Task.Delay(5000, _cts.Token);
@@ -214,11 +216,16 @@ public class GameAgent : IGameAgent
                     }
 
                     // Get pending events for this game
-                    var pendingCalls = await context.AgentCalls
-                        .Where(c => c.GameId == _gameId && c.Status == AgentCallStatus.Pending)
-                        .OrderBy(c => c.CreatedAt)
-                        .Take(10)
-                        .ToListAsync(_cts.Token);
+                    List<AgentCall> pendingCalls;
+                    using (var scope = _scopeFactory.CreateScope())
+                    {
+                        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        pendingCalls = await context.AgentCalls
+                            .Where(c => c.GameId == _gameId && c.Status == AgentCallStatus.Pending)
+                            .OrderBy(c => c.CreatedAt)
+                            .Take(10)
+                            .ToListAsync(_cts.Token);
+                    }
 
                     if (pendingCalls.Count == 0)
                     {
@@ -243,10 +250,15 @@ public class GameAgent : IGameAgent
                             DateTime.UtcNow - game.LastGMActionAt.Value > idleThreshold)
                         {
                             // Check plot thread momentum to decide what to trigger
-                            var activeThreads = await context.PlotThreads
-                                .Where(t => t.GameId == _gameId &&
-                                            t.Status == Models.PlotThreadStatus.Active)
-                                .ToListAsync(_cts.Token);
+                            List<PlotThread> activeThreads;
+                            using (var scope = _scopeFactory.CreateScope())
+                            {
+                                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                                activeThreads = await context.PlotThreads
+                                    .Where(t => t.GameId == _gameId &&
+                                                t.Status == Models.PlotThreadStatus.Active)
+                                    .ToListAsync(_cts.Token);
+                            }
 
                             var highMomentumThreads = activeThreads
                                 .Where(t => t.Momentum > 3f)
@@ -260,8 +272,13 @@ public class GameAgent : IGameAgent
                                 .Take(3)
                                 .ToList();
 
-                            var pendingCallsCount = await context.AgentCalls
-                                .CountAsync(c => c.GameId == _gameId && c.Status == AgentCallStatus.Pending, _cts.Token);
+                            int pendingCallsCount;
+                            using (var scope = _scopeFactory.CreateScope())
+                            {
+                                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                                pendingCallsCount = await context.AgentCalls
+                                    .CountAsync(c => c.GameId == _gameId && c.Status == AgentCallStatus.Pending, _cts.Token);
+                            }
 
                             // Don't create a new call if one is already pending (avoid stacking)
                             if (pendingCallsCount == 0)
@@ -342,8 +359,12 @@ public class GameAgent : IGameAgent
                                         CreatedAt = DateTime.UtcNow
                                     };
 
-                                    context.AgentCalls.Add(autoNarrateCall);
-                                    await context.SaveChangesAsync();
+                                    using (var scope = _scopeFactory.CreateScope())
+                                    {
+                                        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                                        context.AgentCalls.Add(autoNarrateCall);
+                                        await context.SaveChangesAsync();
+                                    }
 
                                     _logger.LogInformation("Auto-narrate triggered for game {GameId}: {Reason} after {Minutes}m idle",
                                         _gameId, triggerReason, idleThreshold.TotalMinutes);
@@ -452,7 +473,7 @@ public class GameAgentManager : IGameAgentManager, IDisposable
 
     public IGameAgent GetOrCreate(Guid gameId)
     {
-        // Fast path: agent already exists
+        // Fast path: agent already exists and is active
         if (_agents.TryGetValue(gameId, out var existing))
         {
             if (existing.IsActive(gameId))
@@ -462,23 +483,35 @@ public class GameAgentManager : IGameAgentManager, IDisposable
             _agents.TryRemove(gameId, out _);
         }
 
-        var agentLogger = _loggerFactory.CreateLogger<GameAgent>();
-        var agent = new GameAgent(
-            gameId,
-            _scopeFactory,
-            _agentBus,
-            _gameEngine,
-            _ragService,
-            _systemRegistry,
-            agentLogger);
-
-        if (_agents.TryAdd(gameId, agent))
+        // Use lock to prevent race condition: two concurrent calls can both create agents
+        lock (_agents)
         {
-            var logger = _loggerFactory.CreateLogger<GameAgentManager>();
-            logger.LogInformation("Created new game agent for game {GameId}", gameId);
-        }
+            // Double-check after acquiring lock
+            if (_agents.TryGetValue(gameId, out var existing2))
+            {
+                if (existing2.IsActive(gameId))
+                    return existing2;
+                _agents.TryRemove(gameId, out _);
+            }
 
-        return agent;
+            var agentLogger = _loggerFactory.CreateLogger<GameAgent>();
+            var agent = new GameAgent(
+                gameId,
+                _scopeFactory,
+                _agentBus,
+                _gameEngine,
+                _ragService,
+                _systemRegistry,
+                agentLogger);
+
+            if (_agents.TryAdd(gameId, agent))
+            {
+                var logger = _loggerFactory.CreateLogger<GameAgentManager>();
+                logger.LogInformation("Created new game agent for game {GameId}", gameId);
+            }
+
+            return agent;
+        }
     }
 
     public void Remove(Guid gameId)
@@ -516,7 +549,9 @@ public class GameAgentManager : IGameAgentManager, IDisposable
         {
             try
             {
-                GetOrCreate(gameId);
+                var agent = GetOrCreate(gameId);
+                // Start the processing loop — without this, recovered agents are dead (never start polling)
+                await agent.StartAsync(gameId, Guid.Empty);
                 logger.LogInformation("Recovered game agent for game {GameId}", gameId);
             }
             catch (Exception ex)

@@ -44,8 +44,9 @@ public class GameAuthorizationService : IGameAuthorizationService
         var game = await context.Games
             .FirstOrDefaultAsync(g => g.Id == gameId);
         if (game == null) return false;
-        // Creator can always admin. GM agent running doesn't change this.
-        return game.CreatorId == userId;
+        // Creator can always admin. Also allow admin if GM agent is running.
+        if (game.CreatorId == userId) return true;
+        return game.GMStatus == GMStatus.Running;
     }
 
     public async Task<bool> HasGmRoleAsync(AppDbContext context, Guid gameId, Guid userId)
