@@ -113,8 +113,11 @@ public class PlayerManagementService : IPlayerManagementService
 
     public async Task<List<object>> GetPlayersAsync(Guid gameId, AppDbContext context)
     {
+        // Use explicit includes to avoid N+1 queries on User and Character
         return (await context.Players
             .Where(p => p.GameId == gameId)
+            .Include(p => p.User)
+            .Include(p => p.Character)
             .Select(p => new
             {
                 p.Id,
@@ -122,7 +125,7 @@ public class PlayerManagementService : IPlayerManagementService
                 p.Role,
                 p.Status,
                 p.JoinedAt,
-                p.Character,
+                Character = p.Character != null ? new { p.Character.Id, p.Character.Name, p.Character.Class, p.Character.Level } : null,
                 UserName = p.User != null ? (p.User.DisplayName ?? p.User.Email) : "Unknown",
                 UserEmail = p.User != null ? p.User.Email : null
             })

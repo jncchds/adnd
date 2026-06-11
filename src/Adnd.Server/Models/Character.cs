@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Adnd.Server.Models;
 
-public class Character
+public class Character : ISoftDelete
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid PlayerId { get; set; }
@@ -33,4 +33,8 @@ public class Character
     public int? SpellAttackBonus { get; set; }
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    // Soft-delete support
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
 }

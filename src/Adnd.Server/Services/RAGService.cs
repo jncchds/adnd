@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -57,6 +58,8 @@ public class RAGService : IRAGService
     private readonly ILLMProviderFactory _providerFactory;
     private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<RAGService> _logger;
+    private readonly ConcurrentDictionary<string, (float[] Embedding, DateTime ExpiresAt)> _embeddingCache = new();
+    private const int CacheTtlMinutes = 60;
 
     public RAGService(
         AppDbContext context,
@@ -103,11 +106,17 @@ public class RAGService : IRAGService
             }
         }
 
-        // NPCs
-        if (game.NPCs.Any())
+        // NPCs — limit to active/relevant NPCs to reduce context size
+        var relevantNPCs = await _context.NPCs
+            .Where(n => n.GameId == gameId)
+            .OrderByDescending(n => n.CreatedAt)
+            .Take(10)
+            .ToListAsync();
+
+        if (relevantNPCs.Any())
         {
             contextParts.Add("\n## NPCs:");
-            foreach (var npc in game.NPCs.Take(10))
+            foreach (var npc in relevantNPCs)
             {
                 contextParts.Add($"- **{npc.Name}**: {npc.Description ?? "No description"}");
             }
@@ -438,9 +447,18 @@ public class RAGService : IRAGService
         try
         {
             var embedding = await _embeddingService.GenerateEmbeddingAsync(session.GameId, content);
-            message.Embedding = embedding != null ? new Vector(embedding) : null;
-            await _context.SaveChangesAsync();
-            _logger.LogDebug("Generated embedding for message {MessageId}", messageId);
+            
+            // Validate embedding dimension
+            if (embedding != null && embedding.Length > 0)
+            {
+                message.Embedding = new Vector(embedding);
+                await _context.SaveChangesAsync();
+                _logger.LogDebug("Generated embedding for message {MessageId} with dimension {Dimension}", messageId, embedding.Length);
+            }
+            else
+            {
+                _logger.LogWarning("Embedding returned empty for message {MessageId}", messageId);
+            }
         }
         catch (Exception ex)
         {

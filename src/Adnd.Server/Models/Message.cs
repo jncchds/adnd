@@ -4,7 +4,7 @@ using Pgvector;
 
 namespace Adnd.Server.Models;
 
-public class Message
+public class Message : ISoftDelete
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid SessionId { get; set; }
@@ -28,6 +28,10 @@ public class Message
 
     // PGVector embedding for semantic search
     public Vector? Embedding { get; set; }
+
+    // Soft-delete support
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
 }
 
 public enum MessageType

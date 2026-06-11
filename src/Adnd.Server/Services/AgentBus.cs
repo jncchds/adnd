@@ -98,6 +98,7 @@ public class AgentBus : IAgentBus
     private readonly ILogger<AgentBus> _logger;
     private readonly IHubContext<GameHub> _hubContext;
     private readonly IMediator _mediator;
+    private readonly IDeadLetterQueue _dlq;
 
     public AgentBus(
         AppDbContext context,
@@ -112,7 +113,8 @@ public class AgentBus : IAgentBus
         IApiKeyEncryptionService encryption,
         ILogger<AgentBus> logger,
         IHubContext<GameHub> hubContext,
-        IMediator mediator)
+        IMediator mediator,
+        IDeadLetterQueue dlq)
     {
         _context = context;
         _providerFactory = providerFactory;
@@ -127,6 +129,7 @@ public class AgentBus : IAgentBus
         _logger = logger;
         _hubContext = hubContext;
         _mediator = mediator;
+        _dlq = dlq;
     }
 
     private readonly object _decryptionLock = new();
@@ -166,6 +169,9 @@ public class AgentBus : IAgentBus
 
         _logger.LogInformation("[AGENT_CALL] Queued | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | SessionId={SessionId}",
             call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.SessionId);
+
+        // Wake up the GameAgent immediately — eliminates polling delay
+        await _mediator.Publish(new Events.AgentCallQueued(call.GameId, call.Id));
 
         return call;
     }

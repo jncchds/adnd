@@ -1,6 +1,6 @@
 namespace Adnd.Server.Models;
 
-public class Player
+public class Player : ISoftDelete
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid GameId { get; set; }
@@ -12,6 +12,10 @@ public class Player
     public PlayerStatus Status { get; set; } = PlayerStatus.Active;
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LeftAt { get; set; }
+
+    // Soft-delete support
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
 
     // Whisper settings
     public bool CanWhisper { get; set; } = true;

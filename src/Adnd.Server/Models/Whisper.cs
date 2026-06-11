@@ -1,3 +1,6 @@
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Text;
+
 namespace Adnd.Server.Models;
 
 /// <summary>
@@ -16,12 +19,26 @@ public class Whisper
     public Guid FromPlayerId { get; set; }
     public Player? FromPlayer { get; set; }
 
-    // Targets: stored as comma-separated or JSON array
-    // "all" = group whisper to all players
-    // "player:{userId}" = targeted whisper
-    // "group:{groupName}" = group whisper to named group
-    public string Targets { get; set; } = string.Empty;
+    // TargetPlayerIds: list of player IDs to whisper to
+    // "all" is represented as a special entry with Guid.Empty
     public List<Guid> TargetPlayerIds { get; set; } = new();
+
+    // Computed property for API responses — derived from TargetPlayerIds
+    [NotMapped]
+    public string Targets
+    {
+        get
+        {
+            if (TargetPlayerIds.Count == 0) return "all";
+            var sb = new StringBuilder();
+            foreach (var id in TargetPlayerIds)
+            {
+                if (sb.Length > 0) sb.Append(',');
+                sb.Append(id == Guid.Empty ? "all" : $"player:{id}");
+            }
+            return sb.ToString();
+        }
+    }
 
     // Content
     public string Content { get; set; } = string.Empty;

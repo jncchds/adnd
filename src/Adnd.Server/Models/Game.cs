@@ -1,6 +1,6 @@
 namespace Adnd.Server.Models;
 
-public class Game
+public class Game : ISoftDelete
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid CreatorId { get; set; }
@@ -30,6 +30,10 @@ public class Game
     public string? PlotSeed { get; set; } // JSON: initial plot, tone, themes
     public string? GameParameters { get; set; } // JSON: difficulty, tone, pacing
     public string? GameState { get; set; } // JSON: current game state managed by GM/LLM
+
+    // Soft-delete support
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
 
     public ICollection<Player> Players { get; set; } = new List<Player>();
     public ICollection<GameSession> Sessions { get; set; } = new List<GameSession>();

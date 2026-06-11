@@ -82,8 +82,9 @@ public class WhisperService : IWhisperService
             GameId = gameId,
             SessionId = sessionId,
             FromPlayerId = fromPlayerId,
-            Targets = targets,
-            TargetPlayerIds = targetIds,
+            TargetPlayerIds = string.IsNullOrEmpty(targets) || targets == "all"
+                ? new List<Guid>()  // empty = "all" (computed property returns "all")
+                : targetIds,
             Content = content,
             Type = type,
             CreatedAt = DateTime.UtcNow
@@ -106,7 +107,6 @@ public class WhisperService : IWhisperService
             GameId = gameId,
             SessionId = sessionId,
             FromPlayerId = fromPlayerId,
-            Targets = FormatTargets(targetPlayerIds),
             TargetPlayerIds = targetPlayerIds,
             Content = content,
             Type = type,
@@ -141,7 +141,7 @@ public class WhisperService : IWhisperService
             .Where(w => w.GameId == gameId &&
                 (w.FromPlayerId == playerId ||
                  w.TargetPlayerIds.Contains(playerId) ||
-                 w.Targets == "all"))
+                 w.TargetPlayerIds.Count == 0))  // empty list = "all"
             .Include(w => w.FromPlayer!)
             .ThenInclude(p => p.User!)
             .OrderByDescending(w => w.CreatedAt)
@@ -160,8 +160,18 @@ public class WhisperService : IWhisperService
         if (!groupPlayers.Any())
             return new List<Whisper>();
 
+        // Groups are no longer stored as a separate targets format — use TargetPlayerIds
+        // For group whispers, find whispers that target any player in the group
+        var groupPlayerIds = await _context.Players
+            .Where(p => p.GameId == gameId && p.WhisperGroups != null && p.WhisperGroups.Contains(groupName))
+            .Select(p => p.Id)
+            .ToListAsync();
+
+        if (!groupPlayerIds.Any())
+            return new List<Whisper>();
+
         return await _context.Whispers
-            .Where(w => w.GameId == gameId && w.Targets.Contains($"group:{groupName}"))
+            .Where(w => w.GameId == gameId && w.TargetPlayerIds.Any(tid => groupPlayerIds.Contains(tid)))
             .Include(w => w.FromPlayer!)
             .ThenInclude(p => p.User!)
             .OrderByDescending(w => w.CreatedAt)

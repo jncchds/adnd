@@ -25,10 +25,22 @@ public class DiceEngine : IDiceEngine
         if (string.IsNullOrWhiteSpace(formula))
             throw new ArgumentException("Dice formula cannot be empty.", nameof(formula));
 
+        // Formula length limit to prevent abuse/DoS
+        if (formula.Length > 500)
+            throw new ArgumentException("Dice formula too long (max 500 characters).", nameof(formula));
+
         var (diceCount, diceType, modifier, options) = ParseFormula(formula);
 
         if (diceCount <= 0 || diceType <= 0)
-            throw new ArgumentException($"Invalid dice formula: {formula}");
+            throw new ArgumentException($"Invalid dice formula: {formula}. Dice count and type must be > 0.");
+
+        // Type validation: prevent unreasonably large dice
+        if (diceType > 10000)
+            throw new ArgumentException($"Dice type too large ({diceType}). Maximum is 10000.");
+
+        // Type validation: prevent unreasonably large count
+        if (diceCount > 1000)
+            throw new ArgumentException($"Dice count too large ({diceCount}). Maximum is 1000.");
 
         var rolls = new int[diceCount];
         for (int i = 0; i < diceCount; i++)

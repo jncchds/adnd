@@ -2,9 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
+using Adnd.Server.Events;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using MediatR;
 
 namespace Adnd.Server.Agent;
 
@@ -21,10 +23,24 @@ public class GameAgent : IGameAgent
     private readonly IRAGService _ragService;
     private readonly ISystemRegistry _systemRegistry;
     private readonly ILogger<GameAgent> _logger;
+    private readonly IMediator _mediator;
     private readonly CancellationTokenSource _cts = new();
+    private TaskCompletionSource<bool> _wakeupTcs;
     private Task? _processingLoop;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private volatile bool _isPaused = false;
+
+    /// <summary>
+    /// Wake up the processing loop immediately (used by MediatR event subscriber).
+    /// The loop waits on _wakeupTcs when idle — resetting it signals the loop to check for pending calls.
+    /// </summary>
+    public void WakeUp()
+    {
+        // Reset the TCS so the loop can wait on it again next idle cycle
+        // Create a new TCS since the old one is already completed
+        _wakeupTcs.TrySetResult(true);
+        _wakeupTcs = new TaskCompletionSource<bool>();
+    }
 
     public GameAgent(
         Guid gameId,
@@ -33,7 +49,8 @@ public class GameAgent : IGameAgent
         IGameEngine gameEngine,
         IRAGService ragService,
         ISystemRegistry systemRegistry,
-        ILogger<GameAgent> logger)
+        ILogger<GameAgent> logger,
+        IMediator mediator)
     {
         _gameId = gameId;
         _scopeFactory = scopeFactory;
@@ -42,6 +59,8 @@ public class GameAgent : IGameAgent
         _ragService = ragService;
         _systemRegistry = systemRegistry;
         _logger = logger;
+        _mediator = mediator;
+        _wakeupTcs = new TaskCompletionSource<bool>();
     }
 
     private async Task WithContextAsync(Func<AppDbContext, Task> action)
@@ -155,6 +174,9 @@ public class GameAgent : IGameAgent
 
         _logger.LogDebug("Event queued for game {GameId}: {FromAgent} → {ToAgent} [{Action}]",
             gameId, call.FromAgent, call.ToAgent, call.Action);
+
+        // Wake up the GameAgent immediately — eliminates polling delay
+        // Note: we can't access _mediator here directly, so the caller (AgentBus) handles publishing
     }
 
     public async Task<GMStatus> GetStatusAsync(Guid gameId)
@@ -184,6 +206,8 @@ public class GameAgent : IGameAgent
     /// <summary>
     /// Main processing loop — picks up pending events from the DB and processes them.
     /// Survives restarts because it polls the database for pending events.
+    /// Uses MediatR event (AgentCallQueued) to wake up immediately when calls are queued,
+    /// eliminating the 1s polling delay while keeping crash recovery via polling.
     /// </summary>
     private async Task ProcessLoopAsync()
     {
@@ -229,7 +253,19 @@ public class GameAgent : IGameAgent
 
                     if (pendingCalls.Count == 0)
                     {
-                        await Task.Delay(1000, _cts.Token);
+                        // Wait for wakeup signal (from AgentCallQueued event) or timeout (crash recovery)
+                        try
+                        {
+                            await Task.WhenAny(
+                                _wakeupTcs.Task,
+                                Task.Delay(1000, _cts.Token));
+                            // Reset for next idle cycle
+                            _wakeupTcs = new TaskCompletionSource<bool>();
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
                         continue;
                     }
 
@@ -366,6 +402,9 @@ public class GameAgent : IGameAgent
                                         await context.SaveChangesAsync();
                                     }
 
+                                    // Wake up the GameAgent immediately
+                                    await _mediator.Publish(new AgentCallQueued(_gameId, autoNarrateCall.Id));
+
                                     _logger.LogInformation("Auto-narrate triggered for game {GameId}: {Reason} after {Minutes}m idle",
                                         _gameId, triggerReason, idleThreshold.TotalMinutes);
                                 }
@@ -448,7 +487,6 @@ public class GameAgent : IGameAgent
 public class GameAgentManager : IGameAgentManager, IDisposable
 {
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IAgentBus _agentBus;
     private readonly IGameEngine _gameEngine;
     private readonly IRAGService _ragService;
     private readonly ISystemRegistry _systemRegistry;
@@ -457,18 +495,37 @@ public class GameAgentManager : IGameAgentManager, IDisposable
 
     public GameAgentManager(
         IServiceScopeFactory scopeFactory,
-        IAgentBus agentBus,
         IGameEngine gameEngine,
         IRAGService ragService,
         ISystemRegistry systemRegistry,
         ILoggerFactory loggerFactory)
     {
         _scopeFactory = scopeFactory;
-        _agentBus = agentBus;
         _gameEngine = gameEngine;
         _ragService = ragService;
         _systemRegistry = systemRegistry;
         _loggerFactory = loggerFactory;
+    }
+
+    /// <summary>
+    /// Wake up a GameAgent when a new call is queued — eliminates polling delay.
+    /// Called by the AgentCallQueued event handler.
+    /// </summary>
+    public void OnAgentCallQueued(Guid gameId, Guid callId)
+    {
+        if (_agents.TryGetValue(gameId, out var agent))
+        {
+            try
+            {
+                agent.WakeUp();
+            }
+            catch (Exception ex)
+            {
+                _loggerFactory.CreateLogger<GameAgentManager>()
+                    .LogWarning(ex, "Failed to wake up game agent for game {GameId}", gameId);
+            }
+        }
+        // If agent doesn't exist yet, the polling loop will pick it up within 1s
     }
 
     public IGameAgent GetOrCreate(Guid gameId)
@@ -495,14 +552,19 @@ public class GameAgentManager : IGameAgentManager, IDisposable
             }
 
             var agentLogger = _loggerFactory.CreateLogger<GameAgent>();
+            // Resolve IAgentBus and IMediator within a scope to avoid singleton-scoped DbContext sharing
+            using var scope = _scopeFactory.CreateScope();
+            var agentBus = scope.ServiceProvider.GetRequiredService<IAgentBus>();
+            var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
             var agent = new GameAgent(
                 gameId,
                 _scopeFactory,
-                _agentBus,
+                agentBus,
                 _gameEngine,
                 _ragService,
                 _systemRegistry,
-                agentLogger);
+                agentLogger,
+                mediator);
 
             if (_agents.TryAdd(gameId, agent))
             {

@@ -66,4 +66,10 @@ public interface IGameAgentManager
     /// Start all game agents that should be running (called on startup to recover from restart).
     /// </summary>
     Task StartAllActiveGamesAsync();
+
+    /// <summary>
+    /// Wake up a GameAgent when a new call is queued — eliminates polling delay.
+    /// Called by the AgentCallQueued event handler.
+    /// </summary>
+    void OnAgentCallQueued(Guid gameId, Guid callId);
 }

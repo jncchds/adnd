@@ -37,6 +37,11 @@ public class GMToolCall
     public DateTime? CompletedAt { get; set; }
     public int DurationMs { get; set; }
 
+    // Expiration: tool calls waiting confirmation expire after this duration
+    public TimeSpan? ExpirationTime { get; set; } = TimeSpan.FromMinutes(5);
+    public bool IsExpired => RequiresConfirmation && CompletedAt == null && 
+        CreatedAt.Add(ExpirationTime.Value) < DateTime.UtcNow;
+
     // Parent tool call chain
     public Guid? ParentToolCallId { get; set; }
     public GMToolCall? ParentToolCall { get; set; }

@@ -54,6 +54,68 @@ public class PlotWeaver : IPlotWeaver
         return await _context.PlotThreads.AnyAsync(t => t.GameId == gameId);
     }
 
+    /// <summary>
+    /// Check if a thread with a similar title already exists for this game.
+    /// Uses case-insensitive substring matching to detect duplicates.
+    /// </summary>
+    public async Task<bool> HasSimilarThreadAsync(Guid gameId, string title, float similarityThreshold = 0.8f)
+    {
+        // Case-insensitive check for similar titles
+        var normalizedTitle = title.Trim().ToLower();
+        
+        var existingThreads = await _context.PlotThreads
+            .Where(t => t.GameId == gameId && t.Status == PlotThreadStatus.Active)
+            .Select(t => t.Title.ToLower())
+            .ToListAsync();
+
+        foreach (var existing in existingThreads)
+        {
+            // Simple similarity: check if one contains the other or they share > 80% characters
+            var intersection = existing.Intersect(normalizedTitle).Count();
+            var union = existing.Concat(normalizedTitle).Distinct().Count();
+            var similarity = union > 0 ? (double)intersection / union : 0;
+            
+            if (similarity >= similarityThreshold)
+                return true;
+            
+            // Also check substring match
+            if (existing.Contains(normalizedTitle) || normalizedTitle.Contains(existing))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Archive old plot threads that have been resolved/abandoned for more than 30 days.
+    /// This prevents unbounded growth of the PlotThreads table.
+    /// </summary>
+    public async Task<int> ArchiveOldThreadsAsync(Guid gameId)
+    {
+        var threshold = DateTime.UtcNow.AddDays(-30);
+        
+        var oldThreads = await _context.PlotThreads
+            .Where(t => t.GameId == gameId && 
+                        (t.Status == PlotThreadStatus.Resolved || t.Status == PlotThreadStatus.Abandoned) &&
+                        t.UpdatedAt.HasValue &&
+                        t.UpdatedAt.Value < threshold)
+            .ToListAsync();
+
+        if (!oldThreads.Any())
+            return 0;
+
+        // Soft-delete old threads
+        foreach (var thread in oldThreads)
+        {
+            thread.IsDeleted = true;
+            thread.DeletedAt = DateTime.UtcNow;
+        }
+
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("Archived {Count} old plot threads for game {GameId}", oldThreads.Count, gameId);
+        return oldThreads.Count;
+    }
+
     public async Task<List<PlotThread>> GenerateInitialThreadsAsync(
         Guid gameId, string premise, string parameters, string systemId, Guid? presetId)
     {
@@ -115,8 +177,12 @@ public class PlotWeaver : IPlotWeaver
         if (game.LLMPreset == null)
             throw new InvalidOperationException("Cannot review: no LLM preset configured.");
 
+        // Limit to top 20 threads by relevance to reduce LLM prompt size
         var threads = await _context.PlotThreads
             .Where(t => t.GameId == gameId && t.Status == PlotThreadStatus.Active)
+            .OrderByDescending(t => t.RelevanceScore)
+            .ThenByDescending(t => t.Momentum)
+            .Take(20)
             .ToListAsync();
 
         if (!threads.Any())
@@ -186,23 +252,36 @@ public class PlotWeaver : IPlotWeaver
     private async Task ComputeRelevanceScores(Guid gameId, List<PlotThread> threads)
     {
         var now = DateTime.UtcNow;
+        var updatedThreads = new List<PlotThread>();
+
         foreach (var thread in threads)
         {
+            float newScore;
             if (thread.Status == PlotThreadStatus.Active)
             {
                 var momentumWeight = (thread.Momentum + 10f) / 20f;
                 var recency = thread.UpdatedAt.HasValue
                     ? (float)Math.Max(0, 1 - (now - thread.UpdatedAt.Value).TotalHours / 72)
                     : 0.5f;
-                thread.RelevanceScore = momentumWeight * 0.6f + recency * 0.4f;
+                newScore = momentumWeight * 0.6f + recency * 0.4f;
             }
             else
             {
-                thread.RelevanceScore = 0;
+                newScore = 0;
+            }
+
+            // Only update if score changed by more than 0.01 to avoid unnecessary writes
+            if (Math.Abs(thread.RelevanceScore - newScore) > 0.01f)
+            {
+                thread.RelevanceScore = newScore;
+                updatedThreads.Add(thread);
             }
         }
 
-        await _context.SaveChangesAsync();
+        if (updatedThreads.Any())
+        {
+            await _context.SaveChangesAsync();
+        }
     }
 
     // ==================== Dynamic Generation ====================
@@ -279,8 +358,12 @@ public class PlotWeaver : IPlotWeaver
         if (game.LLMPreset == null)
             throw new InvalidOperationException("Cannot detect opportunities: no LLM preset configured.");
 
+        // Limit to top 20 threads by relevance to reduce LLM prompt size
         var threads = await _context.PlotThreads
             .Where(t => t.GameId == gameId && t.Status == PlotThreadStatus.Active)
+            .OrderByDescending(t => t.RelevanceScore)
+            .ThenByDescending(t => t.Momentum)
+            .Take(20)
             .ToListAsync();
 
         return await _opportunityDetectionStrategy.DetectAsync(

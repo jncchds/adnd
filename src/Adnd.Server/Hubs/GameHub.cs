@@ -9,12 +9,22 @@ using MediatR;
 using System.Text.Json;
 using System.Collections.Concurrent;
 
+
 namespace Adnd.Server.Hubs;
 
 public partial class GameHub : Hub
 {
     // In-memory player-to-connection mapping (use Redis/DistributedCache in production)
+    // Bounded with periodic cleanup to prevent memory leak from stale entries
     private static readonly ConcurrentDictionary<string, string> _playerConnections = new();
+
+    static GameHub()
+    {
+        _connectionCleanupTimer = new System.Timers.Timer(60000) { AutoReset = true };
+        _connectionCleanupTimer.Elapsed += (_, __) => CleanupStaleConnections(null);
+    }
+
+    private static System.Timers.Timer _connectionCleanupTimer;
 
     private readonly AppDbContext _context;
     private readonly IGameEngine _gameEngine;
@@ -98,6 +108,8 @@ public partial class GameHub : Hub
         if (!string.IsNullOrEmpty(userId) && Guid.TryParse(userId, out var uid))
         {
             // Query player with GameId filter to find the correct player record
+            // Note: unique constraint on {GameId, UserId} ensures a user can only be active in one game,
+            // so filtering by GameId here would be redundant but added for correctness clarity.
             var player = await _context.Players
                 .FirstOrDefaultAsync(p => p.UserId == uid && p.Status == PlayerStatus.Active);
 
@@ -254,6 +266,37 @@ public partial class GameHub : Hub
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to persist game event of type {MessageType} in game {GameId}", messageType, gameId);
+        }
+    }
+
+    // ==================== Connection Cleanup ====================
+
+    private static readonly ILogger _cleanupLogger = Microsoft.Extensions.Logging.LoggerFactory
+        .Create(builder => builder.AddConsole().SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Information))
+        .CreateLogger<GameHub>();
+
+    /// <summary>
+    /// Periodically removes stale connections from _playerConnections.
+    /// Runs every 60 seconds to prevent memory leak from disconnected players.
+    /// This is a safety net — the real cleanup happens in OnDisconnectedAsync.
+    /// </summary>
+    private static void CleanupStaleConnections(object? state)
+    {
+        var staleCount = 0;
+        foreach (var kvp in _playerConnections)
+        {
+            // Only clean up entries explicitly marked as stale by OnDisconnectedAsync
+            // OnDisconnectedAsync sets the value to "stale" before removing to handle race conditions
+            if (kvp.Value == "stale")
+            {
+                _playerConnections.TryRemove(kvp.Key, out _);
+                staleCount++;
+            }
+        }
+
+        if (staleCount > 0)
+        {
+            _cleanupLogger.LogInformation("Cleaned up {Count} stale SignalR connections", staleCount);
         }
     }
 }

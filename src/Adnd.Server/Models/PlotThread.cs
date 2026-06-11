@@ -3,7 +3,7 @@ using Pgvector;
 
 namespace Adnd.Server.Models;
 
-public class PlotThread
+public class PlotThread : ISoftDelete
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid GameId { get; set; }
@@ -40,6 +40,10 @@ public class PlotThread
 
     // PGVector embedding for semantic search
     public Vector? Embedding { get; set; }
+
+    // Soft-delete support
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
 }
 
 public enum PlotThreadStatus

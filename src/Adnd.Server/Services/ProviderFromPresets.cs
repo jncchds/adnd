@@ -10,14 +10,15 @@ public class OllamaLLMProviderFromPreset : BaseLLMProvider
     private readonly string _embeddingUrl;
     private readonly string _embeddingModel;
 
-    public OllamaLLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null)
+    public OllamaLLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null, IHttpClientFactory? httpClientFactory = null)
         : base(logger ?? new NullLogger<OllamaLLMProviderFromPreset>(), configuration ?? new NullConfiguration())
     {
         _baseUrl = preset.EndpointUrl ?? "http://localhost:11434";
         _model = preset.BaseModel;
         _embeddingUrl = preset.EmbeddingEndpointUrl ?? _baseUrl;
         _embeddingModel = preset.EmbeddingModel ?? "nomic-embed-text";
-        _httpClient = new HttpClient();
+        // Use IHttpClientFactory for connection pooling — falls back to new HttpClient() if not provided
+        _httpClient = httpClientFactory?.CreateClient("LLMProvider") ?? new HttpClient();
     }
 
     public override string ProviderId => "ollama";
@@ -107,14 +108,15 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
     private readonly string _embeddingUrl;
     private readonly string _embeddingModel;
 
-    public LmStudioLLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null)
+    public LmStudioLLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null, IHttpClientFactory? httpClientFactory = null)
         : base(logger ?? new NullLogger<LmStudioLLMProviderFromPreset>(), configuration ?? new NullConfiguration())
     {
         _baseUrl = preset.EndpointUrl ?? "http://localhost:1234";
         _model = preset.BaseModel;
         _embeddingUrl = preset.EmbeddingEndpointUrl ?? _baseUrl;
         _embeddingModel = preset.EmbeddingModel ?? "nomic-embed-text";
-        _httpClient = new HttpClient();
+        // Use IHttpClientFactory for connection pooling — falls back to new HttpClient() if not provided
+        _httpClient = httpClientFactory?.CreateClient("LLMProvider") ?? new HttpClient();
         var apiKey = preset.DecryptedApiKey ?? preset.ApiKey;
         if (!string.IsNullOrEmpty(apiKey))
             _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
@@ -225,7 +227,7 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
     private readonly string _embeddingUrl;
     private readonly string _embeddingModel;
 
-    public OpenAILLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null)
+    public OpenAILLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null, IHttpClientFactory? httpClientFactory = null)
         : base(logger ?? new NullLogger<OpenAILLMProviderFromPreset>(), configuration ?? new NullConfiguration())
     {
         _baseUrl = preset.EndpointUrl ?? "https://api.openai.com/v1";
@@ -233,7 +235,8 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
         _apiKey = preset.DecryptedApiKey ?? preset.ApiKey ?? throw new InvalidOperationException("API key is required");
         _embeddingUrl = preset.EmbeddingEndpointUrl ?? _baseUrl;
         _embeddingModel = preset.EmbeddingModel ?? "text-embedding-3-small";
-        _httpClient = new HttpClient();
+        // Use IHttpClientFactory for connection pooling — falls back to new HttpClient() if not provided
+        _httpClient = httpClientFactory?.CreateClient("LLMProvider") ?? new HttpClient();
         _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
     }
 
@@ -332,14 +335,15 @@ public class GoogleAIStudioLLMProviderFromPreset : BaseLLMProvider
     private readonly string _embeddingUrl;
     private readonly string _embeddingModel;
 
-    public GoogleAIStudioLLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null)
+    public GoogleAIStudioLLMProviderFromPreset(LLMPreset preset, ILogger<BaseLLMProvider>? logger = null, IConfiguration? configuration = null, IHttpClientFactory? httpClientFactory = null)
         : base(logger ?? new NullLogger<GoogleAIStudioLLMProviderFromPreset>(), configuration ?? new NullConfiguration())
     {
         _apiKey = preset.DecryptedApiKey ?? preset.ApiKey ?? throw new InvalidOperationException("API key is required");
         _model = preset.BaseModel;
         _embeddingUrl = preset.EmbeddingEndpointUrl ?? "https://generativelanguage.googleapis.com";
         _embeddingModel = preset.EmbeddingModel ?? "text-embedding-004";
-        _httpClient = new HttpClient();
+        // Use IHttpClientFactory for connection pooling — falls back to new HttpClient() if not provided
+        _httpClient = httpClientFactory?.CreateClient("LLMProvider") ?? new HttpClient();
     }
 
     public override string ProviderId => "google";

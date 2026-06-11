@@ -523,18 +523,39 @@
 
 ## Implementation Order
 
-### Subplan 1: Critical Blockers (START HERE)
-1. Fix SignalR `_playerConnections` key mismatch
-2. Fix Agent Framework DbContext lifetime
-3. Fix Agent Framework recovery (StartAsync)
-4. Fix Resilience circuit breaker singleton
-5. Fix Dice Engine thread safety
-6. Fix MediatR handler per-game counter
-7. Fix Frontend skills tab + attribute loading
+### Subplan 1: Critical Blockers ✅ COMPLETE
+All 8 issues already fixed in current codebase.
 
-### Subplan 2: Core Correctness
-### Subplan 3: Performance
-### Subplan 4: Completeness
+### Subplan 2: Core Correctness (IN PROGRESS)
+1. Auth: ✅ Already fixed
+2. SignalR: ✅ Already fixed (AddParticipant validation, StartCombat check)
+3. Game Management: ✅ Already fixed (delete cascade → NULL, invite code datetime concat, leave as player)
+4. DB: ✅ Whispers duplicate columns fixed (Targets → computed property)
+5. Agent Framework: ✅ Fixed — AgentBus context sharing resolved
+6. Resilience: ✅ Already fixed
+7. Dice: ✅ Already fixed
+8. Character: ✅ Already fixed
+
+### Subplan 3: Performance ✅ COMPLETE
+1. Agent: polling → MediatR (AgentCallQueued event + WakeUp TCS)
+2. Game Management: N+1 query fixes (explicit Includes)
+3. PlotWeaver: pagination (limit 20 threads), relevance score dedup
+4. LLM Provider: IHttpClientFactory for all preset-based providers
+5. RAG: NPC limit in GeneratePlotContextAsync
+6. SignalR: periodic connection cleanup timer
+7. MediatR: query batching (already optimized in handlers)
+8. Frontend: memoization (useCallback already in useCharacter)
+
+### Subplan 4: Completeness ✅ COMPLETE
+1. Soft-delete: ISoftDelete interface + IsDeleted/DeletedAt on Game, Player, Message, Character, NPC, PlotThread + EF Core HasQueryFilter
+2. Agent DLQ: DeadLetterQueue service with retry (3 max), archive, stats
+3. Health checks: Real LLM provider health check (checks all presets), PgVector extension check
+4. Dice Engine: Formula length limit (500), type/count validation (max 10000/1000)
+5. PlotWeaver: HasSimilarThreadAsync dedup, ArchiveOldThreadsAsync (30-day TTL)
+6. RAG: Embedding cache (60min TTL), dimension validation on generation
+7. GM Tool Calls: Expiration (5min default), validation, history endpoint
+8. LLM Provider: Health monitoring via LlmProvidersHealthCheck
+
 ### Subplan 5: Polish
 
 ---

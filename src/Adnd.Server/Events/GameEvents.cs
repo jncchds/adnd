@@ -123,6 +123,10 @@ public record StorySwayed(Guid GameId, Guid CreatorId, string Direction) : INoti
 
 public record GMActioned(Guid GameId, string Action, string? OutputMessage, string? Error) : INotification;
 
+// ==================== Agent Call Events ====================
+
+public record AgentCallQueued(Guid GameId, Guid CallId) : INotification;
+
 // ==================== Helper Enums (inline to avoid duplicate definitions) ====================
 
 public enum MessageType

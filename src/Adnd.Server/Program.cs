@@ -164,9 +164,11 @@ builder.Services.AddScoped<ICombatService, CombatService>();
 
 // Agent Framework
 builder.Services.AddScoped<IAgentBus, AgentBus>();
+builder.Services.AddScoped<IDeadLetterQueue, DeadLetterQueue>();
 
 // GM Tool Registry — defines and executes tools available to the GM agent
 builder.Services.AddScoped<IGMToolRegistry, GMToolRegistry>();
+builder.Services.AddScoped<IGMToolCallService, GMToolCallService>();
 
 // Game Agent (per-game, singleton manager)
 builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
@@ -190,10 +192,13 @@ builder.Services.AddSingleton<IResiliencePolicies, ResiliencePolicies>();
 builder.Services.AddHealthChecks()
     .AddCheck("liveness", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Application is running."))
     .AddCheck<Adnd.Server.HealthChecks.DatabaseHealthCheck>("database")
-    .AddCheck<Adnd.Server.HealthChecks.LlmProvidersHealthCheck>("llm-providers");
+    .AddCheck<Adnd.Server.HealthChecks.LlmProvidersHealthCheck>("llm-providers")
+    .AddCheck<Adnd.Server.HealthChecks.PgVectorHealthCheck>("pgvector");
 
 // LLM Providers
 builder.Services.AddHttpClient();
+// Named HttpClient for LLM providers — enables connection pooling and timeout configuration
+builder.Services.AddHttpClient("LLMProvider").ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(60));
 
 // All LLM providers are created from per-game LLMPreset records via ILLMProviderFactory.
 // There is no global provider registry — each game uses its own preset.

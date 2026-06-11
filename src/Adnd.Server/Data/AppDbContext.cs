@@ -364,5 +364,14 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<GameTemplate>()
             .HasIndex(gt => new { gt.UserId, gt.CreatedAt })
             .IsDescending(new[] { false, true });
+
+        // ==================== Soft-Delete Query Filters ====================
+        // Automatically exclude soft-deleted entities from all queries
+        modelBuilder.Entity<Game>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<Player>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<Message>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<Character>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<NPC>().HasQueryFilter(e => !e.IsDeleted);
+        modelBuilder.Entity<PlotThread>().HasQueryFilter(e => !e.IsDeleted);
     }
 }

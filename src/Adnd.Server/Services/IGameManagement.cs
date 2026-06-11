@@ -36,29 +36,34 @@ public class GameManagementService : IGameManagementService
         if (!Guid.TryParse(userId, out var id))
             return new();
 
-        return await _context.Games
+        // Use explicit includes to avoid N+1 queries on Creator and LLMPreset
+        var games = await _context.Games
+            .Include(g => g.Creator)
+            .Include(g => g.LLMPreset)
             .Where(g => g.CreatorId == id || g.Players.Any(p => p.UserId == id))
-            .Select(g => new GameResponse
-            {
-                Id = g.Id,
-                CreatorId = g.CreatorId,
-                CreatorName = g.Creator != null ? (g.Creator.DisplayName ?? g.Creator.Email) : "Unknown",
-                Name = g.Name,
-                SystemId = g.SystemId,
-                SystemVersion = g.SystemVersion,
-                Status = g.Status,
-                GMStatus = g.GMStatus,
-                CreatedAt = g.CreatedAt,
-                InviteCode = g.InviteCode,
-                LLMPresetId = g.LLMPresetId,
-                LLMPresetName = g.LLMPreset != null ? g.LLMPreset.Name : null,
-                Language = g.Language
-            })
             .ToListAsync();
+
+        return games.Select(g => new GameResponse
+        {
+            Id = g.Id,
+            CreatorId = g.CreatorId,
+            CreatorName = g.Creator != null ? (g.Creator.DisplayName ?? g.Creator.Email) : "Unknown",
+            Name = g.Name,
+            SystemId = g.SystemId,
+            SystemVersion = g.SystemVersion,
+            Status = g.Status,
+            GMStatus = g.GMStatus,
+            CreatedAt = g.CreatedAt,
+            InviteCode = g.InviteCode,
+            LLMPresetId = g.LLMPresetId,
+            LLMPresetName = g.LLMPreset != null ? g.LLMPreset.Name : null,
+            Language = g.Language
+        }).ToList();
     }
 
     public async Task<GameResponse?> GetGameAsync(Guid id, string userId)
     {
+        // Use explicit includes to avoid N+1 queries
         var game = await _context.Games
             .Include(g => g.Creator)
             .Include(g => g.LLMPreset)
@@ -69,7 +74,9 @@ public class GameManagementService : IGameManagementService
 
         if (userId != null && Guid.TryParse(userId, out var uid))
         {
-            var hasAccess = game.CreatorId == uid || game.Players.Any(p => p.UserId == uid);
+            // Check access with minimal query — just check if user is creator or has an active player record
+            var hasAccess = game.CreatorId == uid
+                || await _context.Players.AnyAsync(p => p.GameId == id && p.UserId == uid && p.Status == PlayerStatus.Active);
             if (!hasAccess)
                 return null;
         }
