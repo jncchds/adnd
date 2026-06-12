@@ -11,7 +11,7 @@ import { api } from '../api/client';
 import ToolCallBanner from '../components/ToolCallBanner';
 import ChatPanel from '../components/chat/ChatPanel';
 import { Box, Paper, Typography, Chip, IconButton, Collapse, TextField, MenuItem, Select, FormControl, InputLabel, Button } from '@mui/material';
-import { Send as SendIcon, SportsEsports as DiceIcon, ExpandMore, ExpandLess } from '@mui/icons-material';
+import { Send as SendIcon, ExpandMore, ExpandLess } from '@mui/icons-material';
 
 // ==================== Types ====================
 
@@ -304,39 +304,25 @@ function ChatInput({
 
       {/* Input row */}
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-        {/* Type toggle */}
-        <Box sx={{ display: 'flex', bgcolor: 'background.default', borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
-          <Button
-            size="small"
-            onClick={() => setInputType('inGame')}
-            sx={{
-              bgcolor: inputType === 'inGame' ? 'success.lighter' : 'transparent',
-              color: inputType === 'inGame' ? 'success.dark' : 'text.secondary',
-              minWidth: 80,
-              px: 2,
-              fontSize: 12,
-              fontWeight: inputType === 'inGame' ? 600 : 400,
-              '&:hover': { bgcolor: inputType === 'inGame' ? 'success.lighter' : 'action.hover' },
-            }}
-          >
-            🎮 In-Game
-          </Button>
-          <Button
-            size="small"
-            onClick={() => setInputType('ooc')}
-            sx={{
-              bgcolor: inputType === 'ooc' ? 'info.lighter' : 'transparent',
-              color: inputType === 'ooc' ? 'info.dark' : 'text.secondary',
-              minWidth: 80,
-              px: 2,
-              fontSize: 12,
-              fontWeight: inputType === 'ooc' ? 600 : 400,
-              '&:hover': { bgcolor: inputType === 'ooc' ? 'info.lighter' : 'action.hover' },
-            }}
-          >
-            📢 OOC
-          </Button>
-        </Box>
+        {/* Type toggle — single button */}
+        <Button
+          size="small"
+          onClick={() => setInputType(inputType === 'inGame' ? 'ooc' : 'inGame')}
+          sx={{
+            bgcolor: inputType === 'inGame' ? 'success.lighter' : 'info.lighter',
+            color: inputType === 'inGame' ? 'success.dark' : 'info.dark',
+            minWidth: 90,
+            px: 2,
+            fontSize: 12,
+            fontWeight: 600,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 2,
+            '&:hover': { bgcolor: inputType === 'inGame' ? 'success.lighter' : 'info.lighter' },
+          }}
+        >
+          {inputType === 'inGame' ? '🎮 In-Game' : '📢 OOC'}
+        </Button>
 
         {/* Receiver dropdown */}
         <FormControl size="small" sx={{ minWidth: 120, flexShrink: 0 }}>
@@ -363,19 +349,14 @@ function ChatInput({
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && onSend()}
           InputProps={{
             endAdornment: (
-              <Box sx={{ display: 'flex', gap: 0.25 }}>
-                <IconButton size="small" onClick={onDiceRoll} sx={{ color: 'text.secondary' }}>
-                  <DiceIcon fontSize="small" />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  onClick={onSend}
-                  disabled={!inputValue.trim()}
-                  sx={{ color: inputValue.trim() ? 'primary.main' : 'text.disabled' }}
-                >
-                  <SendIcon fontSize="small" />
-                </IconButton>
-              </Box>
+              <IconButton
+                size="small"
+                onClick={onSend}
+                disabled={!inputValue.trim()}
+                sx={{ color: inputValue.trim() ? 'primary.main' : 'text.disabled' }}
+              >
+                <SendIcon fontSize="small" />
+              </IconButton>
             ),
           }}
         />
@@ -444,7 +425,7 @@ export default function GameChatPage() {
         const full = await combatGetCombat(id, active.id);
         setActiveCombat({
           combatId: full.combatId,
-          name: full.name,
+          name: full.name || 'Unnamed Combat',
           status: full.status,
           currentRound: full.currentRound,
           currentTurnIndex: full.currentTurnIndex,
@@ -566,7 +547,7 @@ export default function GameChatPage() {
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: 'background.default' }}>
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', maxWidth: 900, mx: 'auto', width: '100%' }}>
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {/* Zone A: Collapsible Combat Panel */}
         {activeCombat && (
           <CollapsibleCombatPanel combat={activeCombat} gameId={id!} />
@@ -599,7 +580,7 @@ export default function GameChatPage() {
         </Box>
 
         {/* Zone C: Single-Line Input */}
-        <Box sx={{ px: 1.5, py: 1 }}>
+        <Box sx={{ px: 1.5, py: 1, bgcolor: 'background.paper' }}>
           <ChatInput
             inputType={messageType}
             setInputType={setMessageType}

@@ -50,7 +50,7 @@ export default function ChatPanel({
 
   return (
     <Paper sx={{
-      height: isMobile ? 'calc(100dvh - 220px)' : '75vh',
+      height: isMobile ? 'calc(100dvh - 220px)' : '100%',
       minHeight: isMobile ? 300 : 400,
       display: 'flex',
       flexDirection: 'column',
@@ -96,53 +96,6 @@ export default function ChatPanel({
           ))
         )}
         <div ref={messagesEndRef} />
-      </Box>
-
-      {/* ===== Input Area ===== */}
-      <Box sx={{
-        p: isMobile ? 1 : 1.5,
-        borderTop: 1,
-        borderColor: 'divider',
-        bgcolor: 'background.paper'
-      }}>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <input
-            type="text"
-            placeholder="Type a message..."
-            style={{
-              flex: 1,
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: 2,
-              padding: '8px 12px',
-              fontSize: 14,
-              outline: 'none',
-              bgcolor: 'background.default',
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                onSend?.();
-              }
-            }}
-          />
-          <button
-            onClick={() => onSend?.()}
-            disabled={false}
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderRadius: 2,
-              bgcolor: 'primary.main',
-              color: 'primary.contrastText',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: 14,
-            }}
-          >
-            Send
-          </button>
-        </Box>
       </Box>
     </Paper>
   );
