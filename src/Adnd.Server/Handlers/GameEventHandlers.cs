@@ -154,13 +154,11 @@ public class GameLifecycleHandler :
 /// Handles player lifecycle events.
 /// Responsibility: Log player state changes for observability.
 /// Note: PlotWeaverHandler reacts to PlayerJoined for plot thread generation.
-///       PlayerDisconnectDetector was removed — GameHub handles disconnect detection.
+///       Connection tracking is done via SignalR groups, not DB status.
 /// </summary>
 public class PlayerHandler :
     INotificationHandler<PlayerJoined>,
-    INotificationHandler<PlayerLeft>,
-    INotificationHandler<PlayerDisconnected>,
-    INotificationHandler<PlayerReconnected>
+    INotificationHandler<PlayerLeft>
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PlayerHandler> _logger;
@@ -182,44 +180,6 @@ public class PlayerHandler :
     {
         _logger.LogInformation("[PLAYER] Left | GameId={GameId} | PlayerId={PlayerId}",
             notification.GameId, notification.PlayerId);
-        return Task.CompletedTask;
-    }
-
-    public async Task Handle(PlayerDisconnected notification, CancellationToken ct)
-    {
-        _logger.LogInformation("[PLAYER] Disconnected | GameId={GameId} | PlayerId={PlayerId} | Character={Character} | UserId={UserId} | DisconnectedAt={DisconnectedAt}",
-            notification.GameId, notification.PlayerId, notification.CharacterName, notification.UserId, notification.DisconnectedAt);
-
-        // If during combat, log that the player's participant may be AFK
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var combat = await context.Combats
-                .FirstOrDefaultAsync(c => c.GameId == notification.GameId && c.Status == Models.CombatStatus.Active, ct);
-
-            if (combat != null)
-            {
-                var participant = await context.CombatParticipants
-                    .FirstOrDefaultAsync(p => p.CombatId == combat.Id && p.PlayerId == notification.PlayerId, ct);
-
-                if (participant != null)
-                {
-                    _logger.LogInformation("[PLAYER] CombatDisconnect | GameId={GameId} | PlayerId={PlayerId} | CombatId={CombatId} | Participant={ParticipantId} — may be AFK",
-                        notification.GameId, notification.PlayerId, combat.Id, participant.Id);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[PLAYER] Failed to check combat state for disconnected player {PlayerId}", notification.PlayerId);
-        }
-    }
-
-    public Task Handle(PlayerReconnected notification, CancellationToken ct)
-    {
-        _logger.LogInformation("[PLAYER] Reconnected | GameId={GameId} | PlayerId={PlayerId} | Character={Character} | UserId={UserId}",
-            notification.GameId, notification.PlayerId, notification.CharacterName, notification.UserId);
         return Task.CompletedTask;
     }
 }

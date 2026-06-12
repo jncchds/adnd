@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Adnd.Server.Models;
+using Adnd.Server.Hubs;
 using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Services;
 using System.Text.Json;
@@ -63,8 +64,8 @@ public partial class AdminController
         // Provider breakdown
         var providerBreakdown = await _interactionLogger.GetGameProviderUsageAsync(gameId);
 
-        // Disconnect detector: count disconnected players
-        var disconnectedPlayers = game.Players.Where(p => p.Status == PlayerStatus.Disconnected).ToList();
+        // Connection status: count connected players via SignalR groups
+        var connectedPlayerIds = GameHub.IsConnectedPlayers(gameId);
 
         // Plot review history
         var reviewHistory = await _plotWeaver.GetReviewHistoryAsync(gameId, 10);
@@ -108,12 +109,12 @@ public partial class AdminController
                 p.LeftAt,
                 p.User?.DisplayName,
                 p.User?.Email,
+                IsConnected = connectedPlayerIds.Contains(p.Id),
             }).ToList(),
             PlayerStats = new
             {
                 Total = game.Players.Count,
-                Active = game.Players.Count(p => p.Status == PlayerStatus.Active),
-                Disconnected = disconnectedPlayers.Count,
+                Connected = connectedPlayerIds.Count,
                 Left = game.Players.Count(p => p.Status == PlayerStatus.Left),
             },
             Sessions = game.Sessions.Select(s => new

@@ -68,10 +68,7 @@ export default function OverviewTab({ gameState, expandedSections, onToggleSecti
       <SectionCard title="Quick Stats" icon={<TrophyIcon />} expanded={expandedSections.quickStats} onToggle={() => onToggleSection('quickStats')}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           <Box sx={{ flex: '1 1 calc(16.666% - 8px)', minWidth: 120 }}>
-            <StatCard label="Players" value={ps.Total} sub={`${ps.Active} active`} />
-          </Box>
-          <Box sx={{ flex: '1 1 calc(16.666% - 8px)', minWidth: 120 }}>
-            <StatCard label="Disconnected" value={ps.Disconnected} sub="players" color={ps.Disconnected > 0 ? 'error' as const : 'success' as const} />
+            <StatCard label="Players" value={ps.Total} sub={`${ps.Connected} connected`} />
           </Box>
           <Box sx={{ flex: '1 1 calc(16.666% - 8px)', minWidth: 120 }}>
             <StatCard label="Sessions" value={ss.Total} sub={`${ss.Active} active`} />
@@ -99,9 +96,9 @@ export default function OverviewTab({ gameState, expandedSections, onToggleSecti
                 <Chip label={getRoleIcon(p.role)} size="small" />
                 <Typography variant="body2" fontWeight="bold">{p.characterName}</Typography>
                 <Typography variant="caption" color="text.secondary">({p.userName || p.userEmail || 'anon'})</Typography>
-                <Chip label={p.status} size="small"
-                  color={p.status === 'Active' ? 'success' : p.status === 'Disconnected' ? 'warning' : 'default'}
-                  variant={p.status === 'Active' ? 'filled' : 'outlined'} />
+                <Chip label={p.isConnected ? 'Connected' : p.status === 'Left' ? 'Left' : 'Active'} size="small"
+                  color={p.isConnected ? 'success' : p.status === 'Left' ? 'error' : 'default'}
+                  variant={p.isConnected ? 'filled' : 'outlined'} />
                 <Typography variant="caption" color="text.secondary">joined {new Date(p.joinedAt).toLocaleString()}</Typography>
               </Box>
             ))}

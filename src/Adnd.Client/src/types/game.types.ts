@@ -42,8 +42,7 @@ export enum PlayerRole {
 
 export enum PlayerStatus {
   Active = 0,
-  Disconnected = 1,
-  Left = 2,
+  Left = 1,
 }
 
 

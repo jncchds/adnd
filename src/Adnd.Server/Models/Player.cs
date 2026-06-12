@@ -35,6 +35,5 @@ public enum PlayerRole
 public enum PlayerStatus
 {
     Active,
-    Disconnected,
     Left
 }

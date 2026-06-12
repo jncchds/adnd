@@ -56,8 +56,6 @@ export const MESSAGE_STYLES: Record<UnifiedMessageType, {
   // Player lifecycle
   playerJoined:    { bg: 'rgba(103, 194, 58, 0.06)',   border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '👤 Joined', chipIcon: '👤' },
   playerLeft:      { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '👤 Left', chipIcon: '👤' },
-  playerDisconnected: { bg: 'rgba(255, 152, 0, 0.06)', border: 'rgba(255, 152, 0, 0.25)',  chipColor: 'warning', chipLabel: '⚠️ Disconnected', chipIcon: '⚠️' },
-  playerReconnected: { bg: 'rgba(103, 194, 58, 0.06)', border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '✅ Reconnected', chipIcon: '✅' },
   playerRoleChanged: { bg: 'rgba(33, 150, 243, 0.06)', border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info', chipLabel: '🔄 Role', chipIcon: '🔄' },
   // Character lifecycle
   characterCreated: { bg: 'rgba(103, 194, 58, 0.06)',  border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '📝 Character', chipIcon: '📝' },

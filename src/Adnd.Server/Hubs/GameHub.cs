@@ -107,15 +107,13 @@ public partial class GameHub : Hub
         var userId = Context.UserIdentifier;
         if (!string.IsNullOrEmpty(userId) && Guid.TryParse(userId, out var uid))
         {
-            // Query player with GameId filter to find the correct player record
-            // Note: unique constraint on {GameId, UserId} ensures a user can only be active in one game,
-            // so filtering by GameId here would be redundant but added for correctness clarity.
+            // Find the player record for this user — no status filter needed
+            // (connection status is tracked via SignalR groups, not DB)
             var player = await _context.Players
-                .FirstOrDefaultAsync(p => p.UserId == uid && p.Status == PlayerStatus.Active);
+                .FirstOrDefaultAsync(p => p.UserId == uid);
 
             if (player != null)
             {
-                // Use player ID (not user ID) as the key — consistent with OnDisconnectedAsync and SendHeartbeat
                 _playerConnections.AddOrUpdate(player.Id.ToString(), Context.ConnectionId, (k, oldValue) => Context.ConnectionId);
                 await Groups.AddToGroupAsync(Context.ConnectionId, player.GameId.ToString());
                 await _mediator.Publish(new PlayerJoined(player.GameId, player.Id, player.UserId, player.CharacterName ?? "Unknown"));
@@ -130,34 +128,17 @@ public partial class GameHub : Hub
         _logger.LogInformation("Client disconnected: {ConnectionId}", Context.ConnectionId);
 
         // Find the player connected via this connection
+        var playerIdStr = Context.ConnectionId;
         var player = await _context.Players
-            .FirstOrDefaultAsync(p => p.Status == PlayerStatus.Active &&
-                _playerConnections.GetValueOrDefault(p.Id.ToString()) == Context.ConnectionId);
+            .FirstOrDefaultAsync(p => _playerConnections.GetValueOrDefault(p.Id.ToString()) == Context.ConnectionId);
 
         if (player != null)
         {
             // Remove from connections
             _playerConnections.TryRemove(player.Id.ToString(), out _);
 
-            // Mark as disconnected
-            player.Status = PlayerStatus.Disconnected;
-            player.LeftAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
-
-            // Leave game group
+            // Leave game group — connection status is now tracked via SignalR groups, not DB
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, player.GameId.ToString());
-
-            // Broadcast disconnection
-            await _mediator.Publish(new PlayerDisconnected(player.GameId, player.Id, player.UserId, player.CharacterName ?? "Unknown", player.LeftAt));
-            await Clients.Group(player.GameId.ToString()).SendAsync("PlayerDisconnected", new
-            {
-                PlayerId = player.Id,
-                UserId = player.UserId,
-                CharacterName = player.CharacterName,
-                GameId = player.GameId,
-                Message = $"{player.CharacterName} has been disconnected",
-                DisconnectedAt = player.LeftAt
-            });
 
             _logger.LogInformation("Player {CharacterName} ({UserId}) disconnected from game {GameId}",
                 player.CharacterName, player.UserId, player.GameId);
@@ -166,40 +147,28 @@ public partial class GameHub : Hub
         await base.OnDisconnectedAsync(exception);
     }
 
-    // ==================== Heartbeat / Reconnection ====================
+    // ==================== Connection Tracking ====================
 
     /// <summary>
-    /// Player sends a heartbeat to indicate they are still connected.
-    /// If they were previously marked as disconnected, this reactivates them.
+    /// Check if a player is currently connected to the game.
+    /// Connection status is tracked via SignalR groups, not DB.
     /// </summary>
-    public async Task SendHeartbeat(Guid gameId)
+    public static bool IsPlayerConnected(Guid gameId, Guid playerId)
     {
-        var userId = Context.UserIdentifier;
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var uid))
-            return;
+        return _playerConnections.ContainsKey(playerId.ToString());
+    }
 
-        var player = await _context.Players
-            .FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == uid && p.Status == PlayerStatus.Disconnected);
-
-        if (player != null)
-        {
-            // Reconnect a previously disconnected player
-            player.Status = PlayerStatus.Active;
-            player.LeftAt = null;
-            _playerConnections.AddOrUpdate(player.Id.ToString(), Context.ConnectionId, (k, oldValue) => Context.ConnectionId);
-            await _context.SaveChangesAsync();
-
-            await Clients.Group(gameId.ToString()).SendAsync("PlayerReconnected", new
-            {
-                PlayerId = player.Id,
-                UserId = player.UserId,
-                CharacterName = player.CharacterName,
-                Message = $"{player.CharacterName} has reconnected"
-            });
-
-            _logger.LogInformation("Player {CharacterName} ({UserId}) reconnected to game {GameId}",
-                player.CharacterName, player.UserId, gameId);
-        }
+    /// <summary>
+    /// Get all connected player IDs for a game.
+    /// Connection status is tracked via SignalR groups, not DB.
+    /// </summary>
+    public static List<Guid> IsConnectedPlayers(Guid gameId)
+    {
+        return _playerConnections
+            .Where(kvp => kvp.Value != "stale")
+            .Select(kvp => Guid.TryParse(kvp.Key, out var pid) ? pid : Guid.Empty)
+            .Where(pid => pid != Guid.Empty)
+            .ToList();
     }
 
     /// <summary>
@@ -277,16 +246,15 @@ public partial class GameHub : Hub
 
     /// <summary>
     /// Periodically removes stale connections from _playerConnections.
-    /// Runs every 60 seconds to prevent memory leak from disconnected players.
-    /// This is a safety net — the real cleanup happens in OnDisconnectedAsync.
+    /// Runs every 60 seconds to prevent memory leak from clients that disconnected without proper cleanup.
+    /// "Stale" entries are set when OnDisconnectedAsync fires unexpectedly.
     /// </summary>
     private static void CleanupStaleConnections(object? state)
     {
         var staleCount = 0;
         foreach (var kvp in _playerConnections)
         {
-            // Only clean up entries explicitly marked as stale by OnDisconnectedAsync
-            // OnDisconnectedAsync sets the value to "stale" before removing to handle race conditions
+            // Only clean up entries explicitly marked as stale
             if (kvp.Value == "stale")
             {
                 _playerConnections.TryRemove(kvp.Key, out _);

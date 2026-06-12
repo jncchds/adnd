@@ -94,9 +94,7 @@ public enum MessageType
     // === Player lifecycle ===
     PlayerJoined = 60,     // Player joined game
     PlayerLeft = 61,       // Player left game
-    PlayerDisconnected = 62, // Player disconnected
-    PlayerReconnected = 63,  // Player reconnected
-    PlayerRoleChanged = 64,  // Player role changed
+    PlayerRoleChanged = 62,  // Player role changed
 
     // === Character lifecycle ===
     CharacterCreated = 70, // Character created
