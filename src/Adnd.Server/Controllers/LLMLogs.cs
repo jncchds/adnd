@@ -63,9 +63,10 @@ public partial class AdminController
     public async Task<IActionResult> GetLLMInteraction(Guid logId)
     {
         var userId = _userIdProvider.GetCurrentUserId();
+        var ownedPresets = _context.LLMPresets.Where(p => p.UserId == userId).Select(p => p.Id);
         var log = await _context.LLMInteractionLogs
             .Include(l => l.Preset)
-            .FirstOrDefaultAsync(l => l.UserId == userId && l.Id == logId);
+            .FirstOrDefaultAsync(l => (l.UserId == userId || (l.PresetId != null && ownedPresets.Contains(l.PresetId.Value))) && l.Id == logId);
 
         if (log == null) return NotFound(new { error = "Interaction log not found." });
 

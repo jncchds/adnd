@@ -31,6 +31,10 @@ public class LLMInteractionLog
     public bool Success { get; set; } = true;
     public string? Error { get; set; }
 
+    // Preset snapshot (preserved even if preset is updated/deleted)
+    public string? PresetName { get; set; }
+    public string? EndpointUrl { get; set; }
+
     // Content (truncated for storage)
     public string? SystemPrompt { get; set; }
     public string? UserPrompt { get; set; }
@@ -46,7 +50,6 @@ public class LLMInteractionLog
     public Guid? OriginSessionId { get; set; }
     public string? OriginAgent { get; set; } // Agent type name
     public string? OriginAction { get; set; } // Agent action
-    public string? EndpointUrl { get; set; } // API endpoint URL used
 
     // Navigation
     public User? User { get; set; }

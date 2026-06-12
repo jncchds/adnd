@@ -82,7 +82,7 @@ class APIClient {
   async getGame(id: string) { return this.request<GameDetail>('/games/' + id); }
   async createGame(n: string, s = 'dnd5e', v?: string, c?: string, l?: string, p?: string, g?: string, lang = 'English') { return this.request<GameDetail>('/games', { method: 'POST', body: JSON.stringify({ name: n, systemId: s, systemVersion: v, customSystemJson: c, llmPresetId: l, plotSeed: p, gameParameters: g, language: lang }) }); }
   async updateGameLanguage(g: string, l: string) { return this.request(`/games/${g}/language`, { method: 'PUT', body: JSON.stringify({ language: l }) }); }
-  async deleteGame(id: string) { return this.request('/games/' + id, { method: 'DELETE' }); }
+  async deleteGame(id: string) { return this.request('/api/games/' + id, { method: 'DELETE' }); }
   async generateInvite(id: string) { return this.request<InviteResponse>('/games/' + id + '/invite', { method: 'POST' }); }
   async joinGame(id: string) { return this.request('/games/' + id + '/join', { method: 'POST' }); }
   async joinByCode(c: string) { return this.request('/games/join-by-code', { method: 'POST', body: JSON.stringify({ code: c }) }); }

@@ -189,8 +189,7 @@ public class GameManagementService : IGameManagementService
             _context.GameSessions.Any(s => s.Id == m.SessionId && s.GameId == id)).ToListAsync();
         foreach (var m in messages) m.SessionId = Guid.Empty;
 
-        var llmLogs = await _context.LLMInteractionLogs.Where(l => l.OriginGameId == id).ToListAsync();
-        foreach (var log in llmLogs) log.OriginGameId = Guid.Empty;
+        // LLMInteractionLogs: keep OriginGameId intact so logs remain linked to the archived game
 
         game.Status = GameStatus.Archived;
         await _context.SaveChangesAsync();

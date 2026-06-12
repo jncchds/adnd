@@ -397,11 +397,12 @@ public class AgentBus : IAgentBus
                 var model = options?.Options?.Model ?? "default";
                 var tokenUsage = provider.GetTokenUsage(result);
                 await _interactionLogger.LogInteractionAsync(
-                    Guid.Empty, null, provider.ProviderId, model,
+                    game.CreatorId, game.LLMPresetId, provider.ProviderId, model,
                     tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
                     (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, result,
                     null, null, "agent", call.GameId, call.SessionId,
-                    "AgentBus", call.Action.ToString());
+                    "AgentBus", call.Action.ToString(),
+                    game.LLMPreset?.Name, game.LLMPreset?.EndpointUrl);
 
                 return result;
             }
@@ -430,11 +431,12 @@ public class AgentBus : IAgentBus
                 var model = options?.Options?.Model ?? "default";
                 var tokenUsage = provider.GetTokenUsage(result);
                 await _interactionLogger.LogInteractionAsync(
-                    Guid.Empty, null, provider.ProviderId, model,
+                    game.CreatorId, game.LLMPresetId, provider.ProviderId, model,
                     tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
                     (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, result,
                     null, null, "agent", call.GameId, call.SessionId,
-                    "AgentBus", call.Action.ToString());
+                    "AgentBus", call.Action.ToString(),
+                    game.LLMPreset?.Name, game.LLMPreset?.EndpointUrl);
 
                 // Try to parse as JSON array
                 try
@@ -466,11 +468,12 @@ public class AgentBus : IAgentBus
                 var model = options?.Options?.Model ?? "default";
                 var tokenUsage = provider.GetTokenUsage(result);
                 await _interactionLogger.LogInteractionAsync(
-                    Guid.Empty, null, provider.ProviderId, model,
+                    game.CreatorId, game.LLMPresetId, provider.ProviderId, model,
                     tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
                     (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, result,
                     null, null, "agent", call.GameId, call.SessionId,
-                    "AgentBus", call.Action.ToString());
+                    "AgentBus", call.Action.ToString(),
+                    game.LLMPreset?.Name, game.LLMPreset?.EndpointUrl);
 
                 return result;
             }
@@ -483,10 +486,11 @@ public class AgentBus : IAgentBus
             try
             {
                 await _interactionLogger.LogFailureAsync(
-                    Guid.Empty, null, "unknown", "unknown", null, null, null,
+                    game.CreatorId, game.LLMPresetId, "unknown", "unknown", null, null, null,
                     0, ex.ToString(),
                     "agent", call.GameId, call.SessionId,
-                    "AgentBus", call.Action.ToString());
+                    "AgentBus", call.Action.ToString(),
+                    game.LLMPreset?.Name, game.LLMPreset?.EndpointUrl);
             }
             catch
             {
@@ -790,7 +794,8 @@ public class AgentBus : IAgentBus
                 tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
                 (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, completion.Content,
                 null, provider.EndpointUrl, "agent", call.GameId, call.SessionId,
-                "GM", call.Action.ToString());
+                "GM", call.Action.ToString(),
+                game.LLMPreset?.Name, game.LLMPreset?.EndpointUrl);
 
             // Handle tool calls from the LLM
             if (completion.HasToolCalls)
@@ -898,7 +903,8 @@ public class AgentBus : IAgentBus
                 tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
                 (int)sw.ElapsedMilliseconds, systemPrompt, userPrompt, result,
                 null, provider.EndpointUrl, "agent", call.GameId, call.SessionId,
-                "GM", call.Action.ToString());
+                "GM", call.Action.ToString(),
+                game.LLMPreset?.Name, game.LLMPreset?.EndpointUrl);
 
             game.LastGMAction = "Nudge";
             game.LastGMActionAt = DateTime.UtcNow;
@@ -1117,7 +1123,8 @@ public class AgentBus : IAgentBus
                 tokenUsage?.promptTokens, tokenUsage?.completionTokens, tokenUsage?.totalTokens,
                 (int)sw.ElapsedMilliseconds, currentSystemPrompt, currentFollowUpPrompt, completion.Content,
                 null, provider.EndpointUrl, "agent", game.Id, null,
-                "GM", "OpenNarrative");
+                "GM", "OpenNarrative",
+                game.LLMPreset?.Name, game.LLMPreset?.EndpointUrl);
 
             if (!completion.HasToolCalls)
             {

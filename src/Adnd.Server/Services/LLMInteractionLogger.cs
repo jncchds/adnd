@@ -16,7 +16,8 @@ public interface ILLMInteractionLogger
         int durationMs, string systemPrompt, string userPrompt, string response,
         string? requestJson, string? responseJson,
         string origin, Guid? originGameId, Guid? originSessionId,
-        string? originAgent, string? originAction);
+        string? originAgent, string? originAction,
+        string? presetName = null, string? endpointUrl = null);
 
     /// <summary>
     /// Log a failed LLM interaction with error details.
@@ -25,7 +26,8 @@ public interface ILLMInteractionLogger
         int? promptTokens, int? completionTokens, int? totalTokens,
         int durationMs, string error,
         string origin, Guid? originGameId, Guid? originSessionId,
-        string? originAgent, string? originAction);
+        string? originAgent, string? originAction,
+        string? presetName = null, string? endpointUrl = null);
 
     /// <summary>
     /// Get interaction logs for a user, optionally filtered.
@@ -96,12 +98,15 @@ public class LLMInteractionLogger : ILLMInteractionLogger
         int durationMs, string systemPrompt, string userPrompt, string response,
         string? requestJson, string? responseJson,
         string origin, Guid? originGameId, Guid? originSessionId,
-        string? originAgent, string? originAction)
+        string? originAgent, string? originAction,
+        string? presetName = null, string? endpointUrl = null)
     {
         var log = new LLMInteractionLog
         {
             UserId = userId,
             PresetId = presetId,
+            PresetName = presetName,
+            EndpointUrl = endpointUrl,
             ProviderType = providerType,
             Model = model,
             PromptTokens = promptTokens,
@@ -131,12 +136,15 @@ public class LLMInteractionLogger : ILLMInteractionLogger
         int? promptTokens, int? completionTokens, int? totalTokens,
         int durationMs, string error,
         string origin, Guid? originGameId, Guid? originSessionId,
-        string? originAgent, string? originAction)
+        string? originAgent, string? originAction,
+        string? presetName = null, string? endpointUrl = null)
     {
         var log = new LLMInteractionLog
         {
             UserId = userId,
             PresetId = presetId,
+            PresetName = presetName,
+            EndpointUrl = endpointUrl,
             ProviderType = providerType,
             Model = model,
             PromptTokens = promptTokens,
@@ -162,8 +170,12 @@ public class LLMInteractionLogger : ILLMInteractionLogger
         Guid? originGameId = null, string? providerType = null,
         DateTime? from = null, DateTime? to = null, int limit = 100)
     {
+        // Include logs where user made the call OR owns the preset OR owns the game
+        var ownedPresets = _context.LLMPresets.Where(p => p.UserId == userId).Select(p => p.Id);
+        var ownedGames = _context.Games.Where(g => g.CreatorId == userId).Select(g => g.Id);
+
         IQueryable<LLMInteractionLog> query = _context.LLMInteractionLogs
-            .Where(l => l.UserId == userId)
+            .Where(l => l.UserId == userId || l.PresetId != null && ownedPresets.Contains(l.PresetId.Value) || l.OriginGameId != null && ownedGames.Contains(l.OriginGameId.Value))
             .Include(l => l.Preset)
             .OrderByDescending(l => l.StartedAt);
 
@@ -194,13 +206,14 @@ public class LLMInteractionLogger : ILLMInteractionLogger
 
     public async Task<List<PresetUsageSummary>> GetPresetUsageAsync(Guid userId, DateTime? from = null, DateTime? to = null)
     {
+        var ownedPresets = _context.LLMPresets.Where(p => p.UserId == userId).Select(p => p.Id);
         var query = _context.LLMInteractionLogs
-            .Where(l => l.UserId == userId && l.PresetId != null)
+            .Where(l => l.PresetId != null && (l.UserId == userId || ownedPresets.Contains(l.PresetId.Value)))
             .GroupBy(l => l.PresetId)
             .Select(g => new
             {
                 PresetId = g.Key!.Value,
-                PresetName = g.First().Preset != null ? g.First().Preset.Name : "Deleted Preset",
+                PresetName = g.First().PresetName ?? (g.First().Preset != null ? g.First().Preset.Name : "Deleted Preset"),
                 ProviderType = g.First().ProviderType,
                 TotalCalls = g.Count(),
                 SuccessfulCalls = g.Count(l => l.Success),
