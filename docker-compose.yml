@@ -37,8 +37,8 @@ services:
       - Resilience__MaxRetries=${RESILIENCE_MAX_RETRIES:-3}
       - Resilience__FailureThreshold=${RESILIENCE_FAILURE_THRESHOLD:-5}
       - Resilience__HalfOpenAfterSec=${RESILIENCE_HALF_OPEN_AFTER_SEC:-30}
-      # EF Core log level — set to "info" to see EF logs (default: Debug to reduce noise)
-      - Logging__LogLevel__Microsoft.EntityFrameworkCore=${LOG_LEVEL_ENTITYFRAMEWORK:-Debug}
+      # EF Core log level — set to "Debug" to see EF logs (default: Warning to reduce noise)
+      - Logging__LogLevel__Microsoft.EntityFrameworkCore=${LOG_LEVEL_ENTITYFRAMEWORK:-Warning}
       # Rate limiting settings
       - RateLimiting__UseForwardedHeaders=${RATE_LIMITING_USE_FORWARDED_HEADERS:-true}
       - RateLimiting__TrustAllProxies=${RATE_LIMITING_TRUST_ALL_PROXIES:-true}
