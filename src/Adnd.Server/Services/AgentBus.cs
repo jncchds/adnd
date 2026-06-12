@@ -186,10 +186,14 @@ public class AgentBus : IAgentBus
 
     public async Task<AgentCall> ExecuteCallAsync(AgentCall call)
     {
+        // Use scoped context to avoid ObjectDisposedException (AgentBus is a singleton)
+        using var scope = _scopeFactory.CreateScope();
+        var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
         call.Status = AgentCallStatus.Running;
         call.StartedAt = DateTime.UtcNow;
-        _context.AgentCalls.Update(call);
-        await _context.SaveChangesAsync();
+        scopedContext.AgentCalls.Update(call);
+        await scopedContext.SaveChangesAsync();
 
         _logger.LogInformation("[AGENT_CALL] Started | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}]",
             call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action);
@@ -205,8 +209,8 @@ public class AgentBus : IAgentBus
             var callStartedAt = call.StartedAt ?? call.CreatedAt;
             call.DurationMs = (int)(callCompletedAt - callStartedAt).TotalMilliseconds;
 
-            _context.AgentCalls.Update(call);
-            await _context.SaveChangesAsync();
+            scopedContext.AgentCalls.Update(call);
+            await scopedContext.SaveChangesAsync();
 
             // Broadcast narrative output to players for narrative-producing actions
             if ((call.Action == AgentAction.Narrate || call.Action == AgentAction.Generate || call.Action == AgentAction.Nudge || call.Action == AgentAction.OpenNarrative)
@@ -230,8 +234,8 @@ public class AgentBus : IAgentBus
             var failStartedAt = call.StartedAt ?? call.CreatedAt;
             call.DurationMs = (int)(failCompletedAt - failStartedAt).TotalMilliseconds;
 
-            _context.AgentCalls.Update(call);
-            await _context.SaveChangesAsync();
+            scopedContext.AgentCalls.Update(call);
+            await scopedContext.SaveChangesAsync();
 
             _logger.LogError("[AGENT_CALL] Failed | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | Duration={Duration}ms | Error={Error}",
                 call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.DurationMs, ex.Message);
@@ -555,7 +559,9 @@ public class AgentBus : IAgentBus
                 ?? new NPCDispatchOptions();
 
             // Game-scoped check: ensure NPC belongs to this game
-            var npc = await _context.NPCs
+            using var npcScope = _scopeFactory.CreateScope();
+            var npcContext = npcScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var npc = await npcContext.NPCs
                 .FirstOrDefaultAsync(n => n.Id == options.NpcId && n.GameId == call.GameId);
             if (npc == null)
                 return "NPC not found in this game.";
@@ -589,7 +595,9 @@ public class AgentBus : IAgentBus
             if (call.Action == AgentAction.Query)
             {
                 // Game-scoped check: ensure character belongs to this game
-                var character = await _context.Characters
+                using var playerScope = _scopeFactory.CreateScope();
+                var playerContext = playerScope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var character = await playerContext.Characters
                     .Include(c => c.Player)
                     .FirstOrDefaultAsync(c => c.Id == options.CharacterId && c.Player!.GameId == call.GameId);
                 if (character == null)
@@ -636,7 +644,9 @@ public class AgentBus : IAgentBus
                 return "Player ID required for character creation.";
             }
 
-            var player = await _context.Players.FindAsync(playerId);
+            using var charScope = _scopeFactory.CreateScope();
+            var charContext = charScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var player = await charContext.Players.FindAsync(playerId);
             if (player == null)
                 return "Player not found.";
 
@@ -658,8 +668,8 @@ public class AgentBus : IAgentBus
                 UpdatedAt = DateTime.UtcNow
             };
 
-            _context.Characters.Add(character);
-            await _context.SaveChangesAsync();
+            charContext.Characters.Add(character);
+            await charContext.SaveChangesAsync();
 
             return $"Character created: {character.Id}";
         }
@@ -712,7 +722,10 @@ public class AgentBus : IAgentBus
         var options = JsonSerializer.Deserialize<GMDispatchOptions>(call.Input ?? "{}")
             ?? new GMDispatchOptions();
 
-        var game = await _context.Games
+        // Use scoped context to avoid ObjectDisposedException
+        using var gmScope = _scopeFactory.CreateScope();
+        var gmContext = gmScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var game = await gmContext.Games
             .Include(g => g.LLMPreset)
             .FirstOrDefaultAsync(g => g.Id == call.GameId);
         if (game == null)
@@ -723,7 +736,7 @@ public class AgentBus : IAgentBus
             game.GameState = options.StateJson ?? game.GameState;
             game.LastGMAction = "ManageState";
             game.LastGMActionAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+            await gmContext.SaveChangesAsync();
             await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
             {
                 GameId = game.Id,
@@ -794,7 +807,7 @@ public class AgentBus : IAgentBus
                     {
                         game.LastGMAction = $"ToolCall: {toolCall.Name} (waiting confirmation)";
                         game.LastGMActionAt = DateTime.UtcNow;
-                        await _context.SaveChangesAsync();
+                        await gmContext.SaveChangesAsync();
 
                         await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
                         {
@@ -820,7 +833,7 @@ public class AgentBus : IAgentBus
 
                 game.LastGMAction = $"Narrate (with {completion.ToolCalls.Count} tool calls)";
                 game.LastGMActionAt = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
+                await gmContext.SaveChangesAsync();
 
                 await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
                 {
@@ -835,7 +848,7 @@ public class AgentBus : IAgentBus
 
             game.LastGMAction = "Narrate";
             game.LastGMActionAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+            await gmContext.SaveChangesAsync();
 
             await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
             {
@@ -889,7 +902,7 @@ public class AgentBus : IAgentBus
 
             game.LastGMAction = "Nudge";
             game.LastGMActionAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+            await gmContext.SaveChangesAsync();
 
             await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GMStatusChanged", new
             {
@@ -929,6 +942,10 @@ public class AgentBus : IAgentBus
         var toolName = toolCall.Name;
         var args = toolCall.Arguments;
 
+        // Use scoped context to avoid ObjectDisposedException
+        using var toolScope = _scopeFactory.CreateScope();
+        var toolContext = toolScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
         // Log the tool call
         var toolCallRecord = new GMToolCall
         {
@@ -940,8 +957,8 @@ public class AgentBus : IAgentBus
             Status = ToolCallStatus.Executing,
             CreatedAt = DateTime.UtcNow
         };
-        _context.GMToolCalls.Add(toolCallRecord);
-        await _context.SaveChangesAsync();
+        toolContext.GMToolCalls.Add(toolCallRecord);
+        await toolContext.SaveChangesAsync();
 
         // Execute the tool
         var result = await _toolRegistry.ExecuteToolAsync(gameId, sessionId, toolName, args);
@@ -951,13 +968,13 @@ public class AgentBus : IAgentBus
         toolCallRecord.OutputMessage = result.OutputMessage;
         toolCallRecord.Error = result.Error;
         toolCallRecord.CompletedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
+        await toolContext.SaveChangesAsync();
 
         // If tool requires user confirmation, flag it
         if (_toolRegistry.RequiresConfirmation(toolName) && result.Success)
         {
             toolCallRecord.Status = ToolCallStatus.WaitingConfirmation;
-            await _context.SaveChangesAsync();
+            await toolContext.SaveChangesAsync();
 
             return new ToolExecutionResult
             {
