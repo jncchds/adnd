@@ -3,137 +3,55 @@ using System.Text.Json;
 namespace Adnd.Server.Services;
 
 /// <summary>
-/// Registry of supported RPG systems with their rules and defaults.
-/// Pluggable architecture allows custom systems to be added at runtime.
+/// Immutable registry of built-in RPG system definitions.
+/// Sealed singleton — no interface, no runtime registration.
+/// Custom systems are stored per-game in Game.CustomSystemJson and
+/// resolved at the call site, not in this registry.
 /// </summary>
-public interface ISystemRegistry
+public sealed class SystemRegistry
 {
-    /// <summary>
-    /// Get a system definition by ID.
-    /// </summary>
-    SystemDefinition? GetSystem(string systemId);
+    private static readonly Dictionary<string, SystemDefinition> _builtins = new();
 
-    /// <summary>
-    /// Get all available systems.
-    /// </summary>
-    IEnumerable<SystemDefinition> GetAllSystems();
-
-    /// <summary>
-    /// Register a custom system at runtime.
-    /// </summary>
-    void RegisterSystem(SystemDefinition definition);
-
-    /// <summary>
-    /// Create a new character sheet for the given system with default values.
-    /// </summary>
-    JsonDocument CreateDefaultCharacter(string systemId);
-
-    /// <summary>
-    /// Validate a character sheet against the system's rules.
-    /// </summary>
-    (bool valid, string[] errors) ValidateCharacter(string systemId, JsonElement character);
-}
-
-public class SystemRegistry : ISystemRegistry
-{
-    private readonly Dictionary<string, SystemDefinition> _systems = new();
-    private readonly ILogger<SystemRegistry> _logger;
-    private readonly ISystemRulesFactory _rulesFactory;
-
-    public SystemRegistry(ILogger<SystemRegistry> logger, ISystemRulesFactory rulesFactory)
+    static SystemRegistry()
     {
-        _logger = logger;
-        _rulesFactory = rulesFactory;
         RegisterBuiltinSystems();
     }
 
-    public SystemDefinition? GetSystem(string systemId)
+    /// <summary>
+    /// Get a built-in system definition by ID.
+    /// </summary>
+    public static SystemDefinition? GetBuiltIn(string systemId)
     {
-        return _systems.TryGetValue(systemId, out var system) ? system : null;
+        return _builtins.TryGetValue(systemId, out var system) ? system : null;
     }
 
-    public IEnumerable<SystemDefinition> GetAllSystems()
+    /// <summary>
+    /// Get all available built-in systems.
+    /// </summary>
+    public static IEnumerable<SystemDefinition> GetAllBuiltIn()
     {
-        return _systems.Values.ToList();
+        return _builtins.Values.ToList();
     }
 
-    public void RegisterSystem(SystemDefinition definition)
+    /// <summary>
+    /// Deserialize a custom system definition from JSON.
+    /// </summary>
+    public static SystemDefinition? DeserializeCustom(string json)
     {
-        if (_systems.ContainsKey(definition.Id))
+        try
         {
-            _logger.LogWarning("Overwriting system definition for '{SystemId}'", definition.Id);
+            return JsonSerializer.Deserialize<SystemDefinition>(json);
         }
-        _systems[definition.Id] = definition;
-        _logger.LogInformation("Registered system: {SystemId} v{Version}", definition.Id, definition.Version);
+        catch
+        {
+            return null;
+        }
     }
 
-    public JsonDocument CreateDefaultCharacter(string systemId)
-    {
-        var system = GetSystem(systemId);
-        if (system == null)
-            throw new InvalidOperationException($"Unknown system: {systemId}");
-
-        var defaults = system.DefaultCharacterJson;
-        if (!string.IsNullOrEmpty(defaults))
-        {
-            return JsonDocument.Parse(defaults);
-        }
-
-        // Generic fallback
-        var fallback = new
-        {
-            attributes = new { str = 10, dex = 10, con = 10, @int = 10, wis = 10, cha = 10 },
-            skills = new Dictionary<string, int>(),
-            inventory = Array.Empty<object>(),
-            spells = Array.Empty<object>(),
-            conditions = Array.Empty<object>(),
-            customFields = new Dictionary<string, object>()
-        };
-        return JsonDocument.Parse(JsonSerializer.Serialize(fallback));
-    }
-
-    public (bool valid, string[] errors) ValidateCharacter(string systemId, JsonElement character)
-    {
-        var system = GetSystem(systemId);
-        if (system == null)
-            return (false, [$"Unknown system: {systemId}"]);
-
-        var errors = new List<string>();
-
-        // Validate required fields
-        if (system.RequiredCharacterFields != null)
-        {
-            foreach (var field in system.RequiredCharacterFields)
-            {
-                if (!character.TryGetProperty(field, out _))
-                    errors.Add($"Missing required field: {field}");
-            }
-        }
-
-        // Validate attribute ranges
-        if (system.AttributeRanges != null && character.TryGetProperty("attributes", out var attrs))
-        {
-            foreach (var (attrName, (min, max)) in system.AttributeRanges)
-            {
-                if (attrs.TryGetProperty(attrName, out var attrVal))
-                {
-                    if (attrVal.ValueKind == JsonValueKind.Number)
-                    {
-                        var val = attrVal.GetInt32();
-                        if (val < min || val > max)
-                            errors.Add($"{attrName} value {val} out of range [{min}, {max}]");
-                    }
-                }
-            }
-        }
-
-        return (errors.Count == 0, errors.ToArray());
-    }
-
-    private void RegisterBuiltinSystems()
+    private static void RegisterBuiltinSystems()
     {
         // D&D 5e
-        RegisterSystem(new SystemDefinition
+        _builtins["dnd5e"] = new SystemDefinition
         {
             Id = "dnd5e",
             Name = "Dungeons & Dragons 5th Edition",
@@ -185,10 +103,10 @@ public class SystemRegistry : ISystemRegistry
                 "Nature", "Perception", "Performance", "Persuasion", "Religion",
                 "Sleight of Hand", "Stealth", "Survival"
             }
-        });
+        };
 
         // Pathfinder 2e
-        RegisterSystem(new SystemDefinition
+        _builtins["pf2e"] = new SystemDefinition
         {
             Id = "pf2e",
             Name = "Pathfinder 2nd Edition",
@@ -230,10 +148,10 @@ public class SystemRegistry : ISystemRegistry
                 "Disguise", "Engage Lore", "Intimidation", "Investigation", "Life Science", "Medicine",
                 "Occultism", "Performance", "Persuasion", "Religion", "Society", "Stealth", "Survival",
                 "Thievery" }
-        });
+        };
 
         // Call of Cthulhu 7e
-        RegisterSystem(new SystemDefinition
+        _builtins["coc7e"] = new SystemDefinition
         {
             Id = "coc7e",
             Name = "Call of Cthulhu 7th Edition",
@@ -281,12 +199,13 @@ public class SystemRegistry : ISystemRegistry
                 "Science", "Shadow", "Speak Language", "Stealth", "Survival",
                 "Throw", "Track", "X-Cult"
             }
-        });
+        };
     }
 }
 
 /// <summary>
 /// Defines an RPG system's rules, attributes, skills, and defaults.
+/// Immutable data model — not a DI service.
 /// </summary>
 public class SystemDefinition
 {

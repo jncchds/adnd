@@ -33,9 +33,10 @@ public class DatabaseHealthCheck : IHealthCheck
 }
 
 /// <summary>
-/// LLM providers health check.
-/// Checks all configured LLM presets for connectivity.
-/// Returns Healthy if at least one preset is available, Unhealthy if all fail.
+/// LLM providers health check — report-only.
+/// Checks all configured LLM presets for connectivity and logs status.
+/// Always returns Healthy since provider failures are handled by resilience policies (Polly).
+/// A health check should not fail the app for transient downstream provider issues.
 /// </summary>
 public class LlmProvidersHealthCheck : IHealthCheck
 {
@@ -63,7 +64,7 @@ public class LlmProvidersHealthCheck : IHealthCheck
 
         var healthy = 0;
         var unhealthy = 0;
-        var errors = new List<string>();
+        var statuses = new List<string>();
 
         foreach (var preset in presets.Take(5)) // Check up to 5 presets
         {
@@ -74,26 +75,26 @@ public class LlmProvidersHealthCheck : IHealthCheck
                 if (isAvailable)
                 {
                     healthy++;
+                    statuses.Add($"'{preset.Name}' ({preset.ProviderType}): available");
                 }
                 else
                 {
                     unhealthy++;
-                    errors.Add($"Preset '{preset.Name}' ({preset.ProviderType}): unavailable");
+                    statuses.Add($"'{preset.Name}' ({preset.ProviderType}): unavailable");
+                    _logger.LogWarning("LLM preset '{PresetName}' ({ProviderType}) is unavailable", preset.Name, preset.ProviderType);
                 }
             }
             catch (Exception ex)
             {
                 unhealthy++;
-                errors.Add($"Preset '{preset.Name}' ({preset.ProviderType}): {ex.Message}");
+                statuses.Add($"'{preset.Name}' ({preset.ProviderType}): {ex.Message}");
+                _logger.LogWarning(ex, "LLM preset '{PresetName}' ({ProviderType}) health check failed", preset.Name, preset.ProviderType);
             }
         }
 
-        if (healthy > 0)
-        {
-            return HealthCheckResult.Healthy($"{healthy}/{presets.Count} LLM presets available.");
-        }
-
-        return HealthCheckResult.Unhealthy($"All LLM presets unavailable. Errors: {string.Join("; ", errors)}");
+        // Always healthy — provider failures are handled by resilience policies (Polly retry + circuit breaker).
+        // This check is diagnostic only; it should never fail the app for transient provider issues.
+        return HealthCheckResult.Healthy($"{healthy}/{presets.Count} LLM presets available. {string.Join("; ", statuses)}");
     }
 }
 

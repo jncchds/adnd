@@ -19,7 +19,7 @@ public class GameAgent : IGameAgent
     private readonly IAgentBus _agentBus;
     private readonly IGameEngine _gameEngine;
     private readonly IRAGService _ragService;
-    private readonly ISystemRegistry _systemRegistry;
+    private readonly SystemRegistry _systemRegistry;
     private readonly ILogger<GameAgent> _logger;
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentQueue<Guid> _pendingCallIds = new();
@@ -43,7 +43,7 @@ public class GameAgent : IGameAgent
         IAgentBus agentBus,
         IGameEngine gameEngine,
         IRAGService ragService,
-        ISystemRegistry systemRegistry,
+        SystemRegistry systemRegistry,
         ILogger<GameAgent> logger)
     {
         _gameId = gameId;
@@ -331,7 +331,7 @@ public class GameAgentManager : IGameAgentManager, IDisposable
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IGameEngine _gameEngine;
     private readonly IRAGService _ragService;
-    private readonly ISystemRegistry _systemRegistry;
+    private readonly SystemRegistry _systemRegistry;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ConcurrentDictionary<Guid, GameAgent> _agents = new();
 
@@ -339,7 +339,7 @@ public class GameAgentManager : IGameAgentManager, IDisposable
         IServiceScopeFactory scopeFactory,
         IGameEngine gameEngine,
         IRAGService ragService,
-        ISystemRegistry systemRegistry,
+        SystemRegistry systemRegistry,
         ILoggerFactory loggerFactory)
     {
         _scopeFactory = scopeFactory;

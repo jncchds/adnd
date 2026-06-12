@@ -143,7 +143,7 @@ builder.Services.AddScoped<IGameAuthorizationService, GameAuthorizationService>(
 // Game Engine
 builder.Services.AddScoped<IDiceEngine, DiceEngine>();
 builder.Services.AddScoped<ISystemRulesFactory, SystemRulesFactory>();
-builder.Services.AddScoped<ISystemRegistry, SystemRegistry>();
+builder.Services.AddSingleton<SystemRegistry>();
 builder.Services.AddScoped<IGameEngine, GameEngine>();
 
 // Combat — domain services (extracted from monolithic CombatService)

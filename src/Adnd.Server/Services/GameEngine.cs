@@ -27,7 +27,7 @@ public class GameEngine : IGameEngine
 {
     private readonly AppDbContext _context;
     private readonly IDiceEngine _diceEngine;
-    private readonly ISystemRegistry _systemRegistry;
+    private readonly SystemRegistry _systemRegistry;
     private readonly ISystemRulesFactory _rulesFactory;
     private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<GameEngine> _logger;
@@ -35,7 +35,7 @@ public class GameEngine : IGameEngine
     public GameEngine(
         AppDbContext context,
         IDiceEngine diceEngine,
-        ISystemRegistry systemRegistry,
+        SystemRegistry systemRegistry,
         ISystemRulesFactory rulesFactory,
         IEmbeddingService embeddingService,
         ILogger<GameEngine> logger)
@@ -227,11 +227,11 @@ public class GameEngine : IGameEngine
         if (player == null)
             throw new InvalidOperationException($"Player {playerId} not found.");
 
-        var system = _systemRegistry.GetSystem(systemId);
+        var system = GetSystemDefinition(systemId);
         if (system == null)
             throw new InvalidOperationException($"Unknown system: {systemId}");
 
-        var defaultTemplate = _systemRegistry.CreateDefaultCharacter(systemId);
+        var defaultTemplate = CreateDefaultCharacterFromSystem(system);
         var attrs = template?.RootElement ?? defaultTemplate.RootElement;
 
         // Extract HP values from template if available
@@ -334,7 +334,10 @@ public class GameEngine : IGameEngine
 
     public async Task<JsonDocument> GetDefaultCharacterTemplateAsync(string systemId)
     {
-        return _systemRegistry.CreateDefaultCharacter(systemId);
+        var system = GetSystemDefinition(systemId);
+        if (system == null)
+            throw new InvalidOperationException($"Unknown system: {systemId}");
+        return CreateDefaultCharacterFromSystem(system);
     }
 
     public async Task<(bool valid, string[] errors)> ValidateCharacterAsync(Guid playerId, string systemId, JsonElement character)
@@ -344,7 +347,103 @@ public class GameEngine : IGameEngine
         if (player == null)
             return (false, new[] { $"Player {playerId} not found." });
 
-        return _systemRegistry.ValidateCharacter(systemId, character);
+        var system = GetSystemDefinition(systemId);
+        if (system == null)
+            return (false, new[] { $"Unknown system: {systemId}" });
+
+        return ValidateCharacter(system, character);
+    }
+
+    /// <summary>
+    /// Get a system definition — checks custom system first (via game lookup), then built-ins.
+    /// </summary>
+    private SystemDefinition? GetSystemDefinition(string systemId, Guid? gameId = null)
+    {
+        // If a gameId is provided, check for a custom system
+        if (gameId.HasValue)
+        {
+            var game = _context.Games.FirstOrDefault(g => g.Id == gameId.Value);
+            if (game?.CustomSystemJson != null)
+            {
+                var custom = SystemRegistry.DeserializeCustom(game.CustomSystemJson);
+                if (custom != null)
+                    return custom;
+            }
+        }
+
+        return SystemRegistry.GetBuiltIn(systemId);
+    }
+
+    /// <summary>
+    /// Get a system definition for a given game.
+    /// </summary>
+    private SystemDefinition? GetSystemDefinitionForGame(Game game)
+    {
+        if (game.CustomSystemJson != null)
+        {
+            var custom = SystemRegistry.DeserializeCustom(game.CustomSystemJson);
+            if (custom != null)
+                return custom;
+        }
+
+        return SystemRegistry.GetBuiltIn(game.SystemId);
+    }
+
+    /// <summary>
+    /// Create a default character JsonDocument from a SystemDefinition.
+    /// </summary>
+    private static JsonDocument CreateDefaultCharacterFromSystem(SystemDefinition system)
+    {
+        if (!string.IsNullOrEmpty(system.DefaultCharacterJson))
+        {
+            return JsonDocument.Parse(system.DefaultCharacterJson);
+        }
+
+        var fallback = new
+        {
+            attributes = new { str = 10, dex = 10, con = 10, @int = 10, wis = 10, cha = 10 },
+            skills = new Dictionary<string, int>(),
+            inventory = Array.Empty<object>(),
+            spells = Array.Empty<object>(),
+            conditions = Array.Empty<object>(),
+            customFields = new Dictionary<string, object>()
+        };
+        return JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(fallback));
+    }
+
+    /// <summary>
+    /// Validate a character against a SystemDefinition.
+    /// </summary>
+    private static (bool valid, string[] errors) ValidateCharacter(SystemDefinition system, JsonElement character)
+    {
+        var errors = new List<string>();
+
+        if (system.RequiredCharacterFields != null)
+        {
+            foreach (var field in system.RequiredCharacterFields)
+            {
+                if (!character.TryGetProperty(field, out _))
+                    errors.Add($"Missing required field: {field}");
+            }
+        }
+
+        if (system.AttributeRanges != null && character.TryGetProperty("attributes", out var attrs))
+        {
+            foreach (var (attrName, (min, max)) in system.AttributeRanges)
+            {
+                if (attrs.TryGetProperty(attrName, out var attrVal))
+                {
+                    if (attrVal.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    {
+                        var val = attrVal.GetInt32();
+                        if (val < min || val > max)
+                            errors.Add($"{attrName} value {val} out of range [{min}, {max}]");
+                    }
+                }
+            }
+        }
+
+        return (errors.Count == 0, errors.ToArray());
     }
 }
 

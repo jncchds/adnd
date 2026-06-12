@@ -90,7 +90,7 @@ public class AgentBus : IAgentBus
     private readonly IGameEngine _gameEngine;
     private readonly IRAGService _ragService;
     private readonly IDiceEngine _diceEngine;
-    private readonly ISystemRegistry _systemRegistry;
+    private readonly SystemRegistry _systemRegistry;
     private readonly ILLMPresetService _presetService;
     private readonly ILLMInteractionLogger _interactionLogger;
     private readonly IGMToolRegistry _toolRegistry;
@@ -109,7 +109,7 @@ public class AgentBus : IAgentBus
         IGameEngine gameEngine,
         IRAGService ragService,
         IDiceEngine diceEngine,
-        ISystemRegistry systemRegistry,
+        SystemRegistry systemRegistry,
         ILLMPresetService presetService,
         ILLMInteractionLogger interactionLogger,
         IGMToolRegistry toolRegistry,
@@ -699,7 +699,7 @@ public class AgentBus : IAgentBus
             var options = JsonSerializer.Deserialize<SystemDispatchOptions>(call.Input ?? "{}")
                 ?? new SystemDispatchOptions();
 
-            var system = _systemRegistry.GetSystem(options.SystemId);
+            var system = GetSystemForCall(call, options.SystemId);
             if (system == null)
                 return $"System '{options.SystemId}' not found.";
 
@@ -1390,6 +1390,22 @@ public class AgentBus : IAgentBus
         {
             _logger.LogWarning(ex, "[NARRATION] Failed to broadcast narration for game {GameId}", gameId);
         }
+    }
+
+    /// <summary>
+    /// Get a system definition for an agent call — checks custom system first, then built-ins.
+    /// </summary>
+    private SystemDefinition? GetSystemForCall(AgentCall call, string systemId)
+    {
+        // Check for a custom system on this game
+        if (call.Game?.CustomSystemJson != null)
+        {
+            var custom = SystemRegistry.DeserializeCustom(call.Game.CustomSystemJson);
+            if (custom != null)
+                return custom;
+        }
+
+        return SystemRegistry.GetBuiltIn(systemId);
     }
 }
 

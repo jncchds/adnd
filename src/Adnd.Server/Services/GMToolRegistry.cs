@@ -50,7 +50,6 @@ public class GMToolRegistry : IGMToolRegistry
     private readonly IRAGService _ragService;
     private readonly ICombatService _combatService;
     private readonly IWhisperService _whisperService;
-    private readonly ISystemRegistry _systemRegistry;
     private readonly ILogger<GMToolRegistry> _logger;
 
     public GMToolRegistry(
@@ -59,7 +58,6 @@ public class GMToolRegistry : IGMToolRegistry
         IRAGService ragService,
         ICombatService combatService,
         IWhisperService whisperService,
-        ISystemRegistry systemRegistry,
         ILogger<GMToolRegistry> logger)
     {
         _context = context;
@@ -67,7 +65,6 @@ public class GMToolRegistry : IGMToolRegistry
         _ragService = ragService;
         _combatService = combatService;
         _whisperService = whisperService;
-        _systemRegistry = systemRegistry;
         _logger = logger;
     }
 
