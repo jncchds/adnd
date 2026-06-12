@@ -225,10 +225,9 @@ public partial class AdminController : ControllerBase
             CreatedAt = DateTime.UtcNow
         };
 
-        _context.AgentCalls.Add(call);
-        await _context.SaveChangesAsync();
+        var result = await _agentBus.SendCallAsync(call);
 
-        return Ok(new { call.Id, call.Status, call.CreatedAt, message = "Session summary queued" });
+        return Ok(new { result.Id, result.Status, result.CreatedAt, message = "Session summary queued" });
     }
 
     /// <summary>
@@ -316,10 +315,9 @@ public partial class AdminController : ControllerBase
             CreatedAt = DateTime.UtcNow
         };
 
-        _context.AgentCalls.Add(call);
-        await _context.SaveChangesAsync();
+        var result = await _agentBus.SendCallAsync(call);
 
-        return Ok(new { call.Id, call.Status, call.CreatedAt, message = "GM evaluation queued" });
+        return Ok(new { result.Id, result.Status, result.CreatedAt, message = "GM evaluation queued" });
     }
 
     /// <summary>
@@ -354,10 +352,9 @@ public partial class AdminController : ControllerBase
             CreatedAt = DateTime.UtcNow
         };
 
-        _context.AgentCalls.Add(call);
-        await _context.SaveChangesAsync();
+        var result = await _agentBus.SendCallAsync(call);
 
-        return Ok(new { call.Id, call.Status, call.CreatedAt, message = "New scene queued" });
+        return Ok(new { result.Id, result.Status, result.CreatedAt, message = "New scene queued" });
     }
 
     /// <summary>

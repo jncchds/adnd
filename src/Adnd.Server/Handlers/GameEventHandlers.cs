@@ -85,11 +85,10 @@ public class GameLifecycleHandler :
                 CreatedAt = DateTime.UtcNow
             };
 
-            _context.AgentCalls.Add(call);
-            await _context.SaveChangesAsync(ct);
+            var queuedCall = await _agentBus.SendCallAsync(call);
 
             _logger.LogInformation("[AGENT_CALL] QueuedOpenNarrative | GameId={GameId} | CallId={CallId} | Action={Action} | Status={Status}",
-                notification.GameId, call.Id, call.Action, call.Status);
+                notification.GameId, queuedCall.Id, queuedCall.Action, queuedCall.Status);
         }
         catch (Exception ex)
         {

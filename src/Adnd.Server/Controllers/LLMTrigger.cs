@@ -40,12 +40,11 @@ public partial class AdminController
             CreatedAt = DateTime.UtcNow
         };
 
-        _context.AgentCalls.Add(call);
-        await _context.SaveChangesAsync();
+        var result = await _agentBus.SendCallAsync(call);
 
         _logger.LogInformation("Manual narrative triggered for game {GameId} by {UserId}", gameId, _userIdProvider.GetCurrentUserId());
 
-        return Ok(new { call.Id, call.Status, call.CreatedAt, message = "Narrative queued" });
+        return Ok(new { result.Id, result.Status, result.CreatedAt, message = "Narrative queued" });
     }
 
     [HttpPost("games/{gameId}/trigger/suggest")]
@@ -74,12 +73,11 @@ public partial class AdminController
             CreatedAt = DateTime.UtcNow
         };
 
-        _context.AgentCalls.Add(call);
-        await _context.SaveChangesAsync();
+        var result = await _agentBus.SendCallAsync(call);
 
         _logger.LogInformation("Manual suggestion triggered for game {GameId} by {UserId}", gameId, _userIdProvider.GetCurrentUserId());
 
-        return Ok(new { call.Id, call.Status, call.CreatedAt, message = "Suggestions queued" });
+        return Ok(new { result.Id, result.Status, result.CreatedAt, message = "Suggestions queued" });
     }
 
     [HttpPost("games/{gameId}/trigger/consistency")]
@@ -102,12 +100,11 @@ public partial class AdminController
             CreatedAt = DateTime.UtcNow
         };
 
-        _context.AgentCalls.Add(call);
-        await _context.SaveChangesAsync();
+        var result = await _agentBus.SendCallAsync(call);
 
         _logger.LogInformation("Manual consistency check triggered for game {GameId} by {UserId}", gameId, _userIdProvider.GetCurrentUserId());
 
-        return Ok(new { call.Id, call.Status, call.CreatedAt, message = "Consistency check queued" });
+        return Ok(new { result.Id, result.Status, result.CreatedAt, message = "Consistency check queued" });
     }
 
     [HttpPost("games/{gameId}/trigger/review")]
@@ -144,12 +141,11 @@ public partial class AdminController
             CreatedAt = DateTime.UtcNow
         };
 
-        _context.AgentCalls.Add(call);
-        await _context.SaveChangesAsync();
+        var result = await _agentBus.SendCallAsync(call);
 
         _logger.LogInformation("Manual trigger ({Action}) for game {GameId} by {UserId}", request.Action, gameId, _userIdProvider.GetCurrentUserId());
 
-        return Ok(new { call.Id, call.Status, call.CreatedAt, message = "Trigger queued" });
+        return Ok(new { result.Id, result.Status, result.CreatedAt, message = "Trigger queued" });
     }
 
     [HttpPost("games/{gameId}/agent-calls")]

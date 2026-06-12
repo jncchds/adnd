@@ -29,6 +29,7 @@ public class PlotWeaverHandler :
     INotificationHandler<PlotThreadUpdated>
 {
     private readonly IPlotWeaver _plotWeaver;
+    private readonly IAgentBus _agentBus;
     private readonly ILogger<PlotWeaverHandler> _logger;
     private readonly AppDbContext _context;
     // Per-game message counter — prevents cross-game review threshold pollution (singleton handler)
@@ -37,10 +38,12 @@ public class PlotWeaverHandler :
 
     public PlotWeaverHandler(
         IPlotWeaver plotWeaver,
+        IAgentBus agentBus,
         ILogger<PlotWeaverHandler> logger,
         AppDbContext context)
     {
         _plotWeaver = plotWeaver;
+        _agentBus = agentBus;
         _logger = logger;
         _context = context;
     }
@@ -83,11 +86,10 @@ public class PlotWeaverHandler :
                     CreatedAt = DateTime.UtcNow
                 };
 
-                _context.AgentCalls.Add(call);
-                await _context.SaveChangesAsync(ct);
+                var queuedCall = await _agentBus.SendCallAsync(call);
 
                 _logger.LogInformation("[PLOTWEAVER] QueuedInitialThreadGeneration | GameId={GameId} | CallId={CallId}",
-                    notification.GameId, call.Id);
+                    notification.GameId, queuedCall.Id);
             }
             catch (Exception ex)
             {

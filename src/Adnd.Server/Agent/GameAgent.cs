@@ -2,11 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
-using Adnd.Server.Events;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Text.Json;
-using MediatR;
 
 namespace Adnd.Server.Agent;
 
@@ -23,23 +21,19 @@ public class GameAgent : IGameAgent
     private readonly IRAGService _ragService;
     private readonly ISystemRegistry _systemRegistry;
     private readonly ILogger<GameAgent> _logger;
-    private readonly IMediator _mediator;
     private readonly CancellationTokenSource _cts = new();
-    private TaskCompletionSource<bool> _wakeupTcs;
+    private readonly ConcurrentQueue<Guid> _pendingCallIds = new();
     private Task? _processingLoop;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private volatile bool _isPaused = false;
 
     /// <summary>
-    /// Wake up the processing loop immediately (used by MediatR event subscriber).
-    /// The loop waits on _wakeupTcs when idle — resetting it signals the loop to check for pending calls.
+    /// Enqueue a pending call ID — called by AgentCallQueued event handler.
+    /// The processing loop checks this queue before querying the database.
     /// </summary>
-    public void WakeUp()
+    public void EnqueueCall(Guid callId)
     {
-        // Reset the TCS so the loop can wait on it again next idle cycle
-        // Create a new TCS since the old one is already completed
-        _wakeupTcs.TrySetResult(true);
-        _wakeupTcs = new TaskCompletionSource<bool>();
+        _pendingCallIds.Enqueue(callId);
     }
 
     public GameAgent(
@@ -49,8 +43,7 @@ public class GameAgent : IGameAgent
         IGameEngine gameEngine,
         IRAGService ragService,
         ISystemRegistry systemRegistry,
-        ILogger<GameAgent> logger,
-        IMediator mediator)
+        ILogger<GameAgent> logger)
     {
         _gameId = gameId;
         _scopeFactory = scopeFactory;
@@ -59,8 +52,6 @@ public class GameAgent : IGameAgent
         _ragService = ragService;
         _systemRegistry = systemRegistry;
         _logger = logger;
-        _mediator = mediator;
-        _wakeupTcs = new TaskCompletionSource<bool>();
     }
 
     private async Task WithContextAsync(Func<AppDbContext, Task> action)
@@ -159,26 +150,6 @@ public class GameAgent : IGameAgent
         }
     }
 
-    public async Task QueueEventAsync(Guid gameId, AgentCall call)
-    {
-        call.GameId = gameId;
-        call.Status = AgentCallStatus.Pending;
-        call.CreatedAt = DateTime.UtcNow;
-
-        using (var scope = _scopeFactory.CreateScope())
-        {
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            context.AgentCalls.Add(call);
-            await context.SaveChangesAsync();
-        }
-
-        _logger.LogDebug("Event queued for game {GameId}: {FromAgent} → {ToAgent} [{Action}]",
-            gameId, call.FromAgent, call.ToAgent, call.Action);
-
-        // Wake up the GameAgent immediately — eliminates polling delay
-        // Note: we can't access _mediator here directly, so the caller (AgentBus) handles publishing
-    }
-
     public async Task<GMStatus> GetStatusAsync(Guid gameId)
     {
         Game? game;
@@ -204,10 +175,8 @@ public class GameAgent : IGameAgent
     }
 
     /// <summary>
-    /// Main processing loop — picks up pending events from the DB and processes them.
-    /// Survives restarts because it polls the database for pending events.
-    /// Uses MediatR event (AgentCallQueued) to wake up immediately when calls are queued,
-    /// eliminating the 1s polling delay while keeping crash recovery via polling.
+    /// Main processing loop — checks the event-driven queue first, falls back to DB query
+    /// for crash recovery (calls queued before this agent instance existed).
     /// </summary>
     private async Task ProcessLoopAsync()
     {
@@ -227,7 +196,8 @@ public class GameAgent : IGameAgent
                         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                         game = await context.Games.FindAsync(_gameId);
                     }
-                    if (game == null || game.Status != Models.GameStatus.Active || game.GMStatus == Models.GMStatus.Idle)
+                    // Only process calls when the game is active/starting and the GM is running
+                    if (game == null || (game.Status != Models.GameStatus.Active && game.Status != Models.GameStatus.Starting) || game.GMStatus == Models.GMStatus.Idle)
                     {
                         await Task.Delay(5000, _cts.Token);
                         continue;
@@ -239,34 +209,34 @@ public class GameAgent : IGameAgent
                         continue;
                     }
 
-                    // Get pending events for this game
-                    List<AgentCall> pendingCalls;
-                    using (var scope = _scopeFactory.CreateScope())
+                    // Primary path: check the event-driven queue first (no DB query)
+                    List<AgentCall> pendingCalls = new();
+                    while (_pendingCallIds.TryDequeue(out var callId))
                     {
+                        using var scope = _scopeFactory.CreateScope();
+                        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        var call = await context.AgentCalls.FindAsync(callId);
+                        if (call != null && call.Status == AgentCallStatus.Pending)
+                        {
+                            pendingCalls.Add(call);
+                        }
+                        else
+                        {
+                            // Call was already processed or doesn't exist — ignore
+                            _logger.LogDebug("Stale call id in queue: {CallId}", callId);
+                        }
+                    }
+
+                    // Fallback: if queue was empty, query DB for crash recovery
+                    if (pendingCalls.Count == 0)
+                    {
+                        using var scope = _scopeFactory.CreateScope();
                         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                         pendingCalls = await context.AgentCalls
                             .Where(c => c.GameId == _gameId && c.Status == AgentCallStatus.Pending)
                             .OrderBy(c => c.CreatedAt)
                             .Take(10)
                             .ToListAsync(_cts.Token);
-                    }
-
-                    if (pendingCalls.Count == 0)
-                    {
-                        // Wait for wakeup signal (from AgentCallQueued event) or timeout (crash recovery)
-                        try
-                        {
-                            await Task.WhenAny(
-                                _wakeupTcs.Task,
-                                Task.Delay(1000, _cts.Token));
-                            // Reset for next idle cycle
-                            _wakeupTcs = new TaskCompletionSource<bool>();
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            break;
-                        }
-                        continue;
                     }
 
                     // Process each pending event sequentially
@@ -276,6 +246,9 @@ public class GameAgent : IGameAgent
 
                         await ProcessCallAsync(call);
                     }
+
+                    // Brief delay after processing to prevent tight polling loop
+                    await Task.Delay(100, _cts.Token);
 
                     // Auto-narrate removed: idle time = players thinking or between sessions.
                     // PlotWeaver handles dynamic story development via event-driven momentum tracking.
@@ -376,8 +349,8 @@ public class GameAgentManager : IGameAgentManager, IDisposable
     }
 
     /// <summary>
-    /// Wake up a GameAgent when a new call is queued — eliminates polling delay.
-    /// Called by the AgentCallQueued event handler.
+    /// Enqueue a pending call ID into the GameAgent's queue — called by the AgentCallQueued event handler.
+    /// If the agent doesn't exist yet, the DB fallback in the loop will pick it up.
     /// </summary>
     public void OnAgentCallQueued(Guid gameId, Guid callId)
     {
@@ -385,15 +358,14 @@ public class GameAgentManager : IGameAgentManager, IDisposable
         {
             try
             {
-                agent.WakeUp();
+                agent.EnqueueCall(callId);
             }
             catch (Exception ex)
             {
                 _loggerFactory.CreateLogger<GameAgentManager>()
-                    .LogWarning(ex, "Failed to wake up game agent for game {GameId}", gameId);
+                    .LogWarning(ex, "Failed to enqueue call for game {GameId}", gameId);
             }
         }
-        // If agent doesn't exist yet, the polling loop will pick it up within 1s
     }
 
     public IGameAgent GetOrCreate(Guid gameId)
@@ -420,10 +392,9 @@ public class GameAgentManager : IGameAgentManager, IDisposable
             }
 
             var agentLogger = _loggerFactory.CreateLogger<GameAgent>();
-            // Resolve IAgentBus and IMediator within a scope to avoid singleton-scoped DbContext sharing
+            // Resolve IAgentBus within a scope to avoid singleton-scoped DbContext sharing
             using var scope = _scopeFactory.CreateScope();
             var agentBus = scope.ServiceProvider.GetRequiredService<IAgentBus>();
-            var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
             var agent = new GameAgent(
                 gameId,
                 _scopeFactory,
@@ -431,8 +402,7 @@ public class GameAgentManager : IGameAgentManager, IDisposable
                 _gameEngine,
                 _ragService,
                 _systemRegistry,
-                agentLogger,
-                mediator);
+                agentLogger);
 
             if (_agents.TryAdd(gameId, agent))
             {

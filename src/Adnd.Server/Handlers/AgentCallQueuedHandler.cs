@@ -6,9 +6,8 @@ using Microsoft.Extensions.Logging;
 namespace Adnd.Server.Handlers;
 
 /// <summary>
-/// Wakes up the GameAgent when a new call is queued — eliminates polling delay.
-/// The agent's processing loop waits on a TaskCompletionSource when idle;
-/// this handler resets the TCS to signal it to check for pending calls immediately.
+/// Enqueues a pending call ID into the GameAgent's queue when a new call is queued.
+/// The agent's processing loop checks this queue before querying the database.
 /// </summary>
 public class AgentCallQueuedHandler : INotificationHandler<AgentCallQueued>
 {

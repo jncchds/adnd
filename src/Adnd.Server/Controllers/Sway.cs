@@ -36,10 +36,9 @@ public partial class AdminController
             CreatedAt = DateTime.UtcNow
         };
 
-        _context.AgentCalls.Add(call);
-        await _context.SaveChangesAsync();
+        var result = await _agentBus.SendCallAsync(call);
 
-        return Ok(new { gameId, call.Id, call.Status, call.CreatedAt });
+        return Ok(new { gameId, result.Id, result.Status, result.CreatedAt });
     }
 
 }

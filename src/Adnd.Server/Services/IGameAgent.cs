@@ -26,10 +26,10 @@ public interface IGameAgent
     Task ResumeAsync(Guid gameId);
 
     /// <summary>
-    /// Queue an event for processing by the game agent.
-    /// Events are persisted to the database.
+    /// Enqueue a pending call ID — called by the AgentCallQueued event handler.
+    /// The processing loop checks this queue before querying the database.
     /// </summary>
-    Task QueueEventAsync(Guid gameId, AgentCall call);
+    void EnqueueCall(Guid callId);
 
     /// <summary>
     /// Get the current status of the game agent.
