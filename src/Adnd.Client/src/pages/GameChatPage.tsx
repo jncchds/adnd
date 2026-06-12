@@ -2,8 +2,6 @@ import { useCallback, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/hooks/useAuth';
 import { useGame } from '../api/hooks/useGameDetail';
-import { useGMStatus } from '../api/hooks/useGameDetail';
-import { usePlayers } from '../api/hooks/useSessionPlayers';
 import { useToolCalls } from '../api/hooks/useAgent';
 import { useMessagesInfiniteScroll } from '../api/hooks/useMessages';
 import { api } from '../api/client';
@@ -13,15 +11,12 @@ import { Box, Typography, TextField, InputAdornment, MenuItem, Select, FormContr
 import { Send as SendIcon, SportsEsports as DiceIcon } from '@mui/icons-material';
 
 type MessageInputType = 'inGame' | 'ooc';
-type MessageTarget = 'all' | 'gm' | 'player';
 
 export default function GameChatPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { game, isLoading: isLoadingGame } = useGame(id);
-  const { status: gmStatus } = useGMStatus(id);
-  const { players } = usePlayers(id);
   const { pendingCalls: calls } = useToolCalls(id);
   const { messages, isLoading, hasMore, loadOldest } = useMessagesInfiniteScroll(id, undefined);
   const [messageInput, setMessageInput] = useState('');

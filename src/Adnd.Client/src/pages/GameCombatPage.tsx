@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom';
-import CombatTab from '../components/combat/CombatTab';
+import CombatTab from './CombatTab';
 
 export default function GameCombatPage() {
   const { id } = useParams<{ id: string }>();
