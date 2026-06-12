@@ -414,14 +414,13 @@ export default function GameChatPage() {
   // Live incoming messages (from SignalR)
   const [liveMessages, setLiveMessages] = useState<any[]>([]);
 
-  // Fetch active combat
+  // Fetch active combat (used once on mount to bootstrap state)
   const fetchActiveCombat = useCallback(async () => {
     if (!id) return;
     try {
       const data = await combatGetCombats(id);
       const active = data.combats.find((c: any) => c.status === 'Active' || c.status === 'Paused');
       if (active) {
-        // Fetch full combat details
         const { combatGetCombat } = await import('../api/combat/combatApi');
         const full = await combatGetCombat(id, active.id);
         setActiveCombat({
@@ -453,29 +452,122 @@ export default function GameChatPage() {
     }
   }, [id]);
 
-  // Fetch combat on mount and periodically
+  // Fetch combat on mount only (once per session)
   useEffect(() => {
     fetchActiveCombat();
-    const interval = setInterval(fetchActiveCombat, 5000);
-    return () => clearInterval(interval);
   }, [fetchActiveCombat]);
 
   // SignalR: listen for combat events and new messages
   useEffect(() => {
     if (!isConnected) return;
 
-    const handleCombatStarted = () => { fetchActiveCombat(); };
+    const handleCombatStarted = (data: { combatId: string; name?: string; currentRound: number; participants: any[] }) => {
+      setActiveCombat({
+        combatId: data.combatId,
+        name: data.name || 'Unnamed Combat',
+        status: 'Active',
+        currentRound: data.currentRound,
+        currentTurnIndex: 0,
+        participants: data.participants.map((p: any) => ({
+          id: p.id,
+          displayName: p.displayName,
+          participantType: p.participantType,
+          currentHP: p.currentHP,
+          maxHP: p.maxHP,
+          ac: p.ac,
+          initiative: p.initiative,
+          conditions: (p.conditions || []).map((c: any) => ({
+            name: c.name || c,
+            duration: c.duration,
+          })),
+          isCurrentTurn: false,
+        })),
+      });
+    };
+
     const handleCombatEnded = () => { setActiveCombat(null); };
-    const handleCombatDamage = () => { fetchActiveCombat(); };
-    const handleConditionApplied = () => { fetchActiveCombat(); };
-    const handleConditionRemoved = () => { fetchActiveCombat(); };
-    const handleTurnAdvanced = () => { fetchActiveCombat(); };
-    const handleParticipantAdded = () => { fetchActiveCombat(); };
-    const handleParticipantRemoved = () => { fetchActiveCombat(); };
+
+    const handleCombatDamage = (data: { combatId: string; target: string; targetHP: number; targetMaxHP: number }) => {
+      setActiveCombat(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          participants: prev.participants.map(p =>
+            p.id === data.target ? { ...p, currentHP: data.targetHP } : p
+          ),
+        };
+      });
+    };
+
+    const handleConditionApplied = (data: { combatId: string; participantId: string; condition: string; duration?: number }) => {
+      setActiveCombat(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          participants: prev.participants.map(p =>
+            p.id === data.participantId
+              ? { ...p, conditions: [...p.conditions, { name: data.condition, duration: data.duration }] }
+              : p
+          ),
+        };
+      });
+    };
+
+    const handleConditionRemoved = (data: { combatId: string; participantId: string; condition: string }) => {
+      setActiveCombat(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          participants: prev.participants.map(p =>
+            p.id === data.participantId
+              ? { ...p, conditions: p.conditions.filter(c => c.name !== data.condition) }
+              : p
+          ),
+        };
+      });
+    };
+
+    const handleTurnAdvanced = (data: { combatId: string; turnIndex: number; participantId: string; displayName: string }) => {
+      setActiveCombat(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          currentTurnIndex: data.turnIndex,
+          participants: prev.participants.map(p => ({
+            ...p,
+            isCurrentTurn: p.id === data.participantId,
+          })),
+        };
+      });
+    };
+
+    const handleParticipantAdded = (data: { participant: { id: string; displayName: string; participantType: string; currentHP: number; maxHP: number; ac: number; initiative: number } }) => {
+      setActiveCombat(prev => {
+        if (!prev) return prev;
+        const newParticipant = {
+          id: data.participant.id,
+          displayName: data.participant.displayName,
+          participantType: data.participant.participantType,
+          currentHP: data.participant.currentHP,
+          maxHP: data.participant.maxHP,
+          ac: data.participant.ac,
+          initiative: data.participant.initiative,
+          conditions: [] as Array<{ name: string; duration?: number }>,
+          isCurrentTurn: false,
+        };
+        return { ...prev, participants: [...prev.participants, newParticipant] };
+      });
+    };
+
+    const handleParticipantRemoved = (data: { participantId: string }) => {
+      setActiveCombat(prev => {
+        if (!prev) return prev;
+        return { ...prev, participants: prev.participants.filter(p => p.id !== data.participantId) };
+      });
+    };
+
     const handleNewMessage = (msg: any) => {
-      // Append incoming message to live messages
       setLiveMessages(prev => {
-        // Avoid duplicates
         if (prev.some((m: any) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
@@ -502,7 +594,7 @@ export default function GameChatPage() {
       off('ParticipantRemoved', handleParticipantRemoved);
       off('NewMessage', handleNewMessage);
     };
-  }, [isConnected, on, off, fetchActiveCombat]);
+  }, [isConnected, on, off]);
 
   // Scroll detection: check if user is at bottom
   const checkAtBottom = useCallback(() => {
