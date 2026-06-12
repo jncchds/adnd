@@ -252,97 +252,9 @@ public class GameStartService : IGameStartService
         game.GMStatus = GMStatus.Running;
         await _context.SaveChangesAsync();
 
-        // Step 2: Generate plot threads
-        int threadsGenerated = 0;
-        try
-        {
-            var threads = await _plotWeaver.GenerateInitialThreadsAsync(
-                gameId,
-                game.PlotSeed ?? "An epic adventure",
-                game.GameParameters ?? "",
-                game.SystemId,
-                game.LLMPresetId);
-            threadsGenerated = threads.Count;
-            _logger.LogInformation("Generated {Count} initial plot threads for game {GameId}", threadsGenerated, gameId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to generate initial plot threads for game {GameId}", gameId);
-        }
-
-        // Step 3: Generate opening narrative (Strategy pattern)
-        string? openingNarrative = null;
-        try
-        {
-            var generator = _narrativeFactory.GetStrategy(game.LLMPreset.ProviderType);
-            openingNarrative = await generator.GenerateOpeningNarrative(game);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to generate opening narrative for game {GameId}", gameId);
-            openingNarrative = "The adventure begins...";
-        }
-
-        // Step 4: Create session and opening message
-        if (!string.IsNullOrEmpty(openingNarrative))
-        {
-            var session = await _context.GameSessions
-                .FirstOrDefaultAsync(s => s.GameId == gameId && s.EndedAt == null);
-
-            if (session == null)
-            {
-                session = new GameSession
-                {
-                    GameId = gameId,
-                    Title = "Session 1",
-                    Description = "Opening session",
-                    StartedAt = DateTime.UtcNow
-                };
-                _context.GameSessions.Add(session);
-                await _context.SaveChangesAsync();
-            }
-
-            var message = new Message
-            {
-                SessionId = session.Id,
-                PlayerId = null,
-                Content = openingNarrative,
-                Type = Adnd.Server.Models.MessageType.GM,
-                IsOOC = false,
-                Metadata = default,
-                CreatedAt = DateTime.UtcNow
-            };
-            _context.Messages.Add(message);
-            await _context.SaveChangesAsync();
-
-            // Generate embedding for the opening narrative
-            try
-            {
-                var embedding = await _embeddingService.GenerateEmbeddingAsync(gameId, openingNarrative);
-                message.Embedding = embedding != null ? new Vector(embedding) : null;
-                await _context.SaveChangesAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to generate embedding for opening narrative in game {GameId}", gameId);
-            }
-
-            await _hubContext.Clients.Group(gameId.ToString()).SendAsync("NewMessage", new
-            {
-                Id = message.Id,
-                SessionId = message.SessionId,
-                PlayerId = (Guid?)null,
-                Content = message.Content,
-                Type = (int)message.Type,
-                IsOOC = false,
-                WhisperFromId = (Guid?)null,
-                WhisperToId = (Guid?)null,
-                WhisperTarget = (string?)null,
-                CreatedAt = message.CreatedAt
-            });
-        }
-
-        // Step 5: Publish game started event → triggers GameAgent activation
+        // Step 2: Publish game started event → triggers GameAgent activation
+        // The GameAgent handles: initial plot thread generation (via PlotWeaverHandler)
+        // and opening narrative generation (via OpenNarrative AgentCall).
         await _mediator.Publish(new Events.GameStarted(gameId, userId));
 
         return new StartGameResult
@@ -350,8 +262,8 @@ public class GameStartService : IGameStartService
             GameId = gameId,
             Status = game.Status,
             StartedAt = game.StartedAt,
-            OpeningNarrative = openingNarrative,
-            PlotThreadsGenerated = threadsGenerated,
+            OpeningNarrative = null,
+            PlotThreadsGenerated = 0,
             Success = true
         };
     }
