@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   Box,
   Drawer,
@@ -51,7 +51,6 @@ interface SidePanelProps {
   currentView: AppView;
   onNavigate: (view: AppView) => void;
   gameId?: string;
-  activeGameTab?: string;
   onNewGame?: () => void;
   onJoinGame?: () => void;
   onAddPreset?: () => void;
@@ -74,9 +73,10 @@ const buttonBaseSx = {
   '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
 };
 
-export default function SidePanel({ open, onToggle, currentView, onNavigate, gameId, activeGameTab, onNewGame, onJoinGame, onAddPreset, onNewSystem, games, presets, isMobile = false }: SidePanelProps) {
+export default function SidePanel({ open, onToggle, currentView, onNavigate, gameId, onNewGame, onJoinGame, onAddPreset, onNewSystem, games, presets, isMobile = false }: SidePanelProps) {
   const navigate = useNavigate();
   const { id: adminId } = useParams<{ id: string }>();
+  const location = useLocation();
   const theme = useTheme();
   const { user, isAuthenticated, logout } = useAuth();
 
@@ -315,15 +315,15 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
               <>
                 <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
                 {/* Unified chat is the main interface — all game events appear in chat */}
-                <ListItemButton onClick={() => navigate(`/game/${gameId}`)} sx={{ ...buttonBaseSx, bgcolor: activeGameTab === 'chat' ? 'rgba(145,71,255,0.15)' : 'transparent', color: activeGameTab === 'chat' ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
+                <ListItemButton onClick={() => navigate(`/game/${gameId}`)} sx={{ ...buttonBaseSx, bgcolor: gameId && location.pathname === `/game/${gameId}` ? 'rgba(145,71,255,0.15)' : 'transparent', color: gameId && location.pathname === `/game/${gameId}` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><ChatIcon fontSize="small" /></ListItemIcon>
                   <ListItemText primary="Chat" />
                 </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/game/${gameId}/combat`)} sx={{ ...buttonBaseSx, bgcolor: activeGameTab === 'combat' ? 'rgba(145,71,255,0.15)' : 'transparent', color: activeGameTab === 'combat' ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
+                <ListItemButton onClick={() => navigate(`/game/${gameId}/combat`)} sx={{ ...buttonBaseSx, bgcolor: gameId && location.pathname === `/game/${gameId}/combat` ? 'rgba(145,71,255,0.15)' : 'transparent', color: gameId && location.pathname === `/game/${gameId}/combat` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><CombatIcon fontSize="small" /></ListItemIcon>
                   <ListItemText primary="Combat" />
                 </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/game/${gameId}/settings`)} sx={{ ...buttonBaseSx, bgcolor: activeGameTab === 'settings' ? 'rgba(145,71,255,0.15)' : 'transparent', color: activeGameTab === 'settings' ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
+                <ListItemButton onClick={() => navigate(`/game/${gameId}/settings`)} sx={{ ...buttonBaseSx, bgcolor: gameId && location.pathname === `/game/${gameId}/settings` ? 'rgba(145,71,255,0.15)' : 'transparent', color: gameId && location.pathname === `/game/${gameId}/settings` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><SettingsIcon fontSize="small" /></ListItemIcon>
                   <ListItemText primary="Settings" />
                 </ListItemButton>
@@ -342,33 +342,33 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
             {open && (
               <>
                 <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}`)} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                <ListItemButton onClick={() => navigate(`/admin/${adminId}`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.06)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><DashboardIcon fontSize="small" color="primary" /></ListItemIcon>
                   <ListItemText primary="Dashboard" />
                 </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/plot-board`)} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                <ListItemButton onClick={() => navigate(`/admin/${adminId}/plot-board`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/plot-board` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/plot-board` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><BulbIcon fontSize="small" /></ListItemIcon>
                   <ListItemText primary="Plot Board" />
                 </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/npcs`)} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                <ListItemButton onClick={() => navigate(`/admin/${adminId}/npcs`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/npcs` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/npcs` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><PeopleIcon fontSize="small" /></ListItemIcon>
                   <ListItemText primary="NPCs" />
                 </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/characters`)} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                <ListItemButton onClick={() => navigate(`/admin/${adminId}/characters`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/characters` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/characters` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><SheetIcon fontSize="small" /></ListItemIcon>
                   <ListItemText primary="Characters" />
                 </ListItemButton>
                 <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
                 <Typography variant="caption" sx={{ px: 2, color: 'text.secondary', display: 'block', mt: 0.5, mb: 0.5, fontWeight: 600, textTransform: 'uppercase' }}>Tools</Typography>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/consistency`)} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                <ListItemButton onClick={() => navigate(`/admin/${adminId}/consistency`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/consistency` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/consistency` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><ConsistencyIcon fontSize="small" /></ListItemIcon>
                   <ListItemText primary="Consistency Check" />
                 </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/llm-logs`)} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                <ListItemButton onClick={() => navigate(`/admin/${adminId}/llm-logs`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/llm-logs` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/llm-logs` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><HistoryIcon fontSize="small" /></ListItemIcon>
                   <ListItemText primary="LLM Logs" />
                 </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/agent-calls`)} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                <ListItemButton onClick={() => navigate(`/admin/${adminId}/agent-calls`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/agent-calls` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/agent-calls` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><MicIcon fontSize="small" /></ListItemIcon>
                   <ListItemText primary="Agent Calls" />
                 </ListItemButton>
