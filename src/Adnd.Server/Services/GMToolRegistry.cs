@@ -51,8 +51,6 @@ public class GMToolRegistry : IGMToolRegistry
     private readonly ICombatService _combatService;
     private readonly IWhisperService _whisperService;
     private readonly ISystemRegistry _systemRegistry;
-    private readonly ILLMProviderFactory _providerFactory;
-    private readonly IApiKeyEncryptionService _encryption;
     private readonly ILogger<GMToolRegistry> _logger;
 
     public GMToolRegistry(
@@ -62,8 +60,6 @@ public class GMToolRegistry : IGMToolRegistry
         ICombatService combatService,
         IWhisperService whisperService,
         ISystemRegistry systemRegistry,
-        ILLMProviderFactory providerFactory,
-        IApiKeyEncryptionService encryption,
         ILogger<GMToolRegistry> logger)
     {
         _context = context;
@@ -72,8 +68,6 @@ public class GMToolRegistry : IGMToolRegistry
         _combatService = combatService;
         _whisperService = whisperService;
         _systemRegistry = systemRegistry;
-        _providerFactory = providerFactory;
-        _encryption = encryption;
         _logger = logger;
     }
 
@@ -435,7 +429,7 @@ public class GMToolRegistry : IGMToolRegistry
 
             return toolName switch
             {
-                "narrate" => await ExecuteNarrate(gameId, args),
+                "narrate" => ExecuteNarrate(args),
                 "queryRAG" => await ExecuteQueryRAG(args),
                 "queryPlotThreads" => await ExecuteQueryPlotThreads(args, gameId),
                 "queryCharacter" => await ExecuteQueryCharacter(args),
@@ -473,83 +467,18 @@ public class GMToolRegistry : IGMToolRegistry
 
     // === Tool implementations ===
 
-    private async Task<ToolExecutionResult> ExecuteNarrate(Guid gameId, Dictionary<string, object> args)
+    private ToolExecutionResult ExecuteNarrate(Dictionary<string, object> args)
     {
         var context = args.GetValueOrDefault("context")?.ToString() ?? "Continue the narrative.";
         var tone = args.GetValueOrDefault("tone")?.ToString() ?? "dramatic";
         var focus = args.GetValueOrDefault("focus")?.ToString();
 
-        // Look up the game to get the LLM preset
-        var game = await _context.Games
-            .Include(g => g.LLMPreset)
-            .FirstOrDefaultAsync(g => g.Id == gameId);
-
-        if (game == null || game.LLMPreset == null)
+        return new ToolExecutionResult
         {
-            return new ToolExecutionResult
-            {
-                Success = false,
-                Error = "Game or LLM preset not found for narration."
-            };
-        }
-
-        // Get the LLM provider
-        var preset = game.LLMPreset;
-        ILLMProvider? provider = null;
-        if (preset.ApiKey != null && preset.DecryptedApiKey == null)
-        {
-            try
-            {
-                preset.DecryptedApiKey = _encryption.Decrypt(preset.ApiKey);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to decrypt API key for preset '{PresetName}'", preset.Name);
-                return new ToolExecutionResult
-                {
-                    Success = false,
-                    Error = "Failed to decrypt API key."
-                };
-            }
-        }
-        provider = _providerFactory.CreateFromPreset(preset);
-
-        if (provider == null)
-        {
-            return new ToolExecutionResult
-            {
-                Success = false,
-                Error = $"LLM provider '{game.LLMPreset.ProviderType}' not available."
-            };
-        }
-
-        try
-        {
-            var systemPrompt = $"You are a TTRPG Game Master. Generate narrative text based on the given context. " +
-                $"Use the provided tone and focus to craft an immersive description. " +
-                $"Game system: {game.SystemId}. " +
-                (string.IsNullOrEmpty(game.Language) || game.Language == "English" ? "" :
-                    $"\n\n**Language**: All output must be in **{game.Language}**.") ;
-            var userPrompt = $"Context: {context}\nTone: {tone}" + (focus != null ? $"\nFocus: {focus}" : "");
-
-            var result = await provider.CompleteAsync(systemPrompt, userPrompt);
-
-            return new ToolExecutionResult
-            {
-                Success = true,
-                Output = result,
-                OutputMessage = $"Narrating: {context} (tone: {tone})"
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to generate narrative via LLM for game {GameId}", gameId);
-            return new ToolExecutionResult
-            {
-                Success = false,
-                Error = $"LLM narration failed: {ex.Message}"
-            };
-        }
+            Success = true,
+            Output = JsonSerializer.Serialize(new { context, tone, focus }),
+            OutputMessage = $"Narrating: {context} (tone: {tone})"
+        };
     }
 
     private async Task<ToolExecutionResult> ExecuteQueryRAG(Dictionary<string, object> args)
