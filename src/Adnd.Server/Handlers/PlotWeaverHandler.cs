@@ -374,8 +374,8 @@ public class PlotWeaverHandler :
         {
             _messageCountsByGame[notification.GameId] = 0;
 
-            _logger.LogInformation("[PLOTWEAVER] PeriodicReview | GameId={GameId} | Trigger=MessageCount ({Count}/{Threshold})",
-                notification.GameId, count, ReviewThreshold);
+            _logger.LogInformation("[PLOTWEAVER] PeriodicReview | GameId={GameId} | Trigger=MessageCount ({Count}/{Threshold}) | MessageLen={MessageLen}",
+                notification.GameId, count, ReviewThreshold, notification.Content?.Length ?? 0);
 
             try
             {

@@ -132,9 +132,111 @@ public abstract class BaseLLMProvider : ILLMProvider
 
     public abstract string EndpointUrl { get; }
 
+    /// <summary>
+    /// Get the model name used by this provider (for logging).
+    /// </summary>
+    public virtual string ModelName => "unknown";
+
+    /// <summary>
+    /// Log a provider interaction for observability.
+    /// </summary>
+    protected void LogProviderInteraction(
+        string operation,
+        string status,
+        string systemPrompt,
+        string userPrompt,
+        string response,
+        long durationMs,
+        int? promptTokens = null,
+        int? completionTokens = null,
+        int? totalTokens = null,
+        string? toolCallInfo = null,
+        string? error = null)
+    {
+        var statusTag = status == "success" ? "[PROVIDER]" : $"[PROVIDER] {status.ToUpper()}";
+
+        if (error != null)
+        {
+            _logger.LogError("{Status} {Operation} | Provider={ProviderId} | Model={Model} | Duration={Duration}ms | Error={Error}",
+                statusTag, operation, ProviderId, ModelName, durationMs, error);
+            return;
+        }
+
+        var systemPromptPreview = systemPrompt.Length > 100 ? systemPrompt[..100] + "..." : systemPrompt;
+        var userPromptPreview = userPrompt.Length > 100 ? userPrompt[..100] + "..." : userPrompt;
+        var responsePreview = response.Length > 200 ? response[..200] + "..." : response;
+
+        var logMsg = $"{statusTag} {operation} | Provider={ProviderId} | Model={ModelName} | Duration={durationMs}ms | SystemPrompt={systemPromptPreview} | UserPrompt={userPromptPreview} | Response={responsePreview}";
+
+        if (status == "success")
+        {
+            if (promptTokens.HasValue || completionTokens.HasValue)
+            {
+                logMsg += $" | Tokens(P:{promptTokens ?? 0},C:{completionTokens ?? 0},T:{totalTokens ?? 0})";
+            }
+            if (!string.IsNullOrEmpty(toolCallInfo))
+            {
+                logMsg += $" | Tools={toolCallInfo}";
+            }
+            _logger.LogInformation(logMsg);
+        }
+        else
+        {
+            _logger.LogWarning(logMsg);
+        }
+    }
+
     public abstract (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText);
 
-    public abstract Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null);
+    /// <summary>
+    /// Wrapper that logs the interaction and delegates to CompleteAsyncCore.
+    /// Concrete providers should implement CompleteAsyncCore instead of overriding CompleteAsync.
+    /// </summary>
+    public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        string? error = null;
+        string? response = null;
+
+        try
+        {
+            response = await CompleteAsyncCore(systemPrompt, userPrompt, options);
+            sw.Stop();
+
+            var tokenUsage = GetTokenUsage(response ?? "");
+            LogProviderInteraction(
+                "CompleteAsync",
+                "success",
+                systemPrompt,
+                userPrompt,
+                response ?? "",
+                sw.ElapsedMilliseconds,
+                tokenUsage?.promptTokens,
+                tokenUsage?.completionTokens,
+                tokenUsage?.totalTokens);
+
+            return response;
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            error = ex.Message;
+            LogProviderInteraction(
+                "CompleteAsync",
+                "error",
+                systemPrompt,
+                userPrompt,
+                "<exception>",
+                sw.ElapsedMilliseconds,
+                error: error);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Core implementation of text completion. Override this in concrete providers.
+    /// </summary>
+    protected abstract Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions? options = null);
 
     /// <summary>
     /// Calls CompleteAsync with a JSON-enforcing system prompt,
@@ -163,17 +265,108 @@ public abstract class BaseLLMProvider : ILLMProvider
         return text;
     }
 
-    public abstract Task<float[]> GetEmbeddingAsync(string text);
+    /// <summary>
+    /// Wrapper that logs the embedding generation and delegates to GetEmbeddingAsyncCore.
+    /// Concrete providers should implement GetEmbeddingAsyncCore instead of overriding GetEmbeddingAsync.
+    /// </summary>
+    public async Task<float[]> GetEmbeddingAsync(string text)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        string? error = null;
+        float[]? result = null;
+
+        try
+        {
+            result = await GetEmbeddingAsyncCore(text);
+            sw.Stop();
+
+            _logger.LogInformation("[PROVIDER] GetEmbeddingAsync | Provider={ProviderId} | Model={Model} | TextLen={TextLen} | Dim={Dim} | Duration={Duration}ms",
+                ProviderId, ModelName, text.Length, result?.Length ?? 0, sw.ElapsedMilliseconds);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            error = ex.Message;
+            _logger.LogError("[PROVIDER] GetEmbeddingAsync | Provider={ProviderId} | Model={Model} | TextLen={TextLen} | Duration={Duration}ms | Error={Error}",
+                ProviderId, ModelName, text.Length, sw.ElapsedMilliseconds, error);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Core implementation of embedding generation. Override this in concrete providers.
+    /// </summary>
+    protected abstract Task<float[]> GetEmbeddingAsyncCore(string text);
 
     public abstract Task<bool> IsAvailableAsync();
 
     public abstract Task<ProviderStatus> GetStatusAsync();
 
     /// <summary>
-    /// Default tool-calling implementation that falls back to plain text completion.
-    /// Override in concrete providers that support native tool calling (OpenAI, Ollama with tools, Google AI).
+    /// Wrapper that logs the tool-calling interaction and delegates to CompleteWithToolsAsyncCore.
+    /// Concrete providers should implement CompleteWithToolsAsyncCore instead of overriding CompleteWithToolsAsync.
     /// </summary>
-    public virtual async Task<LLMCompletionResult> CompleteWithToolsAsync(
+    public async Task<LLMCompletionResult> CompleteWithToolsAsync(
+        string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        string? error = null;
+        LLMCompletionResult? result = null;
+
+        try
+        {
+            result = await CompleteWithToolsAsyncCore(systemPrompt, userPrompt, tools, options);
+            sw.Stop();
+
+            var toolCallInfo = result.HasToolCalls
+                ? $"{result.ToolCalls.Count} calls: {string.Join(", ", result.ToolCalls.Select(tc => tc.Name))}"
+                : "none";
+            var tokenUsage = result.TokenUsage ?? GetTokenUsage(result.Content);
+
+            LogProviderInteraction(
+                "CompleteWithToolsAsync",
+                "success",
+                systemPrompt,
+                userPrompt,
+                result.Content,
+                sw.ElapsedMilliseconds,
+                tokenUsage?.promptTokens,
+                tokenUsage?.completionTokens,
+                tokenUsage?.totalTokens,
+                toolCallInfo);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            error = ex.Message;
+            LogProviderInteraction(
+                "CompleteWithToolsAsync",
+                "error",
+                systemPrompt,
+                userPrompt,
+                "<exception>",
+                sw.ElapsedMilliseconds,
+                error: error);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Core implementation of tool-calling completion. Override this in concrete providers.
+    /// </summary>
+    protected virtual Task<LLMCompletionResult> CompleteWithToolsAsyncCore(
+        string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null) =>
+        CompleteWithToolsAsyncFallback(systemPrompt, userPrompt, tools, options);
+
+    /// <summary>
+    /// Default tool-calling implementation that falls back to plain text completion.
+    /// Override CompleteWithToolsAsyncCore in concrete providers that support native tool calling.
+    /// </summary>
+    private async Task<LLMCompletionResult> CompleteWithToolsAsyncFallback(
         string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
     {
         // Fallback: append tool descriptions to system prompt and ask for JSON output

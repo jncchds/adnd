@@ -800,6 +800,10 @@ public class AgentBus : IAgentBus
             // Handle tool calls from the LLM
             if (completion.HasToolCalls)
             {
+                _logger.LogInformation("[TOOL_CALL] LLMRequested | GameId={GameId} | CallId={CallId} | ToolCount={Count} | Tools={Tools}",
+                    game.Id, call.Id, completion.ToolCalls.Count,
+                    string.Join(", ", completion.ToolCalls.Select(tc => tc.Name)));
+
                 var toolResults = new List<(string toolCallId, string result, string message)>();
 
                 foreach (var toolCall in completion.ToolCalls)
@@ -832,6 +836,10 @@ public class AgentBus : IAgentBus
                     $"Tool '{tr.toolCallId}': {tr.message}\nResult: {tr.result}"));
 
                 var followUpPrompt = $"Tool results:\n{toolResultsText}\n\nNow continue the narrative based on these results.";
+
+                _logger.LogInformation("[TOOL_CALL] FollowUpLLM | GameId={GameId} | CallId={CallId} | ToolCalls={Count} | PromptPreview={Preview}",
+                    game.Id, call.Id, toolResults.Count,
+                    followUpPrompt.Length > 100 ? followUpPrompt[..100] + "..." : followUpPrompt);
 
                 var followUpCompletion = await provider.CompleteAsync(
                     systemPrompt, followUpPrompt, options.Options);
@@ -947,6 +955,7 @@ public class AgentBus : IAgentBus
     {
         var toolName = toolCall.Name;
         var args = toolCall.Arguments;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
 
         // Use scoped context to avoid ObjectDisposedException
         using var toolScope = _scopeFactory.CreateScope();
@@ -966,8 +975,17 @@ public class AgentBus : IAgentBus
         toolContext.GMToolCalls.Add(toolCallRecord);
         await toolContext.SaveChangesAsync();
 
+        var argsPreview = args?.Length > 200 ? args[..200] + "..." : (args ?? "{}");
+        _logger.LogInformation("[TOOL_CALL] Executing | GameId={GameId} | ToolCallId={ToolCallId} | Tool={Tool} | Args={Args}",
+            gameId, toolCall.Id, toolName, argsPreview);
+
         // Execute the tool
         var result = await _toolRegistry.ExecuteToolAsync(gameId, sessionId, toolName, args);
+        sw.Stop();
+
+        var outputPreview = result.Output?.Length > 200 ? result.Output[..200] + "..." : result.Output;
+        _logger.LogInformation("[TOOL_CALL] Executed | GameId={GameId} | ToolCallId={ToolCallId} | Tool={Tool} | Success={Success} | Duration={Duration}ms | Output={Output} | RequiresConfirmation={RequiresConfirmation}",
+            gameId, toolCall.Id, toolName, result.Success, sw.ElapsedMilliseconds, outputPreview, result.RequiresUserInput);
 
         toolCallRecord.Status = result.Success ? ToolCallStatus.Completed : ToolCallStatus.Failed;
         toolCallRecord.Result = result.Output;
@@ -981,6 +999,9 @@ public class AgentBus : IAgentBus
         {
             toolCallRecord.Status = ToolCallStatus.WaitingConfirmation;
             await toolContext.SaveChangesAsync();
+
+            _logger.LogInformation("[TOOL_CALL] WaitingConfirmation | GameId={GameId} | ToolCallId={ToolCallId} | Tool={Tool} | InputType={InputType}",
+                gameId, toolCall.Id, toolName, result.UserInputType);
 
             return new ToolExecutionResult
             {
@@ -1109,8 +1130,15 @@ public class AgentBus : IAgentBus
         var allToolCalls = new List<ToolCall>();
         var toolResults = new List<(string toolCallId, string result, string message)>();
 
+        _logger.LogInformation("[OPEN_NARRATIVE] Starting iterative tool calling for game {GameId} | MaxDepth={MaxDepth}",
+            game.Id, _toolCallingMaxDepth);
+
         while (currentDepth < _toolCallingMaxDepth)
         {
+            currentDepth++;
+            _logger.LogInformation("[OPEN_NARRATIVE] Iteration={Depth} | GameId={GameId} | PromptLen={PromptLen}",
+                currentDepth, game.Id, currentFollowUpPrompt.Length);
+
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var completion = await provider.CompleteWithToolsAsync(currentSystemPrompt, currentFollowUpPrompt, tools, options.Options);
             sw.Stop();
@@ -1131,11 +1159,16 @@ public class AgentBus : IAgentBus
                 // No more tool calls — this is the final narrative
                 lastNarrative = completion.Content;
                 allToolCalls.AddRange(completion.ToolCalls);
+                _logger.LogInformation("[OPEN_NARRATIVE] FinalNarrative | GameId={GameId} | Depth={Depth} | TotalToolCalls={TotalCalls} | NarrativeLen={NarrativeLen}",
+                    game.Id, currentDepth, allToolCalls.Count, completion.Content.Length);
                 break;
             }
 
+            _logger.LogInformation("[OPEN_NARRATIVE] ToolCallsFound | GameId={GameId} | Depth={Depth} | Count={Count} | Tools={Tools}",
+                game.Id, currentDepth, completion.ToolCalls.Count,
+                string.Join(", ", completion.ToolCalls.Select(tc => tc.Name)));
+
             allToolCalls.AddRange(completion.ToolCalls);
-            currentDepth++;
             toolResults.Clear();
 
             // Execute tool calls
@@ -1200,10 +1233,17 @@ public class AgentBus : IAgentBus
                 ChangedAt = DateTime.UtcNow
             });
 
+            _logger.LogInformation("[OPEN_NARRATIVE] Complete | GameId={GameId} | FinalDepth={Depth} | TotalToolCalls={TotalCalls} | NarrativeLen={NarrativeLen}",
+                game.Id, currentDepth, allToolCalls.Count, lastNarrative.Length);
+
             return lastNarrative;
         }
 
         // Max depth reached with no final narrative — return tool results
+        _logger.LogWarning("[OPEN_NARRATIVE] MaxDepthReached | GameId={GameId} | MaxDepth={MaxDepth} | TotalToolCalls={TotalCalls} | LastToolResults={LastResults}",
+            game.Id, _toolCallingMaxDepth, allToolCalls.Count,
+            string.Join("\n", toolResults.Select(tr => $"  {tr.toolCallId}: {tr.message}")));
+
         using var scope2 = _scopeFactory.CreateScope();
         var scopedContext2 = scope2.ServiceProvider.GetRequiredService<AppDbContext>();
         var scopedGame2 = await scopedContext2.Games.FindAsync(game.Id);

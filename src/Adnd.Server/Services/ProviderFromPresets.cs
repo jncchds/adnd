@@ -25,6 +25,8 @@ public class OllamaLLMProviderFromPreset : BaseLLMProvider
 
     public override string EndpointUrl => _baseUrl;
 
+    public override string ModelName => _model;
+
     public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
     {
         try
@@ -38,7 +40,7 @@ public class OllamaLLMProviderFromPreset : BaseLLMProvider
         }
     }
 
-    public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
+    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
         float temperature = options?.Temperature > 0 ? options.Temperature : 0.7f;
@@ -59,38 +61,57 @@ public class OllamaLLMProviderFromPreset : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 _baseUrl + "/api/chat", payload,
                 new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                return "Error: " + response.StatusCode;
+                _logger.LogWarning("[PROVIDER] CompleteAsync | Provider=ollama | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return $"Error: {response.StatusCode}";
             }
 
             var result = await response.Content.ReadFromJsonAsync<OllamaResponse>();
-            return result?.Message?.Content ?? "No response";
+            var content = result?.Message?.Content ?? "No response";
+
+            _logger.LogInformation("[PROVIDER] CompleteAsync | Provider=ollama | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen}",
+                modelName, sw.ElapsedMilliseconds, content.Length);
+
+            return content;
         }
         catch (Exception ex)
         {
-            return "Error: " + ex.Message;
+            _logger.LogError(ex, "[PROVIDER] CompleteAsync | Provider=ollama | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 
-    public override async Task<float[]> GetEmbeddingAsync(string text)
+    protected override async Task<float[]> GetEmbeddingAsyncCore(string text)
     {
         var payload = new { model = _embeddingModel, input = text };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var response = await _httpClient.PostAsJsonAsync(
             _embeddingUrl + "/api/embed", payload);
+        sw.Stop();
 
         if (!response.IsSuccessStatusCode)
         {
+            _logger.LogWarning("[PROVIDER] GetEmbeddingAsync | Provider=ollama | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms", _embeddingModel, (int)response.StatusCode, sw.ElapsedMilliseconds);
             return Array.Empty<float>();
         }
 
         var result = await response.Content.ReadFromJsonAsync<OllamaEmbeddingResponse>();
-        return result?.Embedding ?? Array.Empty<float>();
+        var embedding = result?.Embedding ?? Array.Empty<float>();
+
+        _logger.LogInformation("[PROVIDER] GetEmbeddingAsync | Provider=ollama | Model={Model} | TextLen={TextLen} | Dim={Dim} | Duration={Duration}ms",
+            _embeddingModel, text.Length, embedding.Length, sw.ElapsedMilliseconds);
+
+        return embedding;
     }
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
     public override Task<ProviderStatus> GetStatusAsync() =>
@@ -126,6 +147,8 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
 
     public override string EndpointUrl => _baseUrl;
 
+    public override string ModelName => _model;
+
     public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
     {
         try
@@ -143,7 +166,7 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
         return null;
     }
 
-    public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
+    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
         float temperature = options?.Temperature > 0 ? options.Temperature : 0.7f;
@@ -169,46 +192,68 @@ public class LmStudioLLMProviderFromPreset : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 _baseUrl + "/v1/chat/completions", payload);
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                return "Error: " + response.StatusCode;
+                _logger.LogWarning("[PROVIDER] CompleteAsync | Provider=lmstudio | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return $"Error: {response.StatusCode}";
             }
 
             var result = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
             var message = result?.Choices?.FirstOrDefault()?.Message;
-            if (message == null) return "No response";
+            if (message == null)
+            {
+                _logger.LogWarning("[PROVIDER] CompleteAsync | Provider=lmstudio | Model={Model} | Duration={Duration}ms | NoChoicesInResponse", modelName, sw.ElapsedMilliseconds);
+                return "No response";
+            }
             // Some models (reasoning models) output reasoning_content instead of content
             var content = message.Content;
             if (string.IsNullOrEmpty(content) && message is { ReasoningContent: not null })
             {
                 content = message.ReasoningContent;
             }
+
+            _logger.LogInformation("[PROVIDER] CompleteAsync | Provider=lmstudio | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen}",
+                modelName, sw.ElapsedMilliseconds, content?.Length ?? 0);
+
             return content ?? "No response";
         }
         catch (Exception ex)
         {
-            return "Error: " + ex.Message;
+            _logger.LogError(ex, "[PROVIDER] CompleteAsync | Provider=lmstudio | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 
-    public override async Task<float[]> GetEmbeddingAsync(string text)
+    protected override async Task<float[]> GetEmbeddingAsyncCore(string text)
     {
         var embeddingModel = _embeddingModel ?? "nomic-embed-text";
         var payload = new { model = embeddingModel, input = text };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var response = await _httpClient.PostAsJsonAsync(
             _embeddingUrl + "/v1/embeddings", payload);
+        sw.Stop();
 
         if (!response.IsSuccessStatusCode)
         {
+            _logger.LogWarning("[PROVIDER] GetEmbeddingAsync | Provider=lmstudio | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms", embeddingModel, (int)response.StatusCode, sw.ElapsedMilliseconds);
             return Array.Empty<float>();
         }
 
         var result = await response.Content.ReadFromJsonAsync<OpenAIEmbeddingResponse>();
-        return result?.Data?.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
+        var embedding = result?.Data?.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
+
+        _logger.LogInformation("[PROVIDER] GetEmbeddingAsync | Provider=lmstudio | Model={Model} | TextLen={TextLen} | Dim={Dim} | Duration={Duration}ms",
+            embeddingModel, text.Length, embedding.Length, sw.ElapsedMilliseconds);
+
+        return embedding;
     }
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
     public override Task<ProviderStatus> GetStatusAsync() =>
@@ -244,6 +289,8 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
 
     public override string EndpointUrl => _baseUrl;
 
+    public override string ModelName => _model;
+
     public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
     {
         try
@@ -261,7 +308,7 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
         return null;
     }
 
-    public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
+    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
         float temperature = options?.Temperature > 0 ? options.Temperature : 0.7f;
@@ -286,38 +333,57 @@ public class OpenAILLMProviderFromPreset : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 _baseUrl + "/chat/completions", payload);
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                return "Error: " + response.StatusCode;
+                _logger.LogWarning("[PROVIDER] CompleteAsync | Provider=openai | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return $"Error: {response.StatusCode}";
             }
 
             var result = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
-            return result?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+            var content = result?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+
+            _logger.LogInformation("[PROVIDER] CompleteAsync | Provider=openai | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen}",
+                modelName, sw.ElapsedMilliseconds, content.Length);
+
+            return content;
         }
         catch (Exception ex)
         {
-            return "Error: " + ex.Message;
+            _logger.LogError(ex, "[PROVIDER] CompleteAsync | Provider=openai | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 
-    public override async Task<float[]> GetEmbeddingAsync(string text)
+    protected override async Task<float[]> GetEmbeddingAsyncCore(string text)
     {
         var embeddingModel = _embeddingModel ?? "text-embedding-3-small";
         var payload = new { model = embeddingModel, input = new[] { text } };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var response = await _httpClient.PostAsJsonAsync(
             _embeddingUrl + "/v1/embeddings", payload);
+        sw.Stop();
 
         if (!response.IsSuccessStatusCode)
         {
+            _logger.LogWarning("[PROVIDER] GetEmbeddingAsync | Provider=openai | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms", embeddingModel, (int)response.StatusCode, sw.ElapsedMilliseconds);
             return Array.Empty<float>();
         }
 
         var result = await response.Content.ReadFromJsonAsync<OpenAIEmbeddingResponse>();
-        return result?.Data?.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
+        var embedding = result?.Data?.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
+
+        _logger.LogInformation("[PROVIDER] GetEmbeddingAsync | Provider=openai | Model={Model} | TextLen={TextLen} | Dim={Dim} | Duration={Duration}ms",
+            embeddingModel, text.Length, embedding.Length, sw.ElapsedMilliseconds);
+
+        return embedding;
     }
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
     public override Task<ProviderStatus> GetStatusAsync() =>
@@ -350,6 +416,8 @@ public class GoogleAIStudioLLMProviderFromPreset : BaseLLMProvider
 
     public override string EndpointUrl => $"https://generativelanguage.googleapis.com/v1beta/models/{_model}";
 
+    public override string ModelName => _model;
+
     public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
     {
         try
@@ -372,7 +440,7 @@ public class GoogleAIStudioLLMProviderFromPreset : BaseLLMProvider
         return null;
     }
 
-    public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
+    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
         float temperature = options?.Temperature > 0 ? options.Temperature : 0.7f;
@@ -395,38 +463,57 @@ public class GoogleAIStudioLLMProviderFromPreset : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={_apiKey}", payload);
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                return "Error: " + response.StatusCode;
+                _logger.LogWarning("[PROVIDER] CompleteAsync | Provider=google | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return $"Error: {response.StatusCode}";
             }
 
             var result = await response.Content.ReadFromJsonAsync<GoogleAIResponse>();
-            return result?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "No response";
+            var content = result?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "No response";
+
+            _logger.LogInformation("[PROVIDER] CompleteAsync | Provider=google | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen}",
+                modelName, sw.ElapsedMilliseconds, content.Length);
+
+            return content;
         }
         catch (Exception ex)
         {
-            return "Error: " + ex.Message;
+            _logger.LogError(ex, "[PROVIDER] CompleteAsync | Provider=google | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 
-    public override async Task<float[]> GetEmbeddingAsync(string text)
+    protected override async Task<float[]> GetEmbeddingAsyncCore(string text)
     {
         var embeddingModel = _embeddingModel ?? "text-embedding-004";
         var payload = new { content = new { parts = new[] { new { text } } } };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var response = await _httpClient.PostAsJsonAsync(
             $"{_embeddingUrl}/v1beta/models/{embeddingModel}:embedContent?key={_apiKey}", payload);
+        sw.Stop();
 
         if (!response.IsSuccessStatusCode)
         {
+            _logger.LogWarning("[PROVIDER] GetEmbeddingAsync | Provider=google | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms", embeddingModel, (int)response.StatusCode, sw.ElapsedMilliseconds);
             return Array.Empty<float>();
         }
 
         var result = await response.Content.ReadFromJsonAsync<GoogleAIEmbeddingResponse>();
-        return result?.Embedding?.Values ?? Array.Empty<float>();
+        var embedding = result?.Embedding?.Values ?? Array.Empty<float>();
+
+        _logger.LogInformation("[PROVIDER] GetEmbeddingAsync | Provider=google | Model={Model} | TextLen={TextLen} | Dim={Dim} | Duration={Duration}ms",
+            embeddingModel, text.Length, embedding.Length, sw.ElapsedMilliseconds);
+
+        return embedding;
     }
     public override Task<bool> IsAvailableAsync() => Task.FromResult(true);
     public override Task<ProviderStatus> GetStatusAsync() =>

@@ -22,7 +22,7 @@ public class AgentCallQueuedHandler : INotificationHandler<AgentCallQueued>
 
     public Task Handle(AgentCallQueued notification, CancellationToken ct)
     {
-        _logger.LogDebug("AgentCallQueued event for game {GameId}, call {CallId} — waking up agent",
+        _logger.LogInformation("[AGENT_WAKEUP] Queued | GameId={GameId} | CallId={CallId} — waking up agent",
             notification.GameId, notification.CallId);
         _agentManager.OnAgentCallQueued(notification.GameId, notification.CallId);
         return Task.CompletedTask;

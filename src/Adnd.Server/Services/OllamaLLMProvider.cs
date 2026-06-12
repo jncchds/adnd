@@ -30,6 +30,8 @@ public class OllamaLLMProvider : BaseLLMProvider
 
     public override string EndpointUrl => _baseUrl;
 
+    public override string ModelName => _model;
+
     public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
     {
         try
@@ -43,7 +45,7 @@ public class OllamaLLMProvider : BaseLLMProvider
         }
     }
 
-    public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
+    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
         float temperature = options?.Temperature ?? 0.7f;
@@ -64,24 +66,33 @@ public class OllamaLLMProvider : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 _baseUrl + "/api/chat", payload,
                 new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError("Ollama API error: {Error}", error);
-                return "Error: " + response.StatusCode;
+                _logger.LogWarning("[PROVIDER] CompleteAsync | Provider=ollama | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return $"Error: {response.StatusCode}";
             }
 
             var result = await response.Content.ReadFromJsonAsync<OllamaResponse>();
-            return result?.Message?.Content ?? "No response";
+            var content = result?.Message?.Content ?? "No response";
+
+            _logger.LogInformation("[PROVIDER] CompleteAsync | Provider=ollama | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen}",
+                modelName, sw.ElapsedMilliseconds, content.Length);
+
+            return content;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Ollama request failed");
-            return "Error: " + ex.Message;
+            _logger.LogError(ex, "[PROVIDER] CompleteAsync | Provider=ollama | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 
@@ -89,7 +100,7 @@ public class OllamaLLMProvider : BaseLLMProvider
     /// Ollama-native tool calling implementation.
     /// Uses Ollama's /api/chat endpoint with the tools parameter.
     /// </summary>
-    public override async Task<LLMCompletionResult> CompleteWithToolsAsync(
+    protected override async Task<LLMCompletionResult> CompleteWithToolsAsyncCore(
         string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
@@ -165,19 +176,29 @@ public class OllamaLLMProvider : BaseLLMProvider
         }
     }
 
-    public override async Task<float[]> GetEmbeddingAsync(string text)
+    protected override async Task<float[]> GetEmbeddingAsyncCore(string text)
     {
         string embeddingModel = "nomic-embed-text";
         var payload = new { model = embeddingModel, input = text };
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var response = await _httpClient.PostAsJsonAsync(
             _baseUrl + "/api/embed", payload);
+        sw.Stop();
 
         if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("[PROVIDER] GetEmbeddingAsync | Provider=ollama | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms", embeddingModel, (int)response.StatusCode, sw.ElapsedMilliseconds);
             throw new InvalidOperationException("Ollama embedding failed: " + response.StatusCode);
+        }
 
         var result = await response.Content.ReadFromJsonAsync<OllamaEmbeddingResponse>();
-        return result?.Embedding ?? Array.Empty<float>();
+        var embedding = result?.Embedding ?? Array.Empty<float>();
+
+        _logger.LogInformation("[PROVIDER] GetEmbeddingAsync | Provider=ollama | Model={Model} | TextLen={TextLen} | Dim={Dim} | Duration={Duration}ms",
+            embeddingModel, text.Length, embedding.Length, sw.ElapsedMilliseconds);
+
+        return embedding;
     }
 
     public override async Task<bool> IsAvailableAsync()

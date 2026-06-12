@@ -30,6 +30,8 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
 
     public override string EndpointUrl => $"https://generativelanguage.googleapis.com/v1beta/models/{_model}";
 
+    public override string ModelName => _model;
+
     public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
     {
         try
@@ -52,7 +54,7 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
         return null;
     }
 
-    public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
+    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
         float temperature = options?.Temperature ?? 0.7f;
@@ -75,23 +77,32 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={_apiKey}", payload);
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError("Google AI Studio API error: {Error}", error);
-                return "Error: " + response.StatusCode;
+                _logger.LogWarning("[PROVIDER] CompleteAsync | Provider=google | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return $"Error: {response.StatusCode}";
             }
 
             var result = await response.Content.ReadFromJsonAsync<GoogleAIResponse>();
-            return result?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "No response";
+            var content = result?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text ?? "No response";
+
+            _logger.LogInformation("[PROVIDER] CompleteAsync | Provider=google | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen}",
+                modelName, sw.ElapsedMilliseconds, content.Length);
+
+            return content;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Google AI Studio request failed");
-            return "Error: " + ex.Message;
+            _logger.LogError(ex, "[PROVIDER] CompleteAsync | Provider=google | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 
@@ -99,7 +110,7 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
     /// Google AI Studio tool calling implementation.
     /// Uses the Generative AI API's function calling format.
     /// </summary>
-    public override async Task<LLMCompletionResult> CompleteWithToolsAsync(
+    protected override async Task<LLMCompletionResult> CompleteWithToolsAsyncCore(
         string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
@@ -137,14 +148,17 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={_apiKey}", payload);
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError("Google AI Studio tool call API error: {Error}", error);
-                return new LLMCompletionResult { Content = "Error: " + response.StatusCode };
+                _logger.LogWarning("[PROVIDER] CompleteWithToolsAsync | Provider=google | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return new LLMCompletionResult { Content = $"Error: {response.StatusCode}" };
             }
 
             var responseText = await response.Content.ReadAsStringAsync();
@@ -171,6 +185,9 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
                 }
             }
 
+            _logger.LogInformation("[PROVIDER] CompleteWithToolsAsync | Provider=google | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen} | ToolCalls={ToolCalls}",
+                modelName, sw.ElapsedMilliseconds, content.Length, toolCalls.Count);
+
             return new LLMCompletionResult
             {
                 Content = content,
@@ -180,22 +197,33 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Google AI Studio tool call request failed");
-            return new LLMCompletionResult { Content = "Error: " + ex.Message };
+            _logger.LogError(ex, "[PROVIDER] CompleteWithToolsAsync | Provider=google | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return new LLMCompletionResult { Content = $"Error: {ex.Message}" };
         }
     }
 
-    public override async Task<float[]> GetEmbeddingAsync(string text)
+    protected override async Task<float[]> GetEmbeddingAsyncCore(string text)
     {
         var payload = new { content = new { parts = new[] { new { text } } } };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var response = await _httpClient.PostAsJsonAsync(
             $"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={_apiKey}", payload);
+        sw.Stop();
 
         if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("[PROVIDER] GetEmbeddingAsync | Provider=google | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms", "text-embedding-004", (int)response.StatusCode, sw.ElapsedMilliseconds);
             throw new InvalidOperationException("Google AI Studio embedding failed: " + response.StatusCode);
+        }
 
         var result = await response.Content.ReadFromJsonAsync<GoogleAIEmbeddingResponse>();
-        return result?.Embedding?.Values ?? Array.Empty<float>();
+        var embedding = result?.Embedding?.Values ?? Array.Empty<float>();
+
+        _logger.LogInformation("[PROVIDER] GetEmbeddingAsync | Provider=google | Model={Model} | TextLen={TextLen} | Dim={Dim} | Duration={Duration}ms",
+            "text-embedding-004", text.Length, embedding.Length, sw.ElapsedMilliseconds);
+
+        return embedding;
     }
 
     public override async Task<bool> IsAvailableAsync()

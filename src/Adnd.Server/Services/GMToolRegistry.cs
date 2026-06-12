@@ -68,6 +68,21 @@ public class GMToolRegistry : IGMToolRegistry
         _logger = logger;
     }
 
+    private void LogToolExecution(Guid gameId, string toolName, string argsPreview, string output, bool success, string? error = null)
+    {
+        if (success)
+        {
+            var outputPreview = output?.Length > 200 ? output[..200] + "..." : output;
+            _logger.LogInformation("[TOOL_REGISTRY] Executed | GameId={GameId} | Tool={Tool} | Args={Args} | Output={Output}",
+                gameId, toolName, argsPreview, outputPreview);
+        }
+        else
+        {
+            _logger.LogError("[TOOL_REGISTRY] Failed | GameId={GameId} | Tool={Tool} | Args={Args} | Error={Error}",
+                gameId, toolName, argsPreview, error);
+        }
+    }
+
     public List<GMToolDefinition> GetAvailableTools(Guid gameId)
     {
         return new List<GMToolDefinition>
@@ -470,12 +485,15 @@ public class GMToolRegistry : IGMToolRegistry
         var tone = args.GetValueOrDefault("tone")?.ToString() ?? "dramatic";
         var focus = args.GetValueOrDefault("focus")?.ToString();
 
-        return new ToolExecutionResult
+        var argsPreview = $"context={context[..Math.Min(50, context.Length)]}... tone={tone}";
+        var result = new ToolExecutionResult
         {
             Success = true,
             Output = JsonSerializer.Serialize(new { context, tone, focus }),
             OutputMessage = $"Narrating: {context} (tone: {tone})"
         };
+        LogToolExecution(Guid.Empty, "narrate", argsPreview, result.OutputMessage, true);
+        return result;
     }
 
     private async Task<ToolExecutionResult> ExecuteQueryRAG(Dictionary<string, object> args)
@@ -483,12 +501,14 @@ public class GMToolRegistry : IGMToolRegistry
         var query = args.GetValueOrDefault("query")?.ToString() ?? "";
         var limit = args.GetValueOrDefault("limit") is int l ? l : 5;
 
-        return new ToolExecutionResult
+        var result = new ToolExecutionResult
         {
             Success = true,
             Output = $"RAG search for: {query} (limit: {limit}) — results pending RAG execution",
             OutputMessage = $"Searched plot context for: \"{query}\""
         };
+        LogToolExecution(Guid.Empty, "queryRAG", $"query={query[..Math.Min(50, query.Length)]}... limit={limit}", result.Output, true);
+        return result;
     }
 
     private async Task<ToolExecutionResult> ExecuteQueryPlotThreads(Dictionary<string, object> args, Guid gameId)
@@ -561,7 +581,7 @@ public class GMToolRegistry : IGMToolRegistry
             }
         }
 
-        return new ToolExecutionResult
+        var result = new ToolExecutionResult
         {
             Success = true,
             Output = JsonSerializer.Serialize(new { skill, context, dc, optional, playerIds }),
@@ -569,6 +589,8 @@ public class GMToolRegistry : IGMToolRegistry
             RequiresUserInput = true,
             UserInputType = "skill_check",
         };
+        LogToolExecution(gameId, "askPlayerToRoll", $"skill={skill} dc={dc} players={playerIds.Count}", result.OutputMessage, true);
+        return result;
     }
 
     private async Task<ToolExecutionResult> ExecuteAskPlayerToRollDice(Dictionary<string, object> args, Guid gameId, Guid sessionId)
@@ -597,10 +619,12 @@ public class GMToolRegistry : IGMToolRegistry
         var formula = args.GetValueOrDefault("formula")?.ToString() ?? "1d20";
         var context = args.GetValueOrDefault("context")?.ToString();
 
+        var output = $"Dice formula: {formula}" + (context != null ? $" (context: {context})" : "");
+        LogToolExecution(Guid.Empty, "rollDice", $"formula={formula} context={context ?? "null"}", output, true);
         return new ToolExecutionResult
         {
             Success = true,
-            Output = $"Dice formula: {formula}" + (context != null ? $" (context: {context})" : ""),
+            Output = output,
             OutputMessage = $"Rolled {formula}"
         };
     }
@@ -638,12 +662,14 @@ public class GMToolRegistry : IGMToolRegistry
     {
         var name = args.GetValueOrDefault("name")?.ToString() ?? "Combat";
 
-        return new ToolExecutionResult
+        var result = new ToolExecutionResult
         {
             Success = true,
             Output = JsonSerializer.Serialize(new { name, gameId, sessionId }),
             OutputMessage = $"Combat started: {name}"
         };
+        LogToolExecution(gameId, "startCombat", $"name={name}", result.OutputMessage, true);
+        return result;
     }
 
     private async Task<ToolExecutionResult> ExecuteAddCombatant(Dictionary<string, object> args)
@@ -710,12 +736,14 @@ public class GMToolRegistry : IGMToolRegistry
         var name = args.GetValueOrDefault("name")?.ToString() ?? "";
         var description = args.GetValueOrDefault("description")?.ToString() ?? "";
 
-        return new ToolExecutionResult
+        var result = new ToolExecutionResult
         {
             Success = true,
             Output = JsonSerializer.Serialize(new { name, description, gameId }),
             OutputMessage = $"Created NPC: {name}"
         };
+        LogToolExecution(gameId, "createNPC", $"name={name} desc={description[..Math.Min(50, description.Length)]}...", result.OutputMessage, true);
+        return result;
     }
 
     private async Task<ToolExecutionResult> ExecuteUpdateNPC(Dictionary<string, object> args)

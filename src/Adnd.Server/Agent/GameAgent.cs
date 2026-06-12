@@ -227,7 +227,7 @@ public class GameAgent : IGameAgent
                         else
                         {
                             // Call was already processed or doesn't exist — ignore
-                            _logger.LogDebug("Stale call id in queue: {CallId}", callId);
+                            _logger.LogDebug("[AGENT] StaleCallInQueue | GameId={GameId} | CallId={CallId}", _gameId, callId);
                         }
                     }
 
@@ -241,6 +241,19 @@ public class GameAgent : IGameAgent
                             .OrderBy(c => c.CreatedAt)
                             .Take(10)
                             .ToListAsync(_cts.Token);
+
+                        if (pendingCalls.Any())
+                        {
+                            _logger.LogInformation("[AGENT] CrashRecovery | GameId={GameId} | Found {Count} pending calls in DB",
+                                _gameId, pendingCalls.Count);
+                        }
+                    }
+
+                    if (pendingCalls.Any())
+                    {
+                        _logger.LogInformation("[AGENT] ProcessingBatch | GameId={GameId} | BatchSize={Size} | Sources={Sources}",
+                            _gameId, pendingCalls.Count,
+                            string.Join(", ", pendingCalls.Select(c => $"{c.FromAgent}->{c.Action}")));
                     }
 
                     // Process each pending event sequentially
@@ -275,6 +288,9 @@ public class GameAgent : IGameAgent
 
     private async Task ProcessCallAsync(AgentCall call)
     {
+        _logger.LogInformation("[AGENT] CallStart | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | CreatedAt={CreatedAt}",
+            _gameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.CreatedAt);
+
         using (var scope = _scopeFactory.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -295,8 +311,8 @@ public class GameAgent : IGameAgent
                 await context.SaveChangesAsync();
             }
 
-            _logger.LogDebug("Event processed for game {GameId}: {Action} (call: {CallId})",
-                _gameId, call.Action, call.Id);
+            _logger.LogInformation("[AGENT] CallComplete | GameId={GameId} | CallId={CallId} | Action={Action} | Duration={Duration}ms | OutputLen={OutputLen}",
+                _gameId, call.Id, call.Action, call.DurationMs, call.Output?.Length ?? 0);
         }
         catch (Exception ex)
         {
@@ -309,8 +325,8 @@ public class GameAgent : IGameAgent
                 await context.SaveChangesAsync();
             }
 
-            _logger.LogError(ex, "Error processing event for game {GameId}: {Action} (call: {CallId})",
-                _gameId, call.Action, call.Id);
+            _logger.LogError("[AGENT] CallFailed | GameId={GameId} | CallId={CallId} | Action={Action} | Duration={Duration}ms | Error={Error}",
+                _gameId, call.Id, call.Action, call.DurationMs, ex.Message);
         }
     }
 

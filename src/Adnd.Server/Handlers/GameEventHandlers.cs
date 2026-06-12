@@ -48,8 +48,9 @@ public class GameLifecycleHandler :
 
     public async Task Handle(GameStarted notification, CancellationToken ct)
     {
-        _logger.LogInformation("[STATE] GameStarted | GameId={GameId} | CreatorId={CreatorId} | Transition: Draft→Starting", 
-            notification.GameId, notification.CreatorId);
+        var game = await _context.Games.FindAsync(notification.GameId);
+        _logger.LogInformation("[STATE] GameStarted | GameId={GameId} | GameName={GameName} | CreatorId={CreatorId} | System={SystemId} | PlotSeed={PlotSeed} | Transition: Draft→Starting", 
+            notification.GameId, game?.Name ?? "(unknown)", notification.CreatorId, game?.SystemId ?? "(unknown)", game?.PlotSeed ?? "(none)");
 
         var agent = _gameAgentManager.GetOrCreate(notification.GameId);
         await agent.StartAsync(notification.GameId, notification.CreatorId);
@@ -59,8 +60,8 @@ public class GameLifecycleHandler :
         // Queue the opening narrative call via AgentCall (async, non-blocking)
         try
         {
-            var game = await _context.Games.FindAsync(notification.GameId);
-            if (game == null) return;
+            var gameEntity = await _context.Games.FindAsync(notification.GameId);
+            if (gameEntity == null) return;
 
             var call = new AgentCall
             {
@@ -73,12 +74,12 @@ public class GameLifecycleHandler :
                     SystemPrompt = $"You are the Game Master for a TTRPG session. " +
                         $"Create an immersive opening narrative that introduces the world, sets the tone, " +
                         $"and invites the players into the story. Be vivid and engaging. " +
-                        $"Game system: {game.SystemId}. " +
-                        $"Plot seed: {game.PlotSeed ?? "No premise provided."}. " +
-                        $"Game parameters: {game.GameParameters ?? "Standard tone and difficulty."}. " +
+                        $"Game system: {gameEntity.SystemId}. " +
+                        $"Plot seed: {gameEntity.PlotSeed ?? "No premise provided."}. " +
+                        $"Game parameters: {gameEntity.GameParameters ?? "Standard tone and difficulty."}. " +
                         $"Use the 'narrate' tool to generate the opening scene. " +
-                        (string.IsNullOrEmpty(game.Language) || game.Language == "English" ? "" :
-                            $"\n\n**Language**: All narrative output must be in **{game.Language}**. Write your response entirely in {game.Language}. Do NOT use English for any narrative content."),
+                        (string.IsNullOrEmpty(gameEntity.Language) || gameEntity.Language == "English" ? "" :
+                            $"\n\n**Language**: All narrative output must be in **{gameEntity.Language}**. Write your response entirely in {gameEntity.Language}. Do NOT use English for any narrative content."),
                     UserPrompt = "Generate the opening narrative for this game session."
                 }),
                 Status = AgentCallStatus.Pending,
@@ -118,13 +119,14 @@ public class GameLifecycleHandler :
             notification.GameId, notification.MessageId);
 
         using var scope = _serviceScopeFactory.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var game = await context.Games.FindAsync(notification.GameId);
+        var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var game = await ctx.Games.FindAsync(notification.GameId);
         if (game != null && game.Status == Models.GameStatus.Starting)
         {
             game.Status = Models.GameStatus.Active;
-            await context.SaveChangesAsync(ct);
-            _logger.LogInformation("[STATE] GameActive | GameId={GameId} | Transition: Starting→Active", notification.GameId);
+            await ctx.SaveChangesAsync(ct);
+            _logger.LogInformation("[STATE] GameActive | GameId={GameId} | GameName={GameName} | PlayerCount={PlayerCount} | Transition: Starting→Active",
+                notification.GameId, game.Name, game.Players.Count);
 
             // Broadcast status change to frontend
             await _hubContext.Clients.Group(game.Id.ToString()).SendAsync("GameStatusChanged", new
@@ -138,7 +140,10 @@ public class GameLifecycleHandler :
 
     public async Task Handle(GameResumed notification, CancellationToken ct)
     {
-        _logger.LogInformation("[STATE] GameResumed | GameId={GameId} | Transition: Paused→Running", notification.GameId);
+        var game = await _context.Games.FindAsync(notification.GameId);
+        _logger.LogInformation("[STATE] GameResumed | GameId={GameId} | GameName={GameName} | Transition: Paused→Running",
+            notification.GameId, game?.Name ?? "(unknown)");
+
         var agent = _gameAgentManager.GetOrCreate(notification.GameId);
 
         var wasRestarted = agent.IsActive(notification.GameId);
@@ -171,8 +176,8 @@ public class PlayerHandler :
 
     public Task Handle(PlayerJoined notification, CancellationToken ct)
     {
-        _logger.LogInformation("[PLAYER] Joined | GameId={GameId} | PlayerId={PlayerId} | Character={Character} | Role={Role}",
-            notification.GameId, notification.PlayerId, notification.CharacterName, notification.PlayerId);
+        _logger.LogInformation("[PLAYER] Joined | GameId={GameId} | PlayerId={PlayerId} | UserId={UserId} | Character={Character}",
+            notification.GameId, notification.PlayerId, notification.UserId, notification.CharacterName);
         return Task.CompletedTask;
     }
 
@@ -367,36 +372,36 @@ public class ChatHandler :
 
     public Task Handle(MessageSent notification, CancellationToken ct)
     {
-        _logger.LogInformation("[CHAT] MessageSent | GameId={GameId} | Type={Type} | OOC={IsOOC} | PlayerId={PlayerId}",
-            notification.GameId, notification.Type, notification.IsOOC, notification.PlayerId);
+        _logger.LogInformation("[CHAT] MessageSent | GameId={GameId} | Type={Type} | OOC={IsOOC} | PlayerId={PlayerId} | ContentLen={ContentLen}",
+            notification.GameId, notification.Type, notification.IsOOC, notification.PlayerId, notification.Content?.Length ?? 0);
         return Task.CompletedTask;
     }
 
     public Task Handle(WhisperSent notification, CancellationToken ct)
     {
-        _logger.LogInformation("[CHAT] WhisperSent | GameId={GameId} | From={FromPlayerId} → Targets={Targets} | Type={Type}",
-            notification.GameId, notification.FromPlayerId, notification.Targets, notification.Type);
+        _logger.LogInformation("[CHAT] WhisperSent | GameId={GameId} | From={FromPlayerId} → Targets={Targets} | Type={Type} | ContentLen={ContentLen}",
+            notification.GameId, notification.FromPlayerId, notification.Targets, notification.Type, notification.Content?.Length ?? 0);
         return Task.CompletedTask;
     }
 
     public Task Handle(OOCMessageSent notification, CancellationToken ct)
     {
-        _logger.LogInformation("[CHAT] OOCMessageSent | GameId={GameId} | Channel={Channel} | PlayerId={PlayerId}",
-            notification.GameId, notification.OOCChannel, notification.PlayerId);
+        _logger.LogInformation("[CHAT] OOCMessageSent | GameId={GameId} | Channel={Channel} | PlayerId={PlayerId} | ContentLen={ContentLen}",
+            notification.GameId, notification.OOCChannel, notification.PlayerId, notification.Content?.Length ?? 0);
         return Task.CompletedTask;
     }
 
     public Task Handle(OOCWhisperSent notification, CancellationToken ct)
     {
-        _logger.LogInformation("[CHAT] OOCWhisperSent | GameId={GameId} | From={FromPlayerId} → Targets={Targets}",
-            notification.GameId, notification.FromPlayerId, notification.Targets);
+        _logger.LogInformation("[CHAT] OOCWhisperSent | GameId={GameId} | From={FromPlayerId} → Targets={Targets} | ContentLen={ContentLen}",
+            notification.GameId, notification.FromPlayerId, notification.Targets, notification.Content?.Length ?? 0);
         return Task.CompletedTask;
     }
 
     public Task Handle(OOCWhisperReceived notification, CancellationToken ct)
     {
-        _logger.LogInformation("[CHAT] OOCWhisperReceived | GameId={GameId} | From={FromPlayerId} → To={ToPlayerId}",
-            notification.GameId, notification.FromPlayerId, notification.ToPlayerId);
+        _logger.LogInformation("[CHAT] OOCWhisperReceived | GameId={GameId} | From={FromPlayerId} → To={ToPlayerId} | ContentLen={ContentLen}",
+            notification.GameId, notification.FromPlayerId, notification.ToPlayerId, notification.Content?.Length ?? 0);
         return Task.CompletedTask;
     }
 }
@@ -419,14 +424,14 @@ public class SessionHandler :
 
     public Task Handle(SessionCreated notification, CancellationToken ct)
     {
-        _logger.LogInformation("Session created: {SessionId} in game {GameId}",
-            notification.SessionId, notification.GameId);
+        _logger.LogInformation("[SESSION] Created | SessionId={SessionId} | GameId={GameId} | Title={Title}",
+            notification.SessionId, notification.GameId, notification.Title);
         return Task.CompletedTask;
     }
 
     public Task Handle(SessionClosed notification, CancellationToken ct)
     {
-        _logger.LogInformation("Session closed: {SessionId} in game {GameId}",
+        _logger.LogInformation("[SESSION] Closed | SessionId={SessionId} | GameId={GameId}",
             notification.SessionId, notification.GameId);
         return Task.CompletedTask;
     }

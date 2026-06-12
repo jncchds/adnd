@@ -34,6 +34,8 @@ public class OpenAILLMProvider : BaseLLMProvider
 
     public override string EndpointUrl => _baseUrl;
 
+    public override string ModelName => _model;
+
     public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
     {
         try
@@ -51,7 +53,7 @@ public class OpenAILLMProvider : BaseLLMProvider
         return null;
     }
 
-    public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
+    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
         float temperature = options?.Temperature ?? 0.7f;
@@ -76,23 +78,32 @@ public class OpenAILLMProvider : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 _baseUrl + "/chat/completions", payload);
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError("OpenAI API error: {Error}", error);
-                return "Error: " + response.StatusCode;
+                _logger.LogWarning("[PROVIDER] CompleteAsync | Provider=openai | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return $"Error: {response.StatusCode}";
             }
 
             var responseResult = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
-            return responseResult?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+            var content = responseResult?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+
+            _logger.LogInformation("[PROVIDER] CompleteAsync | Provider=openai | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen}",
+                modelName, sw.ElapsedMilliseconds, content.Length);
+
+            return content;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "OpenAI request failed");
-            return "Error: " + ex.Message;
+            _logger.LogError(ex, "[PROVIDER] CompleteAsync | Provider=openai | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 
@@ -100,7 +111,7 @@ public class OpenAILLMProvider : BaseLLMProvider
     /// OpenAI-native tool calling implementation.
     /// Sends tools to the API and parses tool_call responses.
     /// </summary>
-    public override async Task<LLMCompletionResult> CompleteWithToolsAsync(
+    protected override async Task<LLMCompletionResult> CompleteWithToolsAsyncCore(
         string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
@@ -131,14 +142,17 @@ public class OpenAILLMProvider : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 _baseUrl + "/chat/completions", payload);
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError("OpenAI API error: {Error}", error);
-                return new LLMCompletionResult { Content = "Error: " + response.StatusCode };
+                _logger.LogWarning("[PROVIDER] CompleteWithToolsAsync | Provider=openai | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return new LLMCompletionResult { Content = $"Error: {response.StatusCode}" };
             }
 
             var responseText = await response.Content.ReadAsStringAsync();
@@ -153,6 +167,9 @@ public class OpenAILLMProvider : BaseLLMProvider
                     Arguments = tc.Function?.Arguments ?? "{}"
                 }).ToList() ?? new List<ToolCall>();
 
+            _logger.LogInformation("[PROVIDER] CompleteWithToolsAsync | Provider=openai | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen} | ToolCalls={ToolCalls}",
+                modelName, sw.ElapsedMilliseconds, content.Length, toolCalls.Count);
+
             return new LLMCompletionResult
             {
                 Content = content,
@@ -162,22 +179,33 @@ public class OpenAILLMProvider : BaseLLMProvider
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "OpenAI tool call request failed");
-            return new LLMCompletionResult { Content = "Error: " + ex.Message };
+            _logger.LogError(ex, "[PROVIDER] CompleteWithToolsAsync | Provider=openai | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return new LLMCompletionResult { Content = $"Error: {ex.Message}" };
         }
     }
 
-    public override async Task<float[]> GetEmbeddingAsync(string text)
+    protected override async Task<float[]> GetEmbeddingAsyncCore(string text)
     {
         var payload = new { model = "text-embedding-3-small", input = text };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var response = await _httpClient.PostAsJsonAsync(
             _baseUrl + "/embeddings", payload);
+        sw.Stop();
 
         if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("[PROVIDER] GetEmbeddingAsync | Provider=openai | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms", "text-embedding-3-small", (int)response.StatusCode, sw.ElapsedMilliseconds);
             throw new InvalidOperationException("OpenAI embedding failed: " + response.StatusCode);
+        }
 
         var result = await response.Content.ReadFromJsonAsync<OpenAIEmbeddingResponse>();
-        return result?.Data?.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
+        var embedding = result?.Data?.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
+
+        _logger.LogInformation("[PROVIDER] GetEmbeddingAsync | Provider=openai | Model={Model} | TextLen={TextLen} | Dim={Dim} | Duration={Duration}ms",
+            "text-embedding-3-small", text.Length, embedding.Length, sw.ElapsedMilliseconds);
+
+        return embedding;
     }
 
     public override async Task<bool> IsAvailableAsync()

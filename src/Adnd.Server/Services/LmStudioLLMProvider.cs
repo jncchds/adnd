@@ -35,6 +35,8 @@ public class LmStudioLLMProvider : BaseLLMProvider
 
     public override string EndpointUrl => _baseUrl;
 
+    public override string ModelName => _model;
+
     public override (int promptTokens, int completionTokens, int totalTokens)? GetTokenUsage(string responseText)
     {
         try
@@ -52,7 +54,7 @@ public class LmStudioLLMProvider : BaseLLMProvider
         return null;
     }
 
-    public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions? options = null)
+    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
         float temperature = options?.Temperature ?? 0.7f;
@@ -77,30 +79,39 @@ public class LmStudioLLMProvider : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 _baseUrl + "/v1/chat/completions", payload);
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError("LM Studio API error: {Error}", error);
-                return "Error: " + response.StatusCode;
+                _logger.LogWarning("[PROVIDER] CompleteAsync | Provider=lmstudio | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return $"Error: {response.StatusCode}";
             }
 
             var responseResult = await response.Content.ReadFromJsonAsync<OpenAIChatResponse>();
-            return responseResult?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+            var content = responseResult?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response";
+
+            _logger.LogInformation("[PROVIDER] CompleteAsync | Provider=lmstudio | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen}",
+                modelName, sw.ElapsedMilliseconds, content.Length);
+
+            return content;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "LM Studio request failed");
-            return "Error: " + ex.Message;
+            _logger.LogError(ex, "[PROVIDER] CompleteAsync | Provider=lmstudio | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return $"Error: {ex.Message}";
         }
     }
 
     /// <summary>
     /// LM Studio (OpenAI-compatible) tool calling implementation.
     /// </summary>
-    public override async Task<LLMCompletionResult> CompleteWithToolsAsync(
+    protected override async Task<LLMCompletionResult> CompleteWithToolsAsyncCore(
         string systemPrompt, string userPrompt, IEnumerable<GMToolDefinition> tools, LLMOptions? options = null)
     {
         string modelName = options?.Model ?? _model;
@@ -131,14 +142,17 @@ public class LmStudioLLMProvider : BaseLLMProvider
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var response = await _httpClient.PostAsJsonAsync(
                 _baseUrl + "/v1/chat/completions", payload);
+            sw.Stop();
 
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError("LM Studio tool call API error: {Error}", error);
-                return new LLMCompletionResult { Content = "Error: " + response.StatusCode };
+                _logger.LogWarning("[PROVIDER] CompleteWithToolsAsync | Provider=lmstudio | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms | Error={Error}",
+                    modelName, (int)response.StatusCode, sw.ElapsedMilliseconds, error);
+                return new LLMCompletionResult { Content = $"Error: {response.StatusCode}" };
             }
 
             var responseText = await response.Content.ReadAsStringAsync();
@@ -153,6 +167,9 @@ public class LmStudioLLMProvider : BaseLLMProvider
                     Arguments = tc.Function?.Arguments ?? "{}"
                 }).ToList() ?? new List<ToolCall>();
 
+            _logger.LogInformation("[PROVIDER] CompleteWithToolsAsync | Provider=lmstudio | Model={Model} | Duration={Duration}ms | ResponseLen={ResponseLen} | ToolCalls={ToolCalls}",
+                modelName, sw.ElapsedMilliseconds, content.Length, toolCalls.Count);
+
             return new LLMCompletionResult
             {
                 Content = content,
@@ -162,22 +179,33 @@ public class LmStudioLLMProvider : BaseLLMProvider
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "LM Studio tool call request failed");
-            return new LLMCompletionResult { Content = "Error: " + ex.Message };
+            _logger.LogError(ex, "[PROVIDER] CompleteWithToolsAsync | Provider=lmstudio | Model={Model} | Error={Error}",
+                modelName, ex.Message);
+            return new LLMCompletionResult { Content = $"Error: {ex.Message}" };
         }
     }
 
-    public override async Task<float[]> GetEmbeddingAsync(string text)
+    protected override async Task<float[]> GetEmbeddingAsyncCore(string text)
     {
         var payload = new { model = "nomic-embed-text", input = text };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var response = await _httpClient.PostAsJsonAsync(
             _baseUrl + "/v1/embeddings", payload);
+        sw.Stop();
 
         if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("[PROVIDER] GetEmbeddingAsync | Provider=lmstudio | Model={Model} | HTTP={StatusCode} | Duration={Duration}ms", "nomic-embed-text", (int)response.StatusCode, sw.ElapsedMilliseconds);
             throw new InvalidOperationException("LM Studio embedding failed: " + response.StatusCode);
+        }
 
         var result = await response.Content.ReadFromJsonAsync<OpenAIEmbeddingResponse>();
-        return result?.Data?.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
+        var embedding = result?.Data?.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
+
+        _logger.LogInformation("[PROVIDER] GetEmbeddingAsync | Provider=lmstudio | Model={Model} | TextLen={TextLen} | Dim={Dim} | Duration={Duration}ms",
+            "nomic-embed-text", text.Length, embedding.Length, sw.ElapsedMilliseconds);
+
+        return embedding;
     }
 
     public override async Task<bool> IsAvailableAsync()
