@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Data;
 using Adnd.Server.Events;
@@ -15,18 +14,18 @@ namespace Adnd.Server.Handlers;
 /// No manual triggers — everything is event-driven.
 /// </summary>
 public class PlotWeaverHandler :
-    INotificationHandler<GameStarted>,
-    INotificationHandler<CombatEnded>,
-    INotificationHandler<CombatStarted>,
-    INotificationHandler<NPCCreated>,
-    INotificationHandler<NPCDeleted>,
-    INotificationHandler<NPCUpdated>,
-    INotificationHandler<CharacterUpdated>,
-    INotificationHandler<StorySwayed>,
-    INotificationHandler<PlayerJoined>,
-    INotificationHandler<MessageSent>,
-    INotificationHandler<PlotThreadCreated>,
-    INotificationHandler<PlotThreadUpdated>
+    IEventHandler<GameStarted>,
+    IEventHandler<CombatEnded>,
+    IEventHandler<CombatStarted>,
+    IEventHandler<NPCCreated>,
+    IEventHandler<NPCDeleted>,
+    IEventHandler<NPCUpdated>,
+    IEventHandler<CharacterUpdated>,
+    IEventHandler<StorySwayed>,
+    IEventHandler<PlayerJoined>,
+    IEventHandler<MessageSent>,
+    IEventHandler<PlotThreadCreated>,
+    IEventHandler<PlotThreadUpdated>
 {
     private readonly IPlotWeaver _plotWeaver;
     private readonly IAgentBus _agentBus;
@@ -50,7 +49,7 @@ public class PlotWeaverHandler :
 
     // ==================== Game Lifecycle ====================
 
-    public async Task Handle(GameStarted notification, CancellationToken ct)
+    public async Task HandleAsync(GameStarted notification, CancellationToken ct = default)
     {
         var game = await _context.Games.FindAsync(notification.GameId);
         if (game == null) return;
@@ -106,7 +105,7 @@ public class PlotWeaverHandler :
 
     // ==================== Combat Events ====================
 
-    public async Task Handle(CombatStarted notification, CancellationToken ct)
+    public async Task HandleAsync(CombatStarted notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[PLOTWEAVER] CombatStarted | GameId={GameId} | CombatId={CombatId}",
             notification.GameId, notification.GameId);
@@ -128,7 +127,7 @@ public class PlotWeaverHandler :
             notification.GameId, threads.Count);
     }
 
-    public async Task Handle(CombatEnded notification, CancellationToken ct)
+    public async Task HandleAsync(CombatEnded notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[PLOTWEAVER] CombatEnded | GameId={GameId} | Result={Result}",
             notification.GameId, notification.Result ?? "(none)");
@@ -163,7 +162,7 @@ public class PlotWeaverHandler :
 
     // ==================== NPC Events ====================
 
-    public async Task Handle(NPCDeleted notification, CancellationToken ct)
+    public async Task HandleAsync(NPCDeleted notification, CancellationToken ct = default)
     {
         var npc = await _context.NPCs.FindAsync(notification.NPCId);
         if (npc == null) return;
@@ -207,7 +206,7 @@ public class PlotWeaverHandler :
         }
     }
 
-    public async Task Handle(NPCUpdated notification, CancellationToken ct)
+    public async Task HandleAsync(NPCUpdated notification, CancellationToken ct = default)
     {
         var npc = await _context.NPCs.FindAsync(notification.NPCId);
         if (npc == null) return;
@@ -236,7 +235,7 @@ public class PlotWeaverHandler :
 
     // ==================== Character Events ====================
 
-    public async Task Handle(CharacterUpdated notification, CancellationToken ct)
+    public async Task HandleAsync(CharacterUpdated notification, CancellationToken ct = default)
     {
         var character = await _context.Characters.FindAsync(notification.CharacterId);
         if (character == null) return;
@@ -267,7 +266,7 @@ public class PlotWeaverHandler :
 
     // ==================== Story Sway ====================
 
-    public async Task Handle(StorySwayed notification, CancellationToken ct)
+    public async Task HandleAsync(StorySwayed notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[PLOTWEAVER] StorySwayed | GameId={GameId} | CreatorId={CreatorId} | Direction={Direction}",
             notification.GameId, notification.CreatorId, notification.Direction);
@@ -289,7 +288,7 @@ public class PlotWeaverHandler :
 
     // ==================== Player Events ====================
 
-    public async Task Handle(PlayerJoined notification, CancellationToken ct)
+    public async Task HandleAsync(PlayerJoined notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[PLOTWEAVER] PlayerJoined | GameId={GameId} | PlayerId={PlayerId} | Character={Character}",
             notification.GameId, notification.PlayerId, notification.CharacterName);
@@ -331,7 +330,7 @@ public class PlotWeaverHandler :
 
     // ==================== NPC Creation ====================
 
-    public Task Handle(NPCCreated notification, CancellationToken ct)
+    public Task HandleAsync(NPCCreated notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[PLOTWEAVER] NPCCreated | GameId={GameId} | NPCId={NPCId} | Name={Name}",
             notification.GameId, notification.NPCId, notification.Name);
@@ -340,14 +339,14 @@ public class PlotWeaverHandler :
 
     // ==================== Plot Thread Events ====================
 
-    public Task Handle(PlotThreadCreated notification, CancellationToken ct)
+    public Task HandleAsync(PlotThreadCreated notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[PLOTWEAVER] PlotThreadCreated | GameId={GameId} | ThreadId={ThreadId} | Title={Title}",
             notification.GameId, notification.ThreadId, notification.Title);
         return Task.CompletedTask;
     }
 
-    public Task Handle(PlotThreadUpdated notification, CancellationToken ct)
+    public Task HandleAsync(PlotThreadUpdated notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[PLOTWEAVER] PlotThreadUpdated | GameId={GameId} | ThreadId={ThreadId}",
             notification.GameId, notification.ThreadId);
@@ -356,7 +355,7 @@ public class PlotWeaverHandler :
 
     // ==================== Message Events (periodic review) ====================
 
-    public async Task Handle(MessageSent notification, CancellationToken ct)
+    public async Task HandleAsync(MessageSent notification, CancellationToken ct = default)
     {
         // Only process in-game messages (not OOC or system)
         if (notification.Type != Adnd.Server.Events.MessageType.InGamePublic &&

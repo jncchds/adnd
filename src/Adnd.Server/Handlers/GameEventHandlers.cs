@@ -1,4 +1,3 @@
-using MediatR;
 using Adnd.Server.Events;
 using Adnd.Server.Hubs;
 using Adnd.Server.Models;
@@ -15,12 +14,12 @@ namespace Adnd.Server.Handlers;
 /// Handles game lifecycle events — activates/pauses the GameAgent.
 /// </summary>
 public class GameLifecycleHandler :
-    INotificationHandler<GameCreated>,
-    INotificationHandler<GameStarted>,
-    INotificationHandler<GameArchived>,
-    INotificationHandler<GamePaused>,
-    INotificationHandler<GameResumed>,
-    INotificationHandler<GameNarrationStarted>
+    IEventHandler<GameCreated>,
+    IEventHandler<GameStarted>,
+    IEventHandler<GameArchived>,
+    IEventHandler<GamePaused>,
+    IEventHandler<GameResumed>,
+    IEventHandler<GameNarrationStarted>
 {
     private readonly IGameAgentManager _gameAgentManager;
     private readonly IAgentBus _agentBus;
@@ -39,14 +38,14 @@ public class GameLifecycleHandler :
         _logger = logger;
     }
 
-    public Task Handle(GameCreated notification, CancellationToken ct)
+    public Task HandleAsync(GameCreated notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[STATE] GameCreated | GameId={GameId} | CreatorId={CreatorId} | SystemId={SystemId} | LLMPresetId={LLMPresetId}",
             notification.GameId, notification.CreatorId, notification.SystemId, notification.LLMPresetId);
         return Task.CompletedTask;
     }
 
-    public async Task Handle(GameStarted notification, CancellationToken ct)
+    public async Task HandleAsync(GameStarted notification, CancellationToken ct = default)
     {
         var game = await _context.Games.FindAsync(notification.GameId);
         _logger.LogInformation("[STATE] GameStarted | GameId={GameId} | GameName={GameName} | CreatorId={CreatorId} | System={SystemId} | PlotSeed={PlotSeed} | Transition: Draft→Starting", 
@@ -98,14 +97,14 @@ public class GameLifecycleHandler :
         }
     }
 
-    public async Task Handle(GameArchived notification, CancellationToken ct)
+    public async Task HandleAsync(GameArchived notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[STATE] GameArchived | GameId={GameId} | Transition: Active→Archived | Agent=Removed",
             notification.GameId);
         _gameAgentManager.Remove(notification.GameId);
     }
 
-    public async Task Handle(GamePaused notification, CancellationToken ct)
+    public async Task HandleAsync(GamePaused notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[STATE] GamePaused | GameId={GameId} | Transition: Running→Paused | Agent=Paused",
             notification.GameId);
@@ -113,7 +112,7 @@ public class GameLifecycleHandler :
         await agent.PauseAsync(notification.GameId);
     }
 
-    public async Task Handle(GameNarrationStarted notification, CancellationToken ct)
+    public async Task HandleAsync(GameNarrationStarted notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[STATE] GameNarrationStarted | GameId={GameId} | MessageId={MessageId} | Transition: Starting→Active",
             notification.GameId, notification.MessageId);
@@ -138,7 +137,7 @@ public class GameLifecycleHandler :
         }
     }
 
-    public async Task Handle(GameResumed notification, CancellationToken ct)
+    public async Task HandleAsync(GameResumed notification, CancellationToken ct = default)
     {
         var game = await _context.Games.FindAsync(notification.GameId);
         _logger.LogInformation("[STATE] GameResumed | GameId={GameId} | GameName={GameName} | Transition: Paused→Running",
@@ -162,8 +161,8 @@ public class GameLifecycleHandler :
 ///       Connection tracking is done via SignalR groups, not DB status.
 /// </summary>
 public class PlayerHandler :
-    INotificationHandler<PlayerJoined>,
-    INotificationHandler<PlayerLeft>
+    IEventHandler<PlayerJoined>,
+    IEventHandler<PlayerLeft>
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PlayerHandler> _logger;
@@ -174,14 +173,14 @@ public class PlayerHandler :
         _logger = logger;
     }
 
-    public Task Handle(PlayerJoined notification, CancellationToken ct)
+    public Task HandleAsync(PlayerJoined notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[PLAYER] Joined | GameId={GameId} | PlayerId={PlayerId} | UserId={UserId} | Character={Character}",
             notification.GameId, notification.PlayerId, notification.UserId, notification.CharacterName);
         return Task.CompletedTask;
     }
 
-    public Task Handle(PlayerLeft notification, CancellationToken ct)
+    public Task HandleAsync(PlayerLeft notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[PLAYER] Left | GameId={GameId} | PlayerId={PlayerId}",
             notification.GameId, notification.PlayerId);
@@ -195,20 +194,20 @@ public class PlayerHandler :
 /// are handled by the Hub directly and do not trigger the GM.
 /// </summary>
 public class GameActionHandler :
-    INotificationHandler<SkillCheckRequested>,
-    INotificationHandler<AttackRequested>,
-    INotificationHandler<CombatStarted>,
-    INotificationHandler<CombatEnded>,
-    INotificationHandler<StorySwayed>,
-    INotificationHandler<CombatAttackExecuted>,
-    INotificationHandler<CombatSaveThrowExecuted>,
-    INotificationHandler<CombatSpellCast>,
-    INotificationHandler<CombatDamageDealt>,
-    INotificationHandler<CombatHealed>,
-    INotificationHandler<CombatXPGranted>,
-    INotificationHandler<CombatLevelUp>,
-    INotificationHandler<CombatRestStarted>,
-    INotificationHandler<CombatRestEnded>
+    IEventHandler<SkillCheckRequested>,
+    IEventHandler<AttackRequested>,
+    IEventHandler<CombatStarted>,
+    IEventHandler<CombatEnded>,
+    IEventHandler<StorySwayed>,
+    IEventHandler<CombatAttackExecuted>,
+    IEventHandler<CombatSaveThrowExecuted>,
+    IEventHandler<CombatSpellCast>,
+    IEventHandler<CombatDamageDealt>,
+    IEventHandler<CombatHealed>,
+    IEventHandler<CombatXPGranted>,
+    IEventHandler<CombatLevelUp>,
+    IEventHandler<CombatRestStarted>,
+    IEventHandler<CombatRestEnded>
 {
     private readonly IAgentBus _agentBus;
     private readonly AppDbContext _context;
@@ -221,72 +220,72 @@ public class GameActionHandler :
         _logger = logger;
     }
 
-    public async Task Handle(SkillCheckRequested n, CancellationToken ct)
+    public async Task HandleAsync(SkillCheckRequested n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, n.SessionId, $"Skill check: {n.Skill} (DC {n.DC}) by player {n.PlayerId}");
     }
 
-    public async Task Handle(AttackRequested n, CancellationToken ct)
+    public async Task HandleAsync(AttackRequested n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, n.SessionId, $"Attack: {n.Weapon} vs {n.Target} by player {n.PlayerId}");
     }
 
-    public async Task Handle(CombatStarted n, CancellationToken ct)
+    public async Task HandleAsync(CombatStarted n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, n.SessionId, $"Combat started: {n.Name ?? "Unnamed encounter"}");
     }
 
-    public async Task Handle(CombatEnded n, CancellationToken ct)
+    public async Task HandleAsync(CombatEnded n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, $"Combat ended: {n.Result ?? "Unknown outcome"}");
     }
 
-    public async Task Handle(StorySwayed n, CancellationToken ct)
+    public async Task HandleAsync(StorySwayed n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, $"Story sway from creator: {n.Direction}");
     }
 
-    public async Task Handle(CombatAttackExecuted n, CancellationToken ct)
+    public async Task HandleAsync(CombatAttackExecuted n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, $"Combat attack: {n.Attacker} uses {n.Weapon} on {n.Target}");
     }
 
-    public async Task Handle(CombatSaveThrowExecuted n, CancellationToken ct)
+    public async Task HandleAsync(CombatSaveThrowExecuted n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, $"Save/throw: {n.Participant} rolls {n.SaveType} (DC {n.DC})");
     }
 
-    public async Task Handle(CombatSpellCast n, CancellationToken ct)
+    public async Task HandleAsync(CombatSpellCast n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, $"Spell cast: {n.Caster} casts {n.SpellName} on {n.Target} (DC {n.SaveDC})");
     }
 
-    public async Task Handle(CombatDamageDealt n, CancellationToken ct)
+    public async Task HandleAsync(CombatDamageDealt n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, $"Damage: {n.ParticipantId} takes {n.Damage} damage from {n.Source}");
     }
 
-    public async Task Handle(CombatHealed n, CancellationToken ct)
+    public async Task HandleAsync(CombatHealed n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, $"Healing: {n.ParticipantId} heals {n.Amount} HP from {n.Source}");
     }
 
-    public async Task Handle(CombatXPGranted n, CancellationToken ct)
+    public async Task HandleAsync(CombatXPGranted n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, $"XP granted: {n.ParticipantId} gains {n.XP} XP ({n.Reason})");
     }
 
-    public async Task Handle(CombatLevelUp n, CancellationToken ct)
+    public async Task HandleAsync(CombatLevelUp n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, $"Level up: {n.ParticipantId} reaches level {n.NewLevel} ({n.SystemId})");
     }
 
-    public async Task Handle(CombatRestStarted n, CancellationToken ct)
+    public async Task HandleAsync(CombatRestStarted n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, $"Rest started: {n.RestType}");
     }
 
-    public async Task Handle(CombatRestEnded n, CancellationToken ct)
+    public async Task HandleAsync(CombatRestEnded n, CancellationToken ct = default)
     {
         await QueueGMMaybe(n.GameId, null, "Rest ended");
     }
@@ -357,11 +356,11 @@ public class GameActionHandler :
 ///       The PlotWeaverHandler reacts to MessageSent for periodic plot reviews.
 /// </summary>
 public class ChatHandler :
-    INotificationHandler<MessageSent>,
-    INotificationHandler<WhisperSent>,
-    INotificationHandler<OOCMessageSent>,
-    INotificationHandler<OOCWhisperSent>,
-    INotificationHandler<OOCWhisperReceived>
+    IEventHandler<MessageSent>,
+    IEventHandler<WhisperSent>,
+    IEventHandler<OOCMessageSent>,
+    IEventHandler<OOCWhisperSent>,
+    IEventHandler<OOCWhisperReceived>
 {
     private readonly ILogger<ChatHandler> _logger;
 
@@ -370,35 +369,35 @@ public class ChatHandler :
         _logger = logger;
     }
 
-    public Task Handle(MessageSent notification, CancellationToken ct)
+    public Task HandleAsync(MessageSent notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[CHAT] MessageSent | GameId={GameId} | Type={Type} | OOC={IsOOC} | PlayerId={PlayerId} | ContentLen={ContentLen}",
             notification.GameId, notification.Type, notification.IsOOC, notification.PlayerId, notification.Content?.Length ?? 0);
         return Task.CompletedTask;
     }
 
-    public Task Handle(WhisperSent notification, CancellationToken ct)
+    public Task HandleAsync(WhisperSent notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[CHAT] WhisperSent | GameId={GameId} | From={FromPlayerId} → Targets={Targets} | Type={Type} | ContentLen={ContentLen}",
             notification.GameId, notification.FromPlayerId, notification.Targets, notification.Type, notification.Content?.Length ?? 0);
         return Task.CompletedTask;
     }
 
-    public Task Handle(OOCMessageSent notification, CancellationToken ct)
+    public Task HandleAsync(OOCMessageSent notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[CHAT] OOCMessageSent | GameId={GameId} | Channel={Channel} | PlayerId={PlayerId} | ContentLen={ContentLen}",
             notification.GameId, notification.OOCChannel, notification.PlayerId, notification.Content?.Length ?? 0);
         return Task.CompletedTask;
     }
 
-    public Task Handle(OOCWhisperSent notification, CancellationToken ct)
+    public Task HandleAsync(OOCWhisperSent notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[CHAT] OOCWhisperSent | GameId={GameId} | From={FromPlayerId} → Targets={Targets} | ContentLen={ContentLen}",
             notification.GameId, notification.FromPlayerId, notification.Targets, notification.Content?.Length ?? 0);
         return Task.CompletedTask;
     }
 
-    public Task Handle(OOCWhisperReceived notification, CancellationToken ct)
+    public Task HandleAsync(OOCWhisperReceived notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[CHAT] OOCWhisperReceived | GameId={GameId} | From={FromPlayerId} → To={ToPlayerId} | ContentLen={ContentLen}",
             notification.GameId, notification.FromPlayerId, notification.ToPlayerId, notification.Content?.Length ?? 0);
@@ -412,8 +411,8 @@ public class ChatHandler :
 /// Handles session events.
 /// </summary>
 public class SessionHandler :
-    INotificationHandler<SessionCreated>,
-    INotificationHandler<SessionClosed>
+    IEventHandler<SessionCreated>,
+    IEventHandler<SessionClosed>
 {
     private readonly ILogger<SessionHandler> _logger;
 
@@ -422,14 +421,14 @@ public class SessionHandler :
         _logger = logger;
     }
 
-    public Task Handle(SessionCreated notification, CancellationToken ct)
+    public Task HandleAsync(SessionCreated notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[SESSION] Created | SessionId={SessionId} | GameId={GameId} | Title={Title}",
             notification.SessionId, notification.GameId, notification.Title);
         return Task.CompletedTask;
     }
 
-    public Task Handle(SessionClosed notification, CancellationToken ct)
+    public Task HandleAsync(SessionClosed notification, CancellationToken ct = default)
     {
         _logger.LogInformation("[SESSION] Closed | SessionId={SessionId} | GameId={GameId}",
             notification.SessionId, notification.GameId);

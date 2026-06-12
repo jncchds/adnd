@@ -1,129 +1,129 @@
-using MediatR;
+
 
 namespace Adnd.Server.Events;
 
 // ==================== Game Lifecycle Events ====================
 
-public record GameCreated(Guid GameId, Guid CreatorId, string SystemId, Guid? LLMPresetId) : INotification;
+public record GameCreated(Guid GameId, Guid CreatorId, string SystemId, Guid? LLMPresetId) : IGameEvent;
 
-public record GameStarted(Guid GameId, Guid CreatorId) : INotification;
+public record GameStarted(Guid GameId, Guid CreatorId) : IGameEvent;
 
-public record GameArchived(Guid GameId) : INotification;
+public record GameArchived(Guid GameId) : IGameEvent;
 
-public record GamePaused(Guid GameId) : INotification;
+public record GamePaused(Guid GameId) : IGameEvent;
 
-public record GameResumed(Guid GameId) : INotification;
+public record GameResumed(Guid GameId) : IGameEvent;
 
-public record GameNarrationStarted(Guid GameId, Guid MessageId) : INotification;
+public record GameNarrationStarted(Guid GameId, Guid MessageId) : IGameEvent;
 
-public record GMStatusChanged(Guid GameId, Models.GMStatus NewStatus, string? LastAction) : INotification;
+public record GMStatusChanged(Guid GameId, Models.GMStatus NewStatus, string? LastAction) : IGameEvent;
 
-public record GameStatusChanged(Guid GameId, Models.GameStatus NewStatus) : INotification;
+public record GameStatusChanged(Guid GameId, Models.GameStatus NewStatus) : IGameEvent;
 
-public record InitialThreadsGenerated(Guid GameId, int ThreadCount) : INotification;
+public record InitialThreadsGenerated(Guid GameId, int ThreadCount) : IGameEvent;
 
 // ==================== Player Events ====================
 
-public record PlayerJoined(Guid GameId, Guid PlayerId, Guid UserId, string CharacterName) : INotification;
+public record PlayerJoined(Guid GameId, Guid PlayerId, Guid UserId, string CharacterName) : IGameEvent;
 
-public record PlayerLeft(Guid GameId, Guid PlayerId) : INotification;
+public record PlayerLeft(Guid GameId, Guid PlayerId) : IGameEvent;
 
-public record PlayerRoleChanged(Guid GameId, Guid PlayerId, string NewRole) : INotification;
+public record PlayerRoleChanged(Guid GameId, Guid PlayerId, string NewRole) : IGameEvent;
 
 // ==================== Session Events ====================
 
-public record SessionCreated(Guid GameId, Guid SessionId, string Title) : INotification;
+public record SessionCreated(Guid GameId, Guid SessionId, string Title) : IGameEvent;
 
-public record SessionClosed(Guid GameId, Guid SessionId) : INotification;
+public record SessionClosed(Guid GameId, Guid SessionId) : IGameEvent;
 
 // ==================== Chat Events ====================
 
-public record MessageSent(Guid GameId, Guid SessionId, Guid PlayerId, string Content, MessageType Type, string? Metadata, bool IsOOC = false) : INotification;
+public record MessageSent(Guid GameId, Guid SessionId, Guid PlayerId, string Content, MessageType Type, string? Metadata, bool IsOOC = false) : IGameEvent;
 
-public record WhisperSent(Guid GameId, Guid FromPlayerId, string Targets, string Content, WhisperType Type) : INotification;
+public record WhisperSent(Guid GameId, Guid FromPlayerId, string Targets, string Content, WhisperType Type) : IGameEvent;
 
 // OOC-specific events — never processed by game agent
-public record OOCMessageSent(Guid GameId, Guid SessionId, Guid PlayerId, string Content, string OOCChannel) : INotification;
-public record OOCWhisperSent(Guid GameId, Guid FromPlayerId, string Targets, string Content) : INotification;
-public record OOCWhisperReceived(Guid GameId, Guid ToPlayerId, Guid FromPlayerId, string Content) : INotification;
+public record OOCMessageSent(Guid GameId, Guid SessionId, Guid PlayerId, string Content, string OOCChannel) : IGameEvent;
+public record OOCWhisperSent(Guid GameId, Guid FromPlayerId, string Targets, string Content) : IGameEvent;
+public record OOCWhisperReceived(Guid GameId, Guid ToPlayerId, Guid FromPlayerId, string Content) : IGameEvent;
 
 // ==================== Game Action Events ====================
 
-public record DiceRolled(Guid GameId, Guid SessionId, string Formula, Guid? PlayerId) : INotification;
+public record DiceRolled(Guid GameId, Guid SessionId, string Formula, Guid? PlayerId) : IGameEvent;
 
-public record SkillCheckRequested(Guid GameId, Guid SessionId, string Skill, Guid? PlayerId, int? DC) : INotification;
+public record SkillCheckRequested(Guid GameId, Guid SessionId, string Skill, Guid? PlayerId, int? DC) : IGameEvent;
 
-public record AttackRequested(Guid GameId, Guid SessionId, string Weapon, string Target, Guid? PlayerId) : INotification;
+public record AttackRequested(Guid GameId, Guid SessionId, string Weapon, string Target, Guid? PlayerId) : IGameEvent;
 
-public record CombatStarted(Guid GameId, Guid? SessionId, string? Name) : INotification;
+public record CombatStarted(Guid GameId, Guid? SessionId, string? Name) : IGameEvent;
 
-public record CombatEnded(Guid GameId, Guid CombatId, string? Result) : INotification;
+public record CombatEnded(Guid GameId, Guid CombatId, string? Result) : IGameEvent;
 
-public record ParticipantAdded(Guid GameId, Guid CombatId, string ParticipantType, string DisplayName, int AC, int CurrentHP, int MaxHP, Guid? PlayerId, Guid? NPCId) : INotification;
+public record ParticipantAdded(Guid GameId, Guid CombatId, string ParticipantType, string DisplayName, int AC, int CurrentHP, int MaxHP, Guid? PlayerId, Guid? NPCId) : IGameEvent;
 
-public record ParticipantRemoved(Guid GameId, Guid CombatId, Guid ParticipantId) : INotification;
+public record ParticipantRemoved(Guid GameId, Guid CombatId, Guid ParticipantId) : IGameEvent;
 
-public record InitiativeRolled(Guid GameId, Guid CombatId, Guid ParticipantId, string Formula) : INotification;
+public record InitiativeRolled(Guid GameId, Guid CombatId, Guid ParticipantId, string Formula) : IGameEvent;
 
-public record InitiativeRolledForAll(Guid GameId, Guid CombatId, string Formula) : INotification;
+public record InitiativeRolledForAll(Guid GameId, Guid CombatId, string Formula) : IGameEvent;
 
-public record TurnAdvanced(Guid GameId, Guid CombatId) : INotification;
+public record TurnAdvanced(Guid GameId, Guid CombatId) : IGameEvent;
 
-public record TurnRetreated(Guid GameId, Guid CombatId) : INotification;
+public record TurnRetreated(Guid GameId, Guid CombatId) : IGameEvent;
 
-public record CombatAttackExecuted(Guid GameId, Guid CombatId, string Attacker, string Weapon, Guid Target, string AttackFormula, string? DamageFormula) : INotification;
+public record CombatAttackExecuted(Guid GameId, Guid CombatId, string Attacker, string Weapon, Guid Target, string AttackFormula, string? DamageFormula) : IGameEvent;
 
-public record CombatSaveThrowExecuted(Guid GameId, Guid CombatId, string Participant, Guid ParticipantId, string SaveType, string SaveFormula, int DC) : INotification;
+public record CombatSaveThrowExecuted(Guid GameId, Guid CombatId, string Participant, Guid ParticipantId, string SaveType, string SaveFormula, int DC) : IGameEvent;
 
-public record CombatSpellCast(Guid GameId, Guid CombatId, string Caster, string SpellName, Guid Target, int SaveDC, string? DamageFormula) : INotification;
+public record CombatSpellCast(Guid GameId, Guid CombatId, string Caster, string SpellName, Guid Target, int SaveDC, string? DamageFormula) : IGameEvent;
 
-public record CombatConditionApplied(Guid GameId, Guid CombatId, Guid ParticipantId, string ConditionName, int? Duration) : INotification;
+public record CombatConditionApplied(Guid GameId, Guid CombatId, Guid ParticipantId, string ConditionName, int? Duration) : IGameEvent;
 
-public record CombatConditionRemoved(Guid GameId, Guid CombatId, Guid ParticipantId, string ConditionName) : INotification;
+public record CombatConditionRemoved(Guid GameId, Guid CombatId, Guid ParticipantId, string ConditionName) : IGameEvent;
 
-public record CombatDamageDealt(Guid GameId, Guid CombatId, Guid ParticipantId, int Damage, string? Source) : INotification;
+public record CombatDamageDealt(Guid GameId, Guid CombatId, Guid ParticipantId, int Damage, string? Source) : IGameEvent;
 
-public record CombatHealed(Guid GameId, Guid CombatId, Guid ParticipantId, int Amount, string? Source) : INotification;
+public record CombatHealed(Guid GameId, Guid CombatId, Guid ParticipantId, int Amount, string? Source) : IGameEvent;
 
-public record CombatXPGranted(Guid GameId, Guid CombatId, Guid ParticipantId, int XP, string Reason) : INotification;
+public record CombatXPGranted(Guid GameId, Guid CombatId, Guid ParticipantId, int XP, string Reason) : IGameEvent;
 
-public record CombatLevelUp(Guid GameId, Guid CombatId, Guid ParticipantId, int NewLevel, string SystemId) : INotification;
+public record CombatLevelUp(Guid GameId, Guid CombatId, Guid ParticipantId, int NewLevel, string SystemId) : IGameEvent;
 
-public record CombatRestStarted(Guid GameId, Guid CombatId, string RestType) : INotification;
+public record CombatRestStarted(Guid GameId, Guid CombatId, string RestType) : IGameEvent;
 
-public record CombatRestEnded(Guid GameId, Guid CombatId) : INotification;
+public record CombatRestEnded(Guid GameId, Guid CombatId) : IGameEvent;
 
-public record CombatGridSet(Guid GameId, Guid CombatId, int Width, int Height) : INotification;
+public record CombatGridSet(Guid GameId, Guid CombatId, int Width, int Height) : IGameEvent;
 
-public record CombatPositionSet(Guid GameId, Guid CombatId, Guid ParticipantId, int GridX, int GridY) : INotification;
+public record CombatPositionSet(Guid GameId, Guid CombatId, Guid ParticipantId, int GridX, int GridY) : IGameEvent;
 
-public record CombatMove(Guid GameId, Guid CombatId, Guid ParticipantId, int GridX, int GridY) : INotification;
+public record CombatMove(Guid GameId, Guid CombatId, Guid ParticipantId, int GridX, int GridY) : IGameEvent;
 
 // ==================== Character Events ====================
 
-public record CharacterUpdated(Guid GameId, Guid CharacterId) : INotification;
+public record CharacterUpdated(Guid GameId, Guid CharacterId) : IGameEvent;
 
 // ==================== Plot/NPC Events ====================
 
-public record NPCCreated(Guid GameId, Guid NPCId, string Name) : INotification;
+public record NPCCreated(Guid GameId, Guid NPCId, string Name) : IGameEvent;
 
-public record NPCUpdated(Guid GameId, Guid NPCId) : INotification;
+public record NPCUpdated(Guid GameId, Guid NPCId) : IGameEvent;
 
-public record NPCDeleted(Guid GameId, Guid NPCId) : INotification;
+public record NPCDeleted(Guid GameId, Guid NPCId) : IGameEvent;
 
-public record PlotThreadCreated(Guid GameId, Guid ThreadId, string Title) : INotification;
+public record PlotThreadCreated(Guid GameId, Guid ThreadId, string Title) : IGameEvent;
 
-public record PlotThreadUpdated(Guid GameId, Guid ThreadId) : INotification;
+public record PlotThreadUpdated(Guid GameId, Guid ThreadId) : IGameEvent;
 
 // ==================== Sway Events ====================
 
-public record StorySwayed(Guid GameId, Guid CreatorId, string Direction) : INotification;
+public record StorySwayed(Guid GameId, Guid CreatorId, string Direction) : IGameEvent;
 
-public record GMActioned(Guid GameId, string Action, string? OutputMessage, string? Error) : INotification;
+public record GMActioned(Guid GameId, string Action, string? OutputMessage, string? Error) : IGameEvent;
 
 // ==================== Agent Call Events ====================
 
-public record AgentCallQueued(Guid GameId, Guid CallId) : INotification;
+public record AgentCallQueued(Guid GameId, Guid CallId) : IGameEvent;
 
 // ==================== Helper Enums (inline to avoid duplicate definitions) ====================
 

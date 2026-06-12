@@ -17,7 +17,6 @@ using Adnd.Server.Hubs;
 using Adnd.Server.Services;
 using Adnd.Server.Agent;
 using Adnd.Server.Handlers;
-using MediatR;
 using Npgsql.EntityFrameworkCore.PostgreSQL;
 using Pgvector;
 
@@ -173,11 +172,11 @@ builder.Services.AddScoped<IGMToolCallService, GMToolCallService>();
 // Game Agent (per-game, singleton manager)
 builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
 
-// MediatR — event-driven architecture
-builder.Services.AddMediatR(cfg =>
-{
-    cfg.RegisterServicesFromAssembly(typeof(GameLifecycleHandler).Assembly);
-});
+// Event Bus — RabbitMQ-backed durable pub/sub
+builder.Services.AddSingleton<RabbitMqEventBus>();
+builder.Services.AddSingleton<IEventBus>(sp => sp.GetRequiredService<RabbitMqEventBus>());
+builder.Services.AddHostedService<EventBusWorker>();
+builder.Services.AddHostedService<EventRecordCleanupService>();
 
 // Whisper Service
 builder.Services.AddScoped<IWhisperService, WhisperService>();
