@@ -1,3 +1,5 @@
+using Adnd.Server.Events;
+
 namespace Adnd.Server.Services;
 
 public interface IEventBus
