@@ -9,7 +9,6 @@ using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Adnd.Server.Events;
 using Adnd.Server.Hubs;
-using MediatR;
 
 namespace Adnd.Server.Controllers;
 
@@ -28,7 +27,7 @@ public partial class AdminController : ControllerBase
     protected readonly IPlotWeaver _plotWeaver;
     protected readonly Adnd.Server.Services.IUserIdProvider _userIdProvider;
     protected readonly IGameAuthorizationService _authService;
-    protected readonly IMediator _mediator;
+    protected readonly IEventBus _eventBus;
     protected readonly IHubContext<GameHub> _hubContext;
     protected readonly ILogger<AdminController> _logger;
     protected readonly IGameStartService _gameStartService;
@@ -50,7 +49,7 @@ public partial class AdminController : ControllerBase
         IPlotWeaver plotWeaver,
         Adnd.Server.Services.IUserIdProvider userIdProvider,
         IGameAuthorizationService authService,
-        IMediator mediator,
+        IEventBus mediator,
         IHubContext<GameHub> hubContext,
         ILogger<AdminController> logger,
         IGameStartService gameStartService,
@@ -69,7 +68,7 @@ public partial class AdminController : ControllerBase
         _plotWeaver = plotWeaver;
         _userIdProvider = userIdProvider;
         _authService = authService;
-        _mediator = mediator;
+        _eventBus = mediator;
         _hubContext = hubContext;
         _logger = logger;
         _gameStartService = gameStartService;
@@ -89,7 +88,7 @@ public partial class AdminController : ControllerBase
         if (game == null) return NotFound(new { error = "Game not found." });
         if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
-        await _mediator.Publish(new GamePaused(gameId));
+        await _eventBus.PublishAsync(new GamePaused(gameId));
 
         return Ok(new { message = "Game paused event published" });
     }
@@ -104,7 +103,7 @@ public partial class AdminController : ControllerBase
         if (game == null) return NotFound(new { error = "Game not found." });
         if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId())) return Forbid();
 
-        await _mediator.Publish(new GameResumed(gameId));
+        await _eventBus.PublishAsync(new GameResumed(gameId));
 
         return Ok(new { message = "Game resumed event published" });
     }
@@ -132,7 +131,7 @@ public partial class AdminController : ControllerBase
         _context.Combats.Add(combat);
         await _context.SaveChangesAsync();
 
-        await _mediator.Publish(new CombatStarted(gameId, null, combat.Name));
+        await _eventBus.PublishAsync(new CombatStarted(gameId, null, combat.Name));
 
         return Ok(new { combatId = combat.Id, message = "Simulated combat started" });
     }
@@ -155,7 +154,7 @@ public partial class AdminController : ControllerBase
         combat.EndedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        await _mediator.Publish(new CombatEnded(gameId, combat.Id, "Simulation Ended"));
+        await _eventBus.PublishAsync(new CombatEnded(gameId, combat.Id, "Simulation Ended"));
 
         return Ok(new { combatId = combat.Id, message = "Simulated combat ended" });
     }

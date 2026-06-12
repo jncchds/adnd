@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Adnd.Server.Events;
-using MediatR;
 
 namespace Adnd.Server.Hubs;
 
@@ -126,17 +125,17 @@ public partial class GameHub
             var msgType = player.Game!.GMStatus == GMStatus.Paused ? Events.MessageType.OOCPublic :
                 (whisperType == Models.WhisperType.InGamePlayerToGM || whisperType == Models.WhisperType.OOCPlayerToGM ?
                     Events.MessageType.OOCPublic : Events.MessageType.InGamePublic);
-            await _mediator.Publish(new MessageSent(gameId, sessionId, player.Id, content, msgType, null, player.Game.GMStatus == GMStatus.Paused));
+            await _eventBus.PublishAsync(new MessageSent(gameId, sessionId, player.Id, content, msgType, null, player.Game.GMStatus == GMStatus.Paused));
         }
         else if (targets == "gm")
         {
             // Whisper — publish as WhisperSent
-            await _mediator.Publish(new WhisperSent(gameId, player.Id, "gm", content, (Events.WhisperType)whisperType));
+            await _eventBus.PublishAsync(new WhisperSent(gameId, player.Id, "gm", content, (Events.WhisperType)whisperType));
         }
         else if (targets?.StartsWith("player:", StringComparison.Ordinal) == true)
         {
             // GM → player whisper — publish OOC whisper
-            await _mediator.Publish(new OOCWhisperSent(gameId, player.Id, targets, content));
+            await _eventBus.PublishAsync(new OOCWhisperSent(gameId, player.Id, targets, content));
         }
     }
 

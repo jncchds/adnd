@@ -18,7 +18,6 @@ namespace Adnd.Server.Services;
 /// </summary>
 public class EventBusWorker : BackgroundService
 {
-    private readonly AppDbContext _context;
     private readonly ILogger<EventBusWorker> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
@@ -27,21 +26,17 @@ public class EventBusWorker : BackgroundService
     private IModel? _channel;
     private readonly object _lock = new();
     private readonly ConcurrentDictionary<string, IModel> _channelsByGame = new();
-    private readonly IDeadLetterQueue _dlq;
+    private readonly ConcurrentDictionary<string, IModel> _channelsByAgent = new();
 
     public EventBusWorker(
-        AppDbContext context,
         ILogger<EventBusWorker> logger,
         IServiceProvider serviceProvider,
-        IConfiguration configuration,
-        IDeadLetterQueue dlq)
+        IConfiguration configuration)
     {
-        _context = context;
         _logger = logger;
         _serviceProvider = serviceProvider;
         _configuration = configuration;
         _handlerMap = new();
-        _dlq = dlq;
     }
 
     public override async Task StartAsync(CancellationToken ct)
@@ -119,7 +114,10 @@ public class EventBusWorker : BackgroundService
 
     private async Task ReplayPendingEvents(CancellationToken ct)
     {
-        var pending = await _context.EventRecords
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var pending = await context.EventRecords
             .Where(e => e.Status == EventStatus.Pending)
             .ToListAsync(ct);
 
@@ -137,7 +135,10 @@ public class EventBusWorker : BackgroundService
         {
             try
             {
-                var pending = await _context.EventRecords
+                using var scope = _serviceProvider.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                var pending = await context.EventRecords
                     .Where(e => e.Status == EventStatus.Pending || e.Status == EventStatus.Failed)
                     .OrderBy(e => e.CreatedAt)
                     .Take(100)
@@ -163,6 +164,10 @@ public class EventBusWorker : BackgroundService
     /// </summary>
     public async Task<bool> DispatchEvent(EventRecord record, CancellationToken ct)
     {
+        // Update status in DB using a new scope
+        using var dbScope = _serviceProvider.CreateScope();
+        var context = dbScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
         lock (_lock)
         {
             if (_channel == null || !_rabbitMqConnection?.IsOpen == true)
@@ -189,7 +194,7 @@ public class EventBusWorker : BackgroundService
 
             record.Status = EventStatus.Published;
             record.PublishedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync(ct);
+            await context.SaveChangesAsync(ct);
 
             _logger.LogInformation("[EVENT] PublishedToRabbitMQ | GameId={GameId} | EventType={EventType} | EventId={EventId}",
                 record.GameId, record.EventType, record.Id);
@@ -207,6 +212,8 @@ public class EventBusWorker : BackgroundService
 
     private async Task<bool> DispatchToHandlers(EventRecord record, CancellationToken ct)
     {
+        using var dbScope = _serviceProvider.CreateScope();
+        var context = dbScope.ServiceProvider.GetRequiredService<AppDbContext>();
         if (!_handlerMap.TryGetValue(record.EventType, out var handlers))
         {
             _logger.LogWarning("[EVENT] NoHandlerForType | EventType={EventType} | EventId={EventId}",
@@ -282,7 +289,7 @@ public class EventBusWorker : BackgroundService
             record.Error = "One or more handlers failed";
         }
 
-        await _context.SaveChangesAsync(ct);
+        await context.SaveChangesAsync(ct);
 
         return success;
     }

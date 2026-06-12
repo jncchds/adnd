@@ -43,7 +43,7 @@ public partial class AdminController
         await _context.SaveChangesAsync();
 
         // Publish game archived event → triggers GameAgent pause
-        await _mediator.Publish(new GameArchived(gameId));
+        await _eventBus.PublishAsync(new GameArchived(gameId));
 
         return Ok(new { game.Id, game.Status, game.EndedAt });
     }

@@ -5,7 +5,6 @@ using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Adnd.Server.Events;
-using MediatR;
 using System.Text.Json;
 using System.Collections.Concurrent;
 
@@ -32,13 +31,13 @@ public partial class GameHub : Hub
     private readonly IWhisperService _whisperService;
     private readonly ICombatService _combatService;
     private readonly IGMToolRegistry _toolRegistry;
-    private readonly IMediator _mediator;
+    private readonly IEventBus _eventBus;
     private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(AppDbContext context, IGameEngine gameEngine, IAgentBus agentBus,
         IWhisperService whisperService, ICombatService combatService, IGMToolRegistry toolRegistry,
-        IMediator mediator, IEmbeddingService embeddingService, ILogger<GameHub> logger)
+        IEventBus mediator, IEmbeddingService embeddingService, ILogger<GameHub> logger)
     {
         _context = context;
         _gameEngine = gameEngine;
@@ -46,7 +45,7 @@ public partial class GameHub : Hub
         _whisperService = whisperService;
         _combatService = combatService;
         _toolRegistry = toolRegistry;
-        _mediator = mediator;
+        _eventBus = mediator;
         _embeddingService = embeddingService;
         _logger = logger;
     }
@@ -56,13 +55,13 @@ public partial class GameHub : Hub
     /// Critical events (player join/leave) should still use await.
     /// Slow events (GM narrative queue) should use this.
     /// </summary>
-    private void PublishAsync<T>(T notification, CancellationToken ct = default) where T : INotification
+    private void PublishAsync<T>(T notification, CancellationToken ct = default) where T : IGameEvent
     {
         _ = Task.Run(async () =>
         {
             try
             {
-                await _mediator.Publish(notification, ct);
+                await _eventBus.PublishAsync(notification, ct);
             }
             catch (Exception ex)
             {
@@ -87,7 +86,7 @@ public partial class GameHub : Hub
             {
                 _playerConnections.AddOrUpdate(player.Id.ToString(), Context.ConnectionId, (k, oldValue) => Context.ConnectionId);
                 await Groups.AddToGroupAsync(Context.ConnectionId, player.GameId.ToString());
-                await _mediator.Publish(new PlayerJoined(player.GameId, player.Id, player.UserId, player.CharacterName ?? "Unknown"));
+                await _eventBus.PublishAsync(new PlayerJoined(player.GameId, player.Id, player.UserId, player.CharacterName ?? "Unknown"));
             }
         }
 

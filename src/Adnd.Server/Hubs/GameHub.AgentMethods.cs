@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Adnd.Server.Events;
-using MediatR;
 
 namespace Adnd.Server.Hubs;
 

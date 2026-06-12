@@ -5,7 +5,6 @@ using Pgvector;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Hubs;
-using MediatR;
 
 namespace Adnd.Server.Services;
 
@@ -203,7 +202,7 @@ public class GameStartService : IGameStartService
     private readonly IPlotWeaver _plotWeaver;
     private readonly INarrativeGenerationFactory _narrativeFactory;
     private readonly IHubContext<GameHub> _hubContext;
-    private readonly IMediator _mediator;
+    private readonly IEventBus _eventBus;
     private readonly IEmbeddingService _embeddingService;
     private readonly ILogger<GameStartService> _logger;
     private readonly ILLMProviderFactory _providerFactory;
@@ -214,7 +213,7 @@ public class GameStartService : IGameStartService
         IPlotWeaver plotWeaver,
         INarrativeGenerationFactory narrativeFactory,
         IHubContext<GameHub> hubContext,
-        IMediator mediator,
+        IEventBus mediator,
         IEmbeddingService embeddingService,
         ILogger<GameStartService> logger,
         ILLMProviderFactory providerFactory,
@@ -224,7 +223,7 @@ public class GameStartService : IGameStartService
         _plotWeaver = plotWeaver;
         _narrativeFactory = narrativeFactory;
         _hubContext = hubContext;
-        _mediator = mediator;
+        _eventBus = mediator;
         _embeddingService = embeddingService;
         _logger = logger;
         _providerFactory = providerFactory;
@@ -255,7 +254,7 @@ public class GameStartService : IGameStartService
         // Step 2: Publish game started event → triggers GameAgent activation
         // The GameAgent handles: initial plot thread generation (via PlotWeaverHandler)
         // and opening narrative generation (via OpenNarrative AgentCall).
-        await _mediator.Publish(new Events.GameStarted(gameId, userId));
+        await _eventBus.PublishAsync(new Events.GameStarted(gameId, userId));
 
         return new StartGameResult
         {

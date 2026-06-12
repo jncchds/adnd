@@ -8,7 +8,6 @@ using Adnd.Server.Services;
 using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Hubs;
-using MediatR;
 
 namespace Adnd.Server.Controllers;
 
@@ -26,7 +25,7 @@ public class GamesController : ControllerBase
     private readonly Adnd.Server.Services.IUserIdProvider _userIdProvider;
     private readonly IGameAuthorizationService _authService;
     private readonly IAgentBus _agentBus;
-    private readonly IMediator _mediator;
+    private readonly IEventBus _eventBus;
     private readonly AppDbContext _context;
     private readonly ILogger<GamesController> _logger;
 
@@ -37,7 +36,7 @@ public class GamesController : ControllerBase
         Adnd.Server.Services.IUserIdProvider userIdProvider,
         IGameAuthorizationService authService,
         IAgentBus agentBus,
-        IMediator mediator,
+        IEventBus mediator,
         AppDbContext context,
         ILogger<GamesController> logger)
     {
@@ -47,7 +46,7 @@ public class GamesController : ControllerBase
         _userIdProvider = userIdProvider;
         _authService = authService;
         _agentBus = agentBus;
-        _mediator = mediator;
+        _eventBus = mediator;
         _context = context;
         _logger = logger;
     }
@@ -97,9 +96,9 @@ public class GamesController : ControllerBase
         var response = await _gameService.CreateGameAsync(userId, request);
 
         // Publish game created event
-        await _mediator.Publish(new GameCreated(response.Id, userId, request.SystemId, request.LLMPresetId));
+        await _eventBus.PublishAsync(new GameCreated(response.Id, userId, request.SystemId, request.LLMPresetId));
         // Start the game (activates agent and plot weaver)
-        await _mediator.Publish(new GameStarted(response.Id, userId));
+        await _eventBus.PublishAsync(new GameStarted(response.Id, userId));
 
         return Ok(response);
     }

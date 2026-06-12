@@ -37,7 +37,7 @@ public partial class AdminController
         game.LastGMActionAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        await _mediator.Publish(new GamePaused(gameId));
+        await _eventBus.PublishAsync(new GamePaused(gameId));
         return Ok(new { gameId, status = GMStatus.Paused });
     }
 
@@ -54,7 +54,7 @@ public partial class AdminController
         game.LastGMActionAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        await _mediator.Publish(new GameResumed(gameId));
+        await _eventBus.PublishAsync(new GameResumed(gameId));
         return Ok(new { gameId, status = GMStatus.Running });
     }
 

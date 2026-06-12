@@ -4,7 +4,6 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Hubs;
 using Adnd.Server.Models;
-using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -97,7 +96,7 @@ public class AgentBus : IAgentBus
     private readonly IApiKeyEncryptionService _encryption;
     private readonly ILogger<AgentBus> _logger;
     private readonly IHubContext<GameHub> _hubContext;
-    private readonly IMediator _mediator;
+    private readonly IEventBus _eventBus;
     private readonly IDeadLetterQueue _dlq;
     private readonly IConfiguration _configuration;
     private readonly int _toolCallingMaxDepth;
@@ -116,7 +115,7 @@ public class AgentBus : IAgentBus
         IApiKeyEncryptionService encryption,
         ILogger<AgentBus> logger,
         IHubContext<GameHub> hubContext,
-        IMediator mediator,
+        IEventBus mediator,
         IDeadLetterQueue dlq,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory)
@@ -133,7 +132,7 @@ public class AgentBus : IAgentBus
         _encryption = encryption;
         _logger = logger;
         _hubContext = hubContext;
-        _mediator = mediator;
+        _eventBus = mediator;
         _dlq = dlq;
         _configuration = configuration;
         _toolCallingMaxDepth = _configuration.GetValue<int>("ToolCallingMaxDepth", 5);
@@ -179,7 +178,7 @@ public class AgentBus : IAgentBus
             call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.SessionId);
 
         // Wake up the GameAgent immediately — eliminates polling delay
-        await _mediator.Publish(new Events.AgentCallQueued(call.GameId, call.Id));
+        await _eventBus.PublishAsync(new Events.AgentCallQueued(call.GameId, call.Id));
 
         return call;
     }
@@ -1079,7 +1078,7 @@ public class AgentBus : IAgentBus
                     game.Id, newThreads.Count, sw.ElapsedMilliseconds);
 
                 // Publish event for PlotWeaverHandler to react
-                await _mediator.Publish(new InitialThreadsGenerated(game.Id, newThreads.Count));
+                await _eventBus.PublishAsync(new InitialThreadsGenerated(game.Id, newThreads.Count));
 
                 return JsonSerializer.Serialize(new { threadCount = newThreads.Count, threads = newThreads.Select(t => new { t.Id, t.Title, t.Category }) });
             }
@@ -1405,7 +1404,7 @@ public class AgentBus : IAgentBus
             await _context.SaveChangesAsync();
 
             // Emit event so GameLifecycleHandler can transition Starting → Active
-            await _mediator.Publish(new GameNarrationStarted(gameId, message.Id));
+            await _eventBus.PublishAsync(new GameNarrationStarted(gameId, message.Id));
 
             // Broadcast to all players in the game
             await _hubContext.Clients.Group(gameId.ToString()).SendAsync("NewMessage", new
