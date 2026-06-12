@@ -16,6 +16,7 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-adnd}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-adnd}
+      RABBITMQ_DEFAULT_VHOST: /adnd
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     ports:
