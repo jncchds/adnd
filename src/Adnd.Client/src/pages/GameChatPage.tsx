@@ -487,7 +487,7 @@ export default function GameChatPage() {
   // Fetch combat on mount only (once per session)
   useEffect(() => {
     fetchActiveCombat();
-  }, [fetchActiveCombat]);
+  }, []);
 
   // SignalR: listen for combat events and new messages
   useEffect(() => {
