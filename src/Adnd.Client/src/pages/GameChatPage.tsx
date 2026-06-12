@@ -249,7 +249,6 @@ function ChatInput({
   inputValue,
   setInputValue,
   onSend,
-  onDiceRoll,
   players,
   isCreator,
 }: {
@@ -262,7 +261,6 @@ function ChatInput({
   inputValue: string;
   setInputValue: (v: string) => void;
   onSend: () => void;
-  onDiceRoll: () => void;
   players: Array<{ id: string; characterName: string; status: string }>;
   isCreator: boolean;
 }) {
@@ -530,10 +528,6 @@ export default function GameChatPage() {
     setNewMessagesCount(0);
   }, [messageInput, id]);
 
-  const handleRollDice = useCallback(async () => {
-    // TODO: implement dice roll
-  }, []);
-
   const handleLeaveGame = useCallback(async () => {
     if (!id) return;
     await api.leaveGame(id);
@@ -572,7 +566,6 @@ export default function GameChatPage() {
             isLoadingMore={isLoading}
             hasMore={hasMore}
             loadMoreOldest={loadOldest}
-            onSend={sendMessage}
             messagesEndRef={messagesEndRef}
             newMessagesCount={newMessagesCount}
             onScrollToBottom={scrollToBottom}
@@ -591,7 +584,7 @@ export default function GameChatPage() {
             inputValue={messageInput}
             setInputValue={setMessageInput}
             onSend={sendMessage}
-            onDiceRoll={handleRollDice}
+
             players={players}
             isCreator={user?.role === 'Creator'}
           />

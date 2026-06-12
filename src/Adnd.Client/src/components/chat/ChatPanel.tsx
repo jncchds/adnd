@@ -9,7 +9,6 @@ interface ChatPanelProps {
   isLoadingMore: boolean;
   hasMore: boolean;
   loadMoreOldest: () => void;
-  onSend?: () => Promise<void>;
   messagesEndRef?: React.RefObject<HTMLDivElement | null>;
   isMobile?: boolean;
   newMessagesCount?: number;
@@ -18,7 +17,7 @@ interface ChatPanelProps {
 
 export default function ChatPanel({
   messages, isLoadingMore, hasMore, loadMoreOldest,
-  onSend, messagesEndRef, isMobile = false,
+  messagesEndRef, isMobile = false,
   newMessagesCount = 0, onScrollToBottom
 }: ChatPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
