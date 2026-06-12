@@ -89,6 +89,14 @@ public class CombatParticipantResponse
     public List<ConditionEntryResponse> Conditions { get; set; } = new();
     public bool IsCurrentTurn { get; set; }
     public bool IsDead { get; set; }
+    // Action economy
+    public int ActionsRemaining { get; set; } = 1;
+    public int BonusActionsRemaining { get; set; } = 0;
+    public int ReactionsRemaining { get; set; } = 1;
+    public int MovementsRemaining { get; set; } = 1;
+    // Death saves
+    public int DeathSaveSuccesses { get; set; }
+    public int DeathSaveFailures { get; set; }
 }
 
 public class ConditionEntryResponse

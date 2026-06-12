@@ -34,7 +34,7 @@ public interface ICombatService
     Task<CombatParticipant> GetCurrentTurnParticipantAsync(Guid combatId);
     Task<Combat> SetCurrentTurnAsync(Guid combatId, Guid participantId);
 
-    // Actions (delegates to ICombatActionFactory)
+    // Actions
     Task<AttackWithCombatResult> ExecuteAttackAsync(Guid combatId, string attackerName, string weapon,
         Guid targetId, string attackFormula, int? attackBonus = null, string? damageFormula = null,
         int? damageBonus = null, string? description = null);
@@ -200,7 +200,7 @@ public class CombatService : ICombatService
     public Task<CombatParticipant> GetCurrentTurnParticipantAsync(Guid combatId) => _turn.GetCurrentTurnParticipantAsync(combatId);
     public Task<Combat> SetCurrentTurnAsync(Guid combatId, Guid participantId) => _turn.SetCurrentTurnAsync(combatId, participantId);
 
-    // ===== Actions (delegates to ICombatActionFactory) =====
+    // ===== Actions =====
     public async Task<AttackWithCombatResult> ExecuteAttackAsync(Guid combatId, string attackerName, string weapon,
         Guid targetId, string attackFormula, int? attackBonus = null, string? damageFormula = null,
         int? damageBonus = null, string? description = null)
@@ -209,8 +209,20 @@ public class CombatService : ICombatService
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var rules = _rulesFactory.GetRules(combat.GameId.ToString());
-        return await AttackAction.ExecuteAsync(combat, attackerName, weapon, targetId, attackFormula,
-            attackBonus, damageFormula, damageBonus, description, _context, _diceEngine, rules, _logger);
+        var action = _actionFactory.GetAction(CombatActionType.Attack);
+        var @params = new CombatActionParams
+        {
+            AttackerName = attackerName,
+            Weapon = weapon,
+            TargetId = targetId,
+            AttackFormula = attackFormula,
+            AttackBonus = attackBonus,
+            DamageFormula = damageFormula,
+            DamageBonus = damageBonus,
+            Description = description
+        };
+        var result = await action.ExecuteAsync(combat, @params, _context, _diceEngine, rules, _logger);
+        return (AttackWithCombatResult)result;
     }
 
     public async Task<SaveThrowResult> ExecuteSaveThrowAsync(Guid combatId, string participantName, Guid participantId,
@@ -220,7 +232,17 @@ public class CombatService : ICombatService
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var rules = _rulesFactory.GetRules(combat.GameId.ToString());
-        return await SaveThrowAction.ExecuteAsync(combat, participantName, participantId, saveType, saveFormula, dc, _context, _diceEngine, rules, _logger);
+        var action = _actionFactory.GetAction(CombatActionType.SaveThrow);
+        var @params = new CombatActionParams
+        {
+            ParticipantName = participantName,
+            ParticipantId = participantId,
+            SaveType = saveType,
+            SaveFormula = saveFormula,
+            DC = dc
+        };
+        var result = await action.ExecuteAsync(combat, @params, _context, _diceEngine, rules, _logger);
+        return (SaveThrowResult)result;
     }
 
     // ===== State =====

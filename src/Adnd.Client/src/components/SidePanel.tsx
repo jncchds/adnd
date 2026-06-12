@@ -25,7 +25,6 @@ import {
   Shield as ShieldIcon,
   ArrowBack as BackIcon,
   Chat as ChatIcon,
-  DirectionsRun as CombatIcon,
   Settings as SettingsIcon,
   Add as AddIcon,
   PlayArrow as PlayArrowIcon,
@@ -318,10 +317,6 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
                 <ListItemButton onClick={() => navigate(`/game/${gameId}`)} sx={{ ...buttonBaseSx, bgcolor: gameId && location.pathname === `/game/${gameId}` ? 'rgba(145,71,255,0.15)' : 'transparent', color: gameId && location.pathname === `/game/${gameId}` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><ChatIcon fontSize="small" /></ListItemIcon>
                   <ListItemText primary="Chat" />
-                </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/game/${gameId}/combat`)} sx={{ ...buttonBaseSx, bgcolor: gameId && location.pathname === `/game/${gameId}/combat` ? 'rgba(145,71,255,0.15)' : 'transparent', color: gameId && location.pathname === `/game/${gameId}/combat` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><CombatIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText primary="Combat" />
                 </ListItemButton>
                 <ListItemButton onClick={() => navigate(`/game/${gameId}/settings`)} sx={{ ...buttonBaseSx, bgcolor: gameId && location.pathname === `/game/${gameId}/settings` ? 'rgba(145,71,255,0.15)' : 'transparent', color: gameId && location.pathname === `/game/${gameId}/settings` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
                   <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><SettingsIcon fontSize="small" /></ListItemIcon>

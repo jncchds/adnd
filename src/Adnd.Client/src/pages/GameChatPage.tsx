@@ -10,6 +10,9 @@ import { combatGetCombats } from '../api/combat/combatApi';
 import { api } from '../api/client';
 import ToolCallBanner from '../components/ToolCallBanner';
 import ChatPanel from '../components/chat/ChatPanel';
+import ActionEconomyTracker from '../components/combat/ActionEconomyTracker';
+import CharacterSheetPopup from '../components/combat/CharacterSheetPopup';
+import DeathSaveTracker from '../components/combat/DeathSaveTracker';
 import { Box, Paper, Typography, Chip, IconButton, Collapse, TextField, MenuItem, Select, FormControl, InputLabel, Button } from '@mui/material';
 import { Send as SendIcon, ExpandMore, ExpandLess } from '@mui/icons-material';
 
@@ -26,8 +29,15 @@ interface CombatParticipant {
   maxHP: number;
   ac: number;
   initiative: number;
-  conditions: Array<{ name: string; duration?: number }>;
+  conditions: Array<{ name: string; duration: number }>;
   isCurrentTurn: boolean;
+  isDead: boolean;
+  actionsRemaining: number;
+  bonusActionsRemaining: number;
+  reactionsRemaining: number;
+  movementsRemaining: number;
+  deathSaveSuccesses: number;
+  deathSaveFailures: number;
 }
 
 interface ActiveCombat {
@@ -43,12 +53,13 @@ interface ActiveCombat {
 
 function CollapsibleCombatPanel({
   combat,
-  gameId,
 }: {
   combat: ActiveCombat | null;
   gameId: string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [selectedParticipant, setSelectedParticipant] = useState<CombatParticipant | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   if (!combat || combat.status === 'Finished') return null;
 
@@ -122,69 +133,89 @@ function CollapsibleCombatPanel({
               key={p.id}
               sx={{
                 display: 'flex',
-                alignItems: 'center',
-                gap: 1,
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                gap: 0.25,
                 px: 1,
                 py: 0.5,
                 borderRadius: 1,
                 mb: 0.5,
                 bgcolor: p.isCurrentTurn ? 'rgba(255, 152, 0, 0.12)' : 'transparent',
                 border: p.isCurrentTurn ? '1px solid rgba(255, 152, 0, 0.3)' : '1px solid transparent',
+                cursor: 'pointer',
+                '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.04)' },
               }}
+              onClick={() => { setSelectedParticipant(p); setSheetOpen(true); }}
             >
-              {/* Turn indicator */}
-              {p.isCurrentTurn ? (
-                <Typography variant="caption" sx={{ fontWeight: 700, color: 'orange' }}>
-                  ⏩
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                {/* Turn indicator */}
+                {p.isCurrentTurn ? (
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'orange' }}>
+                    ⏩
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" color="text.secondary" sx={{ width: 20 }}>
+                    {idx + 1}
+                  </Typography>
+                )}
+
+                {/* Name */}
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontWeight: p.isCurrentTurn ? 700 : 400,
+                    flex: 1,
+                    color: p.isCurrentTurn ? 'text.primary' : 'text.secondary',
+                  }}
+                >
+                  {p.displayName}
                 </Typography>
-              ) : (
-                <Typography variant="caption" color="text.secondary" sx={{ width: 20 }}>
-                  {idx + 1}
+
+                {/* HP */}
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: hpColor(p.currentHP, p.maxHP),
+                    fontWeight: 600,
+                    minWidth: 55,
+                    textAlign: 'right',
+                  }}
+                >
+                  HP: {p.currentHP}/{p.maxHP}
                 </Typography>
-              )}
 
-              {/* Name */}
-              <Typography
-                variant="body2"
-                sx={{
-                  fontWeight: p.isCurrentTurn ? 700 : 400,
-                  flex: 1,
-                  color: p.isCurrentTurn ? 'text.primary' : 'text.secondary',
-                }}
-              >
-                {p.displayName}
-              </Typography>
+                {/* AC */}
+                <Typography variant="caption" color="text.secondary">
+                  AC: {p.ac}
+                </Typography>
 
-              {/* HP */}
-              <Typography
-                variant="caption"
-                sx={{
-                  color: hpColor(p.currentHP, p.maxHP),
-                  fontWeight: 600,
-                  minWidth: 55,
-                  textAlign: 'right',
-                }}
-              >
-                HP: {p.currentHP}/{p.maxHP}
-              </Typography>
+                {/* Initiative */}
+                <Chip
+                  label={p.initiative}
+                  size="small"
+                  sx={{
+                    height: 18,
+                    fontSize: 10,
+                    minWidth: 28,
+                    bgcolor: 'rgba(158, 158, 158, 0.1)',
+                    color: 'text.secondary',
+                  }}
+                />
+              </Box>
 
-              {/* AC */}
-              <Typography variant="caption" color="text.secondary">
-                AC: {p.ac}
-              </Typography>
-
-              {/* Initiative */}
-              <Chip
-                label={p.initiative}
-                size="small"
-                sx={{
-                  height: 18,
-                  fontSize: 10,
-                  minWidth: 28,
-                  bgcolor: 'rgba(158, 158, 158, 0.1)',
-                  color: 'text.secondary',
-                }}
-              />
+              {/* Action economy + death saves */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, ml: 2 }}>
+                <ActionEconomyTracker
+                  participant={p}
+                  actionsRemaining={p.actionsRemaining}
+                  bonusActionsRemaining={p.bonusActionsRemaining}
+                  reactionsRemaining={p.reactionsRemaining}
+                  movementsRemaining={p.movementsRemaining}
+                />
+                {p.currentHP <= 0 && (
+                  <DeathSaveTracker participant={p} />
+                )}
+              </Box>
             </Box>
           ))}
 
@@ -216,23 +247,17 @@ function CollapsibleCombatPanel({
             );
           })()}
 
-          {/* Actions */}
-          <Box sx={{ display: 'flex', gap: 1, mt: 1.5, pt: 0.75, borderTop: '1px solid rgba(0,0,0,0.1)' }}>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => window.location.href = `/game/${gameId}/combat`}
-              sx={{
-                fontSize: 11,
-                height: 28,
-                borderColor: 'rgba(0,0,0,0.2)',
-              }}
-            >
-              View Combat Tab →
-            </Button>
-          </Box>
         </Box>
       </Collapse>
+
+      {/* Character sheet popup */}
+      <CharacterSheetPopup
+        participant={selectedParticipant}
+        open={sheetOpen}
+        onClose={() => { setSheetOpen(false); setSelectedParticipant(null); }}
+        onHeal={async (_id, _amount) => {}}
+        onDamage={async (_id, _amount) => {}}
+      />
     </Paper>
   );
 }
@@ -442,6 +467,13 @@ export default function GameChatPage() {
               duration: c.duration,
             })),
             isCurrentTurn: p.isCurrentTurn,
+            isDead: p.currentHP <= 0,
+            actionsRemaining: p.actionsRemaining ?? 1,
+            bonusActionsRemaining: p.bonusActionsRemaining ?? 0,
+            reactionsRemaining: p.reactionsRemaining ?? 1,
+            movementsRemaining: p.movementsRemaining ?? 1,
+            deathSaveSuccesses: p.deathSaveSuccesses ?? 0,
+            deathSaveFailures: p.deathSaveFailures ?? 0,
           })),
         });
       } else {
@@ -481,6 +513,13 @@ export default function GameChatPage() {
             duration: c.duration,
           })),
           isCurrentTurn: false,
+          isDead: p.currentHP <= 0,
+          actionsRemaining: p.actionsRemaining ?? 1,
+          bonusActionsRemaining: p.bonusActionsRemaining ?? 0,
+          reactionsRemaining: p.reactionsRemaining ?? 1,
+          movementsRemaining: p.movementsRemaining ?? 1,
+          deathSaveSuccesses: p.deathSaveSuccesses ?? 0,
+          deathSaveFailures: p.deathSaveFailures ?? 0,
         })),
       });
     };
@@ -493,7 +532,7 @@ export default function GameChatPage() {
         return {
           ...prev,
           participants: prev.participants.map(p =>
-            p.id === data.target ? { ...p, currentHP: data.targetHP } : p
+            p.id === data.target ? { ...p, currentHP: data.targetHP, isDead: data.targetHP <= 0 } : p
           ),
         };
       });
@@ -506,7 +545,7 @@ export default function GameChatPage() {
           ...prev,
           participants: prev.participants.map(p =>
             p.id === data.participantId
-              ? { ...p, conditions: [...p.conditions, { name: data.condition, duration: data.duration }] }
+              ? { ...p, conditions: [...p.conditions, { name: data.condition, duration: data.duration ?? 0 }] }
               : p
           ),
         };
@@ -541,7 +580,7 @@ export default function GameChatPage() {
       });
     };
 
-    const handleParticipantAdded = (data: { participant: { id: string; displayName: string; participantType: string; currentHP: number; maxHP: number; ac: number; initiative: number } }) => {
+    const handleParticipantAdded = (data: { participant: { id: string; displayName: string; participantType: string; currentHP: number; maxHP: number; ac: number; initiative: number; actionsRemaining?: number; bonusActionsRemaining?: number; reactionsRemaining?: number; movementsRemaining?: number; deathSaveSuccesses?: number; deathSaveFailures?: number } }) => {
       setActiveCombat(prev => {
         if (!prev) return prev;
         const newParticipant = {
@@ -552,8 +591,15 @@ export default function GameChatPage() {
           maxHP: data.participant.maxHP,
           ac: data.participant.ac,
           initiative: data.participant.initiative,
-          conditions: [] as Array<{ name: string; duration?: number }>,
+          conditions: [] as Array<{ name: string; duration: number }>,
           isCurrentTurn: false,
+          isDead: data.participant.currentHP <= 0,
+          actionsRemaining: data.participant.actionsRemaining ?? 1,
+          bonusActionsRemaining: data.participant.bonusActionsRemaining ?? 0,
+          reactionsRemaining: data.participant.reactionsRemaining ?? 1,
+          movementsRemaining: data.participant.movementsRemaining ?? 1,
+          deathSaveSuccesses: data.participant.deathSaveSuccesses ?? 0,
+          deathSaveFailures: data.participant.deathSaveFailures ?? 0,
         };
         return { ...prev, participants: [...prev.participants, newParticipant] };
       });

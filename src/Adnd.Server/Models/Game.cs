@@ -52,9 +52,7 @@ public enum GameStatus
     Draft,
     Starting,
     Active,
-    Ending,
-    Archived,
-    Finished
+    Archived
 }
 
 public enum GMStatus

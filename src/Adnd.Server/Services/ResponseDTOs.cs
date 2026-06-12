@@ -128,7 +128,7 @@ internal class NullChangeToken : IChangeToken
     public bool HasChanged => false;
     public bool ActiveChangeCallbacks => false;
     public IDisposable RegisterChangeCallback(Action<object> callback, object? state) => null!;
-    public void GetChangeToken() => throw new NotImplementedException();
+    public void GetChangeToken() { }
 }
 
 // Ollama API response types

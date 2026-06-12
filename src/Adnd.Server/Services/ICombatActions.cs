@@ -22,10 +22,33 @@ public enum CombatActionType
     Spell,
 }
 
+/// <summary>
+/// Unified parameters for any combat action. Each action type uses the fields it needs.
+/// </summary>
+public class CombatActionParams
+{
+    public string? AttackerName { get; init; }
+    public string? Weapon { get; init; }
+    public Guid TargetId { get; init; }
+    public string? AttackFormula { get; init; }
+    public int? AttackBonus { get; init; }
+    public string? DamageFormula { get; init; }
+    public int? DamageBonus { get; init; }
+    public string? Description { get; init; }
+    public string? ParticipantName { get; init; }
+    public Guid ParticipantId { get; init; }
+    public string? SaveType { get; init; }
+    public string? SaveFormula { get; init; }
+    public int? DC { get; init; }
+    public string? CasterName { get; init; }
+    public string? SpellName { get; init; }
+    public int? SaveDC { get; init; }
+}
+
 public interface ICombatAction
 {
     string ActionName { get; }
-    Task<object> ExecuteAsync(Combat combat, Guid combatId, AppDbContext context, IDiceEngine diceEngine,
+    Task<object> ExecuteAsync(Combat combat, CombatActionParams @params, AppDbContext context, IDiceEngine diceEngine,
         ISystemRules rules, ILogger logger);
 }
 
@@ -36,22 +59,14 @@ public class AttackAction : ICombatAction
 {
     public string ActionName => "Attack";
 
-    public Task<object> ExecuteAsync(Combat combat, Guid combatId, AppDbContext context, IDiceEngine diceEngine,
+    public async Task<object> ExecuteAsync(Combat combat, CombatActionParams @params, AppDbContext context, IDiceEngine diceEngine,
         ISystemRules rules, ILogger logger)
     {
-        throw new NotImplementedException("Use ExecuteAsync overload with parameters.");
-    }
+        var target = combat.Participants.FirstOrDefault(p => p.Id == @params.TargetId)
+            ?? throw new KeyNotFoundException($"Target participant {@params.TargetId} not found in combat.");
 
-    public static async Task<AttackWithCombatResult> ExecuteAsync(Combat combat, string attackerName, string weapon,
-        Guid targetId, string attackFormula, int? attackBonus, string? damageFormula,
-        int? damageBonus, string? description, AppDbContext context, IDiceEngine diceEngine,
-        ISystemRules rules, ILogger logger)
-    {
-        var target = combat.Participants.FirstOrDefault(p => p.Id == targetId)
-            ?? throw new KeyNotFoundException($"Target participant {targetId} not found in combat.");
-
-        var attackResult = diceEngine.Roll(attackFormula);
-        var totalAttack = attackResult.Total + (attackBonus ?? 0);
+        var attackResult = diceEngine.Roll(@params.AttackFormula!);
+        var totalAttack = attackResult.Total + (@params.AttackBonus ?? 0);
         var hit = totalAttack >= target.AC;
 
         var isCrit = rules.IsCriticalHit(attackResult.Rolls.Length == 1 ? attackResult.Rolls[0] : 20, combat.GameId.ToString());
@@ -62,36 +77,36 @@ public class AttackAction : ICombatAction
 
         if (hit)
         {
-            if (isCrit && damageFormula != null)
+            if (isCrit && @params.DamageFormula != null)
             {
-                var critDamage = diceEngine.Roll(damageFormula);
-                damageTotal = critDamage.Rolls.Concat(critDamage.Rolls).Sum() + (damageBonus ?? 0);
-                damageInfo = $"CRITICAL! {damageFormula} doubled + {damageBonus ?? 0} = {damageTotal}";
+                var critDamage = diceEngine.Roll(@params.DamageFormula);
+                damageTotal = critDamage.Rolls.Concat(critDamage.Rolls).Sum() + (@params.DamageBonus ?? 0);
+                damageInfo = $"CRITICAL! {@params.DamageFormula} doubled + {@params.DamageBonus ?? 0} = {damageTotal}";
             }
-            else if (damageFormula != null)
+            else if (@params.DamageFormula != null)
             {
-                var dmgResult = diceEngine.Roll(damageFormula);
-                damageTotal = dmgResult.Total + (damageBonus ?? 0);
-                damageInfo = $"{damageFormula} + {damageBonus ?? 0} = {damageTotal}";
-                await HandleDamageAsync(combat, target, damageTotal, attackerName, context);
+                var dmgResult = diceEngine.Roll(@params.DamageFormula);
+                damageTotal = dmgResult.Total + (@params.DamageBonus ?? 0);
+                damageInfo = $"{@params.DamageFormula} + {@params.DamageBonus ?? 0} = {damageTotal}";
+                await HandleDamageAsync(combat, target, damageTotal, @params.AttackerName!, context);
             }
         }
         else if (isFumble)
         {
             damageInfo = "Fumble! Weapon malfunctioned.";
             await AddCombatEventAsync(combat, combat.CurrentRound, combat.CurrentTurnIndex,
-                CombatEventType.Condition, attackerName, attackerName, "Fumbled attack.", context);
+                CombatEventType.Condition, @params.AttackerName!, @params.AttackerName!, "Fumbled attack.", context);
         }
 
         await AddCombatEventAsync(combat, combat.CurrentRound, combat.CurrentTurnIndex,
-            CombatEventType.Attack, attackerName, target.DisplayName,
-            $"{weapon}: {attackFormula}+{attackBonus ?? 0}={totalAttack} vs AC {target.AC} -> {(hit ? "HIT" : "MISS")}"
+            CombatEventType.Attack, @params.AttackerName!, target.DisplayName,
+            $"{@params.Weapon}: {@params.AttackFormula}+{@params.AttackBonus ?? 0}={totalAttack} vs AC {target.AC} -> {(hit ? "HIT" : "MISS")}"
             + (hit ? $" | {damageInfo}" : ""), context);
 
         return new AttackWithCombatResult
         {
-            Attacker = attackerName,
-            Weapon = weapon,
+            Attacker = @params.AttackerName!,
+            Weapon = @params.Weapon!,
             Target = target.DisplayName,
             Hit = hit,
             IsCritical = isCrit,
@@ -99,7 +114,7 @@ public class AttackAction : ICombatAction
             AttackRoll = totalAttack,
             AttackDice = attackResult.Total,
             AC = target.AC,
-            DamageDice = damageFormula ?? string.Empty,
+            DamageDice = @params.DamageFormula ?? string.Empty,
             DamageTotal = damageTotal,
             DamageInfo = damageInfo,
             TargetHP = target.CurrentHP,
@@ -184,33 +199,26 @@ public class SaveThrowAction : ICombatAction
 {
     public string ActionName => "SaveThrow";
 
-    public Task<object> ExecuteAsync(Combat combat, Guid combatId, AppDbContext context, IDiceEngine diceEngine,
+    public async Task<object> ExecuteAsync(Combat combat, CombatActionParams @params, AppDbContext context, IDiceEngine diceEngine,
         ISystemRules rules, ILogger logger)
     {
-        throw new NotImplementedException("Use ExecuteSaveThrowAsync overload with parameters.");
-    }
+        var participant = combat.Participants.FirstOrDefault(p => p.Id == @params.ParticipantId)
+            ?? throw new KeyNotFoundException($"Participant {@params.ParticipantId} not found in combat.");
 
-    public static async Task<SaveThrowResult> ExecuteAsync(Combat combat, string participantName, Guid participantId,
-        string saveType, string saveFormula, int dc, AppDbContext context, IDiceEngine diceEngine,
-        ISystemRules rules, ILogger logger)
-    {
-        var participant = combat.Participants.FirstOrDefault(p => p.Id == participantId)
-            ?? throw new KeyNotFoundException($"Participant {participantId} not found in combat.");
-
-        var rollResult = diceEngine.Roll(saveFormula);
+        var rollResult = diceEngine.Roll(@params.SaveFormula!);
         var total = rollResult.Total;
-        var success = total >= dc;
+        var success = total >= (@params.DC ?? 10);
 
         await AddCombatEventAsync(combat, combat.CurrentRound, combat.CurrentTurnIndex,
-            CombatEventType.SaveThrow, participantName, participantName,
-            $"{saveType}: {saveFormula}={total} vs DC {dc} -> {(success ? "SUCCESS" : "FAILURE")}", context);
+            CombatEventType.SaveThrow, @params.ParticipantName!, @params.ParticipantName!,
+            $"{@params.SaveType}: {@params.SaveFormula}={total} vs DC {@params.DC ?? 10} -> {(success ? "SUCCESS" : "FAILURE")}", context);
 
         return new SaveThrowResult
         {
             Participant = participant.DisplayName,
-            SaveType = saveType,
+            SaveType = @params.SaveType!,
             DiceRoll = total,
-            DC = dc,
+            DC = @params.DC ?? 10,
             Success = success,
             RolledAt = DateTime.UtcNow
         };
@@ -241,23 +249,15 @@ public class SpellAction : ICombatAction
 {
     public string ActionName => "Spell";
 
-    public Task<object> ExecuteAsync(Combat combat, Guid combatId, AppDbContext context, IDiceEngine diceEngine,
+    public async Task<object> ExecuteAsync(Combat combat, CombatActionParams @params, AppDbContext context, IDiceEngine diceEngine,
         ISystemRules rules, ILogger logger)
     {
-        throw new NotImplementedException("Use ExecuteSpellAsync overload with parameters.");
-    }
+        var target = combat.Participants.FirstOrDefault(p => p.Id == @params.TargetId)
+            ?? throw new KeyNotFoundException($"Target participant {@params.TargetId} not found in combat.");
 
-    public static async Task<SpellCastResult> ExecuteAsync(Combat combat, string casterName, string spellName,
-        Guid targetId, string saveFormula, int saveDC, string? damageFormula,
-        int? damageBonus, string? description, AppDbContext context, IDiceEngine diceEngine,
-        ISystemRules rules, ILogger logger)
-    {
-        var target = combat.Participants.FirstOrDefault(p => p.Id == targetId)
-            ?? throw new KeyNotFoundException($"Target participant {targetId} not found in combat.");
-
-        var saveResult = diceEngine.Roll(saveFormula);
+        var saveResult = diceEngine.Roll(@params.SaveFormula!);
         var saveTotal = saveResult.Total;
-        var saveSuccess = saveTotal >= saveDC;
+        var saveSuccess = saveTotal >= (@params.SaveDC ?? 10);
 
         var isCritSave = saveResult.Rolls.Length == 1 && saveResult.Rolls[0] == 20;
         if (isCritSave) saveSuccess = true;
@@ -269,37 +269,37 @@ public class SpellAction : ICombatAction
         string damageInfo = string.Empty;
         string effect = string.Empty;
 
-        if (damageFormula != null && !saveSuccess)
+        if (@params.DamageFormula != null && !saveSuccess)
         {
-            var dmgResult = diceEngine.Roll(damageFormula);
-            damageTotal = dmgResult.Total + (damageBonus ?? 0);
-            damageInfo = $"{damageFormula} + {damageBonus ?? 0} = {damageTotal}";
-            await HandleDamageAsync(combat, target, damageTotal, casterName, context);
+            var dmgResult = diceEngine.Roll(@params.DamageFormula);
+            damageTotal = dmgResult.Total + (@params.DamageBonus ?? 0);
+            damageInfo = $"{@params.DamageFormula} + {@params.DamageBonus ?? 0} = {damageTotal}";
+            await HandleDamageAsync(combat, target, damageTotal, @params.CasterName!, context);
         }
-        else if (damageFormula != null && saveSuccess)
+        else if (@params.DamageFormula != null && saveSuccess)
         {
-            var dmgResult = diceEngine.Roll(damageFormula);
-            damageTotal = (dmgResult.Total + (damageBonus ?? 0)) / 2;
-            damageInfo = $"Half: {damageFormula} + {damageBonus ?? 0} = {damageTotal} (half)";
-            await HandleDamageAsync(combat, target, damageTotal, casterName, context);
+            var dmgResult = diceEngine.Roll(@params.DamageFormula);
+            damageTotal = (dmgResult.Total + (@params.DamageBonus ?? 0)) / 2;
+            damageInfo = $"Half: {@params.DamageFormula} + {@params.DamageBonus ?? 0} = {damageTotal} (half)";
+            await HandleDamageAsync(combat, target, damageTotal, @params.CasterName!, context);
         }
-        else if (description != null)
+        else if (@params.Description != null)
         {
-            effect = description;
+            effect = @params.Description;
         }
 
         await AddCombatEventAsync(combat, combat.CurrentRound, combat.CurrentTurnIndex,
-            CombatEventType.Healing, casterName, target.DisplayName,
-            $"Cast {spellName}: {saveFormula}={saveTotal} vs DC {saveDC} -> {(saveSuccess ? "SUCCESS" : "FAILURE")}"
+            CombatEventType.Healing, @params.CasterName!, target.DisplayName,
+            $"Cast {@params.SpellName}: {@params.SaveFormula}={saveTotal} vs DC {@params.SaveDC ?? 10} -> {(saveSuccess ? "SUCCESS" : "FAILURE")}"
             + (damageTotal > 0 ? $" | {damageInfo}" : $" | {effect}"), context);
 
         return new SpellCastResult
         {
-            Caster = casterName,
-            SpellName = spellName,
+            Caster = @params.CasterName!,
+            SpellName = @params.SpellName!,
             Target = target.DisplayName,
-            SaveType = saveFormula,
-            SaveDC = saveDC,
+            SaveType = @params.SaveFormula!,
+            SaveDC = @params.SaveDC ?? 10,
             SaveSuccess = saveSuccess,
             IsCritical = isCritSave,
             DamageTotal = damageTotal,

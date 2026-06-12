@@ -5,7 +5,6 @@ import AppShell from './components/AppShell'
 import HomePage from './pages/HomePage'
 import DashboardPage from './pages/DashboardPage'
 import GameChatPage from './pages/GameChatPage'
-import GameCombatPage from './pages/GameCombatPage'
 import GameSettingsPage from './pages/GameSettingsPage'
 import AdminDashboardPage from './pages/AdminDashboardPage'
 import AdminPlotBoardPage from './pages/AdminPlotBoardPage'
@@ -39,7 +38,6 @@ function App() {
             <Route path="/systems/new" element={<SystemsPage />} />
             <Route path="/user-settings" element={<UserSettingsPage />} />
             <Route path="/game/:id" element={<GameChatPage />} />
-            <Route path="/game/:id/combat" element={<GameCombatPage />} />
             <Route path="/game/:id/settings" element={<GameSettingsPage />} />
             <Route path="/admin/:id" element={<AdminDashboardPage />} />
             <Route path="/admin/:id/plot-board" element={<AdminPlotBoardPage />} />

@@ -71,7 +71,13 @@ public partial class GameHub
                     Initiative = p.Initiative,
                     Conditions = JsonSerializer.Deserialize<List<ConditionEntryResponse>>(p.Conditions.ToString()) ?? new(),
                     IsCurrentTurn = p.Id == currentTurnId,
-                    IsDead = p.CurrentHP <= 0
+                    IsDead = p.CurrentHP <= 0,
+                    ActionsRemaining = p.ActionsRemaining,
+                    BonusActionsRemaining = p.BonusActionsRemaining,
+                    ReactionsRemaining = p.ReactionsRemaining,
+                    MovementsRemaining = p.MovementsRemaining,
+                    DeathSaveSuccesses = GetDeathSaveSuccesses(p.DeathSaveState),
+                    DeathSaveFailures = GetDeathSaveFailures(p.DeathSaveState)
                 }).ToList(),
             Events = combat.Events
                 .OrderBy(e => e.CreatedAt)
@@ -143,8 +149,28 @@ public partial class GameHub
             Initiative = p.Initiative,
             Conditions = JsonSerializer.Deserialize<List<ConditionEntryResponse>>(p.Conditions.ToString()) ?? new(),
             IsCurrentTurn = false,
-            IsDead = p.CurrentHP <= 0
+            IsDead = p.CurrentHP <= 0,
+            ActionsRemaining = p.ActionsRemaining,
+            BonusActionsRemaining = p.BonusActionsRemaining,
+            ReactionsRemaining = p.ReactionsRemaining,
+            MovementsRemaining = p.MovementsRemaining,
+            DeathSaveSuccesses = GetDeathSaveSuccesses(p.DeathSaveState),
+            DeathSaveFailures = GetDeathSaveFailures(p.DeathSaveState)
         };
+    }
+
+    private static int GetDeathSaveSuccesses(JsonElement? deathSaveState)
+    {
+        if (!deathSaveState.HasValue || deathSaveState.Value.ValueKind != JsonValueKind.Object)
+            return 0;
+        return JsonSerializer.Deserialize<DeathSaveState>(deathSaveState.Value.ToString())?.Successes ?? 0;
+    }
+
+    private static int GetDeathSaveFailures(JsonElement? deathSaveState)
+    {
+        if (!deathSaveState.HasValue || deathSaveState.Value.ValueKind != JsonValueKind.Object)
+            return 0;
+        return JsonSerializer.Deserialize<DeathSaveState>(deathSaveState.Value.ToString())?.Failures ?? 0;
     }
 
 }
