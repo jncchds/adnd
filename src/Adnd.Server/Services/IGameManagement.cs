@@ -57,7 +57,8 @@ public class GameManagementService : IGameManagementService
             InviteCode = g.InviteCode,
             LLMPresetId = g.LLMPresetId,
             LLMPresetName = g.LLMPreset != null ? g.LLMPreset.Name : null,
-            Language = g.Language
+            Language = g.Language,
+            CurrentSessionId = g.CurrentSessionId
         }).ToList();
     }
 
@@ -98,7 +99,8 @@ public class GameManagementService : IGameManagementService
             GameState = game.GameState,
             LLMPresetId = game.LLMPresetId,
             LLMPresetName = game.LLMPreset?.Name,
-            Language = game.Language
+            Language = game.Language,
+            CurrentSessionId = game.CurrentSessionId
         };
     }
 
@@ -134,6 +136,20 @@ public class GameManagementService : IGameManagementService
         _context.Games.Add(game);
         await _context.SaveChangesAsync();
 
+        // Auto-create the single session for this game (after game is saved so FK works)
+        var session = new GameSession
+        {
+            GameId = game.Id,
+            Title = "Session 1",
+            Description = "Auto-created session",
+            StartedAt = DateTime.UtcNow,
+        };
+        _context.GameSessions.Add(session);
+        await _context.SaveChangesAsync();
+
+        game.CurrentSessionId = session.Id;
+        await _context.SaveChangesAsync();
+
         return new GameResponse
         {
             Id = game.Id,
@@ -151,7 +167,8 @@ public class GameManagementService : IGameManagementService
             GameState = game.GameState,
             LLMPresetId = game.LLMPresetId,
             LLMPresetName = game.LLMPreset?.Name,
-            Language = game.Language
+            Language = game.Language,
+            CurrentSessionId = game.CurrentSessionId
         };
     }
 

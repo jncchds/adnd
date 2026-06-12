@@ -79,10 +79,14 @@ public class MaintenanceService : IHostedService
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var expiredCalls = await context.GMToolCalls
-            .Where(tc => tc.Status == ToolCallStatus.WaitingConfirmation &&
-                         tc.CreatedAt.Add(tc.ExpirationTime ?? TimeSpan.FromMinutes(5)) < DateTime.UtcNow)
+        // Fetch all waiting calls then filter in-memory (EF Core can't translate DateTime.Add)
+        var pendingCalls = await context.GMToolCalls
+            .Where(tc => tc.Status == ToolCallStatus.WaitingConfirmation)
             .ToListAsync();
+
+        var expiredCalls = pendingCalls
+            .Where(tc => tc.CreatedAt + (tc.ExpirationTime ?? TimeSpan.FromMinutes(5)) < DateTime.UtcNow)
+            .ToList();
 
         if (!expiredCalls.Any())
         {

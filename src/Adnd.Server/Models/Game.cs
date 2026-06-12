@@ -31,6 +31,10 @@ public class Game : ISoftDelete
     public string? GameParameters { get; set; } // JSON: difficulty, tone, pacing
     public string? GameState { get; set; } // JSON: current game state managed by GM/LLM
 
+    // Single session per game (auto-created)
+    public Guid? CurrentSessionId { get; set; }
+    public GameSession? CurrentSession { get; set; }
+
     // Soft-delete support
     public bool IsDeleted { get; set; } = false;
     public DateTime? DeletedAt { get; set; }

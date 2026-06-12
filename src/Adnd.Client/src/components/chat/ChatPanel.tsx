@@ -30,7 +30,7 @@ export default function ChatPanel({
     senderName: msg.playerName,
     senderRole: '',
     timestamp: msg.createdAt,
-    isSystem: msg.type === 0,
+    isSystem: msg.type === 6, // MessageType.System
     isWhisper: false,
     diceFormula: msg.metadata?.diceFormula,
     diceTotal: msg.metadata?.diceTotal,

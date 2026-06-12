@@ -1,14 +1,7 @@
 import { HubConnection } from '@microsoft/signalr';
 
 export interface HubMethods {
-  sendMessage: (sessionId: string, content: string) => any;
-  sendInGameWhisper: (sessionId: string, content: string) => any;
-  sendOOCMessage: (sessionId: string, content: string) => any;
-  sendOOCWhisper: (sessionId: string, content: string) => any;
-  sendOOCWhisperToPlayer: (targetPlayerId: string, content: string) => any;
-  sendInGameWhisperToPlayer: (targetPlayerId: string, content: string) => any;
-  sendWhisper: (targets: string, content: string) => any;
-  sendGMWhisper: (targetPlayerId: string, content: string) => any;
+  sendMessage: (messageType: string, content: string, targetPlayerId?: string) => any;
   callAgent: (fromAgent: number, toAgent: number, action: number, input: string, sessionId?: string) => any;
   getWhisperHistory: (gameId: string, limit?: number) => any;
   getAgentCallHistory: (gameId: string, fromAgent?: number, action?: number, limit?: number) => any;
@@ -114,14 +107,7 @@ export function createHubMethods(hubRef: React.MutableRefObject<HubConnection | 
 
   return {
     // Chat
-    sendMessage: (sessionId: string, content: string) => invoke('SendMessage', sessionId, content),
-    sendInGameWhisper: (sessionId: string, content: string) => invoke('SendInGameWhisper', sessionId, content),
-    sendOOCMessage: (sessionId: string, content: string) => invoke('SendOOCMessage', sessionId, content),
-    sendOOCWhisper: (sessionId: string, content: string) => invoke('SendOOCWhisper', sessionId, content),
-    sendOOCWhisperToPlayer: (targetPlayerId: string, content: string) => invoke('SendOOCWhisperToPlayer', targetPlayerId, content),
-    sendInGameWhisperToPlayer: (targetPlayerId: string, content: string) => invoke('SendInGameWhisperToPlayer', targetPlayerId, content),
-    sendWhisper: (targets: string, content: string) => invoke('SendWhisper', targets, content),
-    sendGMWhisper: (targetPlayerId: string, content: string) => invoke('SendGMWhisper', targetPlayerId, content),
+    sendMessage: (messageType: string, content: string, targetPlayerId?: string) => invoke('SendMessage', messageType, content, targetPlayerId),
 
     // Agent
     callAgent: (fromAgent: number, toAgent: number, action: number, input: string, sessionId?: string) => invoke('CallAgent', fromAgent, toAgent, action, input, sessionId),

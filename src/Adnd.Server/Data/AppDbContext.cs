@@ -135,6 +135,13 @@ public class AppDbContext : DbContext
             .HasForeignKey(g => g.LLMPresetId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        // Game → CurrentSession (one-to-one)
+        modelBuilder.Entity<Game>()
+            .HasOne(g => g.CurrentSession)
+            .WithOne()
+            .HasForeignKey<Game>(g => g.CurrentSessionId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         // Refresh token unique
         modelBuilder.Entity<RefreshToken>()
             .HasIndex(r => r.Token)

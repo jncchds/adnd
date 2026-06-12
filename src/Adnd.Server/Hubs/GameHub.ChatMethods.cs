@@ -9,20 +9,16 @@ namespace Adnd.Server.Hubs;
 
 public partial class GameHub
 {
-    // ==================== Chat Messages ====================
+    // ==================== Unified Chat Message ====================
 
     /// <summary>
-    /// Send an in-game public message (part of game narrative).
+    /// Send a chat message — unified entry point for all message types.
+    /// messageType: "inGame" (public in-game), "ooc" (public OOC),
+    ///              "inGameWhisper" (to GM), "oocWhisper" (OOC to GM),
+    ///              "gmToPlayer" (GM → player whisper).
     /// </summary>
-    public async Task SendMessage(Guid sessionId, string content)
+    public async Task SendMessage(string messageType, string content, Guid? targetPlayerId = null)
     {
-        var session = await _context.GameSessions.FindAsync(sessionId);
-        if (session == null)
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "Session not found." });
-            return;
-        }
-
         var userId = Context.UserIdentifier;
         if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var uid))
         {
@@ -30,22 +26,45 @@ public partial class GameHub
             return;
         }
 
+        // Find player without filtering by status (connection tracked via SignalR groups)
         var player = await _context.Players
-            .FirstOrDefaultAsync(p => p.GameId == session.GameId && p.UserId == uid && p.Status == PlayerStatus.Active);
+            .FirstOrDefaultAsync(p => p.UserId == uid);
 
-        if (player == null)
+        if (player == null || player.Game == null)
         {
-            await Clients.Caller.SendAsync("Error", new { message = "You are not an active player in this game." });
+            await Clients.Caller.SendAsync("Error", new { message = "You are not a player in this game." });
             return;
         }
 
+        var gameId = player.GameId;
+
+        // Resolve the game's current session (auto-created, single per game)
+        var game = await _context.Games
+            .Include(g => g.CurrentSession)
+            .FirstOrDefaultAsync(g => g.Id == gameId);
+
+        if (game == null || game.CurrentSession == null)
+        {
+            await Clients.Caller.SendAsync("Error", new { message = "Game session not found." });
+            return;
+        }
+
+        var sessionId = game.CurrentSession.Id;
+
+        // Determine message type and metadata
+        var (messageTypeValue, whisperType, whisperTargets) = ResolveMessageDetails(messageType, player, targetPlayerId);
+
+        // Create the message record
         var message = new Message
         {
             SessionId = sessionId,
             PlayerId = player.Id,
             Content = content,
-            Type = Adnd.Server.Models.MessageType.InGamePublic,
-            IsOOC = false,
+            Type = messageTypeValue,
+            IsOOC = messageType == "ooc" || messageType == "oocWhisper",
+            WhisperFromId = messageType.Contains("Whisper") || messageType == "gmToPlayer" ? player.Id : (Guid?)null,
+            WhisperToId = messageType == "gmToPlayer" ? targetPlayerId : (Guid?)null,
+            WhisperTarget = whisperTargets,
             Metadata = default,
             CreatedAt = DateTime.UtcNow
         };
@@ -54,441 +73,145 @@ public partial class GameHub
         await _context.SaveChangesAsync();
 
         // Generate embedding for narrative-influencing messages
-        await EmbedMessageAsync(session.GameId, message.Id, message.Content);
-
-        // Publish event for game agent processing (in-game only)
-        await _mediator.Publish(new MessageSent(
-            session.GameId, sessionId, player.Id, content, Adnd.Server.Events.MessageType.InGamePublic, null, false));
-
-        await Clients.Group(session.GameId.ToString()).SendAsync("NewMessage", new
+        if (!message.IsOOC)
         {
-            message.Id,
-            message.SessionId,
-            message.PlayerId,
-            message.Content,
-            message.Type,
-            message.Metadata,
-            message.IsOOC,
-            WhisperFromId = (Guid?)null,
-            WhisperToId = (Guid?)null,
-            WhisperTarget = (string?)null,
-            message.CreatedAt
-        });
+            await EmbedMessageAsync(gameId, message.Id, message.Content);
+        }
+
+        // Publish appropriate event
+        await PublishChatEvent(gameId, sessionId, player, content, whisperType, whisperTargets);
+
+        // Broadcast to caller and/or group
+        await BroadcastMessage(gameId, message, player, messageType);
+
+        _logger.LogInformation("Message sent: {MessageType} by {CharacterName} in game {GameId}",
+            messageType, player.CharacterName, gameId);
     }
 
     /// <summary>
-    /// Send an in-game whisper (to GM — adds to GM knowledge).
+    /// Resolve message type enum, whisper type, and target string from the client message type.
     /// </summary>
-    public async Task SendInGameWhisper(Guid sessionId, string content)
+    private static (Models.MessageType messageType, Models.WhisperType whisperType, string? targets) ResolveMessageDetails(
+        string messageType, Player player, Guid? targetPlayerId)
     {
-        var session = await _context.GameSessions.FindAsync(sessionId);
-        if (session == null)
+        switch (messageType)
         {
-            await Clients.Caller.SendAsync("Error", new { message = "Session not found." });
-            return;
+            case "inGame":
+                return (Models.MessageType.InGamePublic, 0, null);
+
+            case "ooc":
+                return (Models.MessageType.OOCPublic, 0, null);
+
+            case "inGameWhisper":
+                return (Models.MessageType.InGameWhisper, Models.WhisperType.InGamePlayerToGM, "gm");
+
+            case "oocWhisper":
+                return (Models.MessageType.OOCWhisper, Models.WhisperType.OOCPlayerToGM, "gm");
+
+            case "gmToPlayer":
+                if (player.Role != PlayerRole.Creator)
+                    return (Models.MessageType.System, 0, null); // will be rejected later
+                return (Models.MessageType.InGameWhisper, Models.WhisperType.InGameGMToPlayer, $"player:{targetPlayerId}");
+
+            default:
+                return (Models.MessageType.InGamePublic, 0, null);
         }
+    }
 
-        var userId = Context.UserIdentifier;
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var uid))
+    private async Task PublishChatEvent(Guid gameId, Guid sessionId, Player player, string content, Models.WhisperType whisperType, string? targets)
+    {
+        if (string.IsNullOrEmpty(targets) || targets == "all")
         {
-            await Clients.Caller.SendAsync("Error", new { message = "Authentication required." });
-            return;
+            // Public message — publish as MessageSent
+            var msgType = player.Game!.GMStatus == GMStatus.Paused ? Events.MessageType.OOCPublic :
+                (whisperType == Models.WhisperType.InGamePlayerToGM || whisperType == Models.WhisperType.OOCPlayerToGM ?
+                    Events.MessageType.OOCPublic : Events.MessageType.InGamePublic);
+            await _mediator.Publish(new MessageSent(gameId, sessionId, player.Id, content, msgType, null, player.Game.GMStatus == GMStatus.Paused));
         }
-
-        var player = await _context.Players
-            .FirstOrDefaultAsync(p => p.GameId == session.GameId && p.UserId == uid && p.Status == PlayerStatus.Active);
-
-        if (player == null)
+        else if (targets == "gm")
         {
-            await Clients.Caller.SendAsync("Error", new { message = "You are not an active player in this game." });
-            return;
+            // Whisper — publish as WhisperSent
+            await _mediator.Publish(new WhisperSent(gameId, player.Id, "gm", content, (Events.WhisperType)whisperType));
         }
-
-        var message = new Message
+        else if (targets?.StartsWith("player:", StringComparison.Ordinal) == true)
         {
-            SessionId = sessionId,
-            PlayerId = player.Id,
-            Content = content,
-            Type = Adnd.Server.Models.MessageType.InGameWhisper,
-            IsOOC = false,
-            WhisperFromId = player.Id,
-            WhisperTarget = "gm",
-            Metadata = default,
-            CreatedAt = DateTime.UtcNow
-        };
+            // GM → player whisper — publish OOC whisper
+            await _mediator.Publish(new OOCWhisperSent(gameId, player.Id, targets, content));
+        }
+    }
 
-        _context.Messages.Add(message);
-        await _context.SaveChangesAsync();
+    private async Task BroadcastMessage(Guid gameId, Message message, Player player, string messageType)
+    {
+        var isWhisper = messageType.Contains("Whisper") || messageType == "gmToPlayer";
 
-        // Generate embedding for in-game whisper (influences GM knowledge)
-        await EmbedMessageAsync(session.GameId, message.Id, message.Content);
-
-        // Create whisper record for GM targeting
-        var whisper = await _whisperService.SendWhisperAsync(
-            session.GameId, sessionId, player.Id, "gm",
-            Adnd.Server.Models.WhisperType.InGamePlayerToGM, content);
-
-        // Publish whisper event (not message event — this is not public narrative)
-        await _mediator.Publish(new WhisperSent(
-            session.GameId, player.Id, "gm", content, Adnd.Server.Events.WhisperType.InGamePlayerToGM));
-
-        // Send to sender (confirmation)
-        await Clients.Caller.SendAsync("NewWhisper", new
+        if (isWhisper)
         {
-            whisper.Id,
-            FromPlayerId = whisper.FromPlayerId,
-            FromCharacter = player.CharacterName,
-            FromRole = player.Role,
-            Content = whisper.Content,
-            Type = whisper.Type,
-            Targets = whisper.Targets,
-            CreatedAt = whisper.CreatedAt,
-            IsSent = true
-        });
+            // Whisper: send via WhisperService for targeted delivery
+            var whisper = await _whisperService.SendWhisperAsync(
+                gameId, message.SessionId, player.Id,
+                message.WhisperTarget ?? "all",
+                messageType == "gmToPlayer" ? Models.WhisperType.InGameGMToPlayer :
+                (messageType == "oocWhisper" ? Models.WhisperType.OOCPlayerToGM : Models.WhisperType.InGamePlayerToGM),
+                message.Content);
 
-        // Send to GM (Creator)
-        var gmPlayer = await _context.Players
-            .FirstOrDefaultAsync(p => p.GameId == session.GameId && p.Role == PlayerRole.Creator && p.Status == PlayerStatus.Active);
-
-        if (gmPlayer != null)
-        {
-            var gmConnectionId = GetConnectionIdForPlayer(gmPlayer.Id);
-            if (gmConnectionId != null)
+            // Send to sender (confirmation)
+            await Clients.Caller.SendAsync("NewWhisper", new
             {
-                await Clients.Client(gmConnectionId).SendAsync("NewWhisper", new
+                whisper.Id,
+                FromPlayerId = whisper.FromPlayerId,
+                FromCharacter = player.CharacterName,
+                FromRole = player.Role,
+                Content = whisper.Content,
+                Type = whisper.Type,
+                Targets = whisper.Targets,
+                CreatedAt = whisper.CreatedAt,
+                IsSent = true
+            });
+
+            // Send to GM if player whisper
+            if (messageType == "inGameWhisper" || messageType == "oocWhisper")
+            {
+                var gmPlayer = await _context.Players
+                    .FirstOrDefaultAsync(p => p.GameId == gameId && p.Role == PlayerRole.Creator && p.Status == PlayerStatus.Active);
+
+                if (gmPlayer != null)
                 {
-                    whisper.Id,
-                    FromPlayerId = whisper.FromPlayerId,
-                    FromCharacter = player.CharacterName,
-                    FromRole = player.Role,
-                    Content = whisper.Content,
-                    Type = whisper.Type,
-                    Targets = whisper.Targets,
-                    CreatedAt = whisper.CreatedAt,
-                    IsReceived = true
-                });
+                    var gmConnectionId = GetConnectionIdForPlayer(gmPlayer.Id);
+                    if (gmConnectionId != null)
+                    {
+                        await Clients.Client(gmConnectionId).SendAsync("NewWhisper", new
+                        {
+                            whisper.Id,
+                            FromPlayerId = whisper.FromPlayerId,
+                            FromCharacter = player.CharacterName,
+                            FromRole = player.Role,
+                            Content = whisper.Content,
+                            Type = whisper.Type,
+                            Targets = whisper.Targets,
+                            CreatedAt = whisper.CreatedAt,
+                            IsReceived = true
+                        });
+                    }
+                }
             }
         }
-
-        _logger.LogInformation("In-game whisper from {CharacterName} to GM in game {GameId}",
-            player.CharacterName, session.GameId);
-    }
-
-    /// <summary>
-    /// Send an OOC public message (never influences narrative).
-    /// </summary>
-    public async Task SendOOCMessage(Guid sessionId, string content)
-    {
-        var session = await _context.GameSessions.FindAsync(sessionId);
-        if (session == null)
+        else
         {
-            await Clients.Caller.SendAsync("Error", new { message = "Session not found." });
-            return;
-        }
-
-        var userId = Context.UserIdentifier;
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var uid))
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "Authentication required." });
-            return;
-        }
-
-        var player = await _context.Players
-            .FirstOrDefaultAsync(p => p.GameId == session.GameId && p.UserId == uid && p.Status == PlayerStatus.Active);
-
-        if (player == null)
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "You are not an active player in this game." });
-            return;
-        }
-
-        var message = new Message
-        {
-            SessionId = sessionId,
-            PlayerId = player.Id,
-            Content = content,
-            Type = Adnd.Server.Models.MessageType.OOCPublic,
-            IsOOC = true,
-            Metadata = default,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _context.Messages.Add(message);
-        await _context.SaveChangesAsync();
-
-        // Publish OOC event — NOT processed by GameAgent
-        await _mediator.Publish(new OOCMessageSent(
-            session.GameId, sessionId, player.Id, content, "public"));
-
-        await Clients.Group(session.GameId.ToString()).SendAsync("NewOOCMessage", new
-        {
-            message.Id,
-            message.SessionId,
-            message.PlayerId,
-            message.Content,
-            message.Type,
-            message.IsOOC,
-            message.CreatedAt
-        });
-    }
-
-    /// <summary>
-    /// Send an OOC whisper from a player to the GM (for clarification).
-    /// GM responds with OOCWhisper.
-    /// </summary>
-    public async Task SendOOCWhisper(Guid sessionId, string content)
-    {
-        var session = await _context.GameSessions.FindAsync(sessionId);
-        if (session == null)
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "Session not found." });
-            return;
-        }
-
-        var userId = Context.UserIdentifier;
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var uid))
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "Authentication required." });
-            return;
-        }
-
-        var player = await _context.Players
-            .FirstOrDefaultAsync(p => p.GameId == session.GameId && p.UserId == uid && p.Status == PlayerStatus.Active);
-
-        if (player == null)
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "You are not an active player in this game." });
-            return;
-        }
-
-        var message = new Message
-        {
-            SessionId = sessionId,
-            PlayerId = player.Id,
-            Content = content,
-            Type = Adnd.Server.Models.MessageType.OOCWhisper,
-            IsOOC = true,
-            WhisperFromId = player.Id,
-            WhisperTarget = "gm",
-            Metadata = default,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _context.Messages.Add(message);
-        await _context.SaveChangesAsync();
-
-        // Create whisper record
-        var whisper = await _whisperService.SendWhisperAsync(
-            session.GameId, sessionId, player.Id, "gm",
-            Adnd.Server.Models.WhisperType.OOCPlayerToGM, content);
-
-        // Publish OOC whisper event — NOT processed by GameAgent
-        await _mediator.Publish(new OOCWhisperSent(
-            session.GameId, player.Id, "gm", content));
-
-        // Send to sender (confirmation)
-        await Clients.Caller.SendAsync("NewOOCWhisper", new
-        {
-            whisper.Id,
-            FromPlayerId = whisper.FromPlayerId,
-            FromCharacter = player.CharacterName,
-            FromRole = player.Role,
-            Content = whisper.Content,
-            Type = whisper.Type,
-            Targets = whisper.Targets,
-            CreatedAt = whisper.CreatedAt,
-            IsSent = true
-        });
-
-        // Send to GM (Creator)
-        var gmPlayer = await _context.Players
-            .FirstOrDefaultAsync(p => p.GameId == session.GameId && p.Role == PlayerRole.Creator && p.Status == PlayerStatus.Active);
-
-        if (gmPlayer != null)
-        {
-            var gmConnectionId = GetConnectionIdForPlayer(gmPlayer.Id);
-            if (gmConnectionId != null)
+            // Public message — broadcast to all in game group
+            await Clients.Group(gameId.ToString()).SendAsync("NewMessage", new
             {
-                await Clients.Client(gmConnectionId).SendAsync("NewOOCWhisper", new
-                {
-                    whisper.Id,
-                    FromPlayerId = whisper.FromPlayerId,
-                    FromCharacter = player.CharacterName,
-                    FromRole = player.Role,
-                    Content = whisper.Content,
-                    Type = whisper.Type,
-                    Targets = whisper.Targets,
-                    CreatedAt = whisper.CreatedAt,
-                    IsReceived = true
-                });
-            }
+                message.Id,
+                message.SessionId,
+                message.PlayerId,
+                message.Content,
+                message.Type,
+                message.Metadata,
+                message.IsOOC,
+                WhisperFromId = (Guid?)null,
+                WhisperToId = (Guid?)null,
+                WhisperTarget = (string?)null,
+                message.CreatedAt
+            });
         }
-
-        _logger.LogInformation("OOC whisper from {CharacterName} to GM in game {GameId}",
-            player.CharacterName, session.GameId);
     }
-
-    /// <summary>
-    /// GM sends an OOC whisper to a player (e.g., clarifying rules).
-    /// </summary>
-    public async Task SendOOCWhisperToPlayer(Guid targetPlayerId, string content)
-    {
-        var userId = Context.UserIdentifier;
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var uid))
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "Authentication required." });
-            return;
-        }
-
-        var gmPlayer = await _context.Players
-            .FirstOrDefaultAsync(p => p.UserId == uid && p.Status == PlayerStatus.Active);
-
-        if (gmPlayer == null || gmPlayer.Role != PlayerRole.Creator)
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "Only the GM can send OOC whispers." });
-            return;
-        }
-
-        var targetPlayer = await _context.Players
-            .FirstOrDefaultAsync(p => p.Id == targetPlayerId && p.GameId == gmPlayer.GameId && p.Status == PlayerStatus.Active);
-
-        if (targetPlayer == null)
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "Target player not found or inactive." });
-            return;
-        }
-
-        var whisper = await _whisperService.SendGMWhisperAsync(
-            gmPlayer.GameId, Guid.Empty, gmPlayer.Id,
-            new List<Guid> { targetPlayerId }, Adnd.Server.Models.WhisperType.OOCGMToPlayer, content);
-
-        // Send to the target player
-        var targetConnectionId = GetConnectionIdForPlayer(targetPlayer.Id);
-        if (targetConnectionId != null)
-        {
-            await Clients.Client(targetConnectionId)
-                .SendAsync("NewOOCWhisper", new
-                {
-                    whisper.Id,
-                    FromPlayerId = whisper.FromPlayerId,
-                    FromCharacter = gmPlayer.CharacterName,
-                    FromRole = gmPlayer.Role,
-                    Content = whisper.Content,
-                    Type = whisper.Type,
-                    Targets = whisper.Targets,
-                    CreatedAt = whisper.CreatedAt,
-                    IsReceived = true
-                });
-        }
-
-        // Confirmation to GM
-        await Clients.Caller.SendAsync("NewOOCWhisper", new
-        {
-            whisper.Id,
-            FromPlayerId = whisper.FromPlayerId,
-            FromCharacter = gmPlayer.CharacterName,
-            FromRole = gmPlayer.Role,
-            Content = whisper.Content,
-            Type = whisper.Type,
-            Targets = whisper.Targets,
-            CreatedAt = whisper.CreatedAt,
-            IsSent = true
-        });
-
-        _logger.LogInformation("OOC whisper from GM to {Target} in game {GameId}",
-            targetPlayer.CharacterName, gmPlayer.GameId);
-    }
-
-    /// <summary>
-    /// GM sends an in-game whisper to a player (e.g., divination result).
-    /// </summary>
-    public async Task SendInGameWhisperToPlayer(Guid targetPlayerId, string content)
-    {
-        var userId = Context.UserIdentifier;
-        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(userId, out var uid))
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "Authentication required." });
-            return;
-        }
-
-        var gmPlayer = await _context.Players
-            .FirstOrDefaultAsync(p => p.UserId == uid && p.Status == PlayerStatus.Active);
-
-        if (gmPlayer == null || gmPlayer.Role != PlayerRole.Creator)
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "Only the GM can send in-game whispers." });
-            return;
-        }
-
-        var targetPlayer = await _context.Players
-            .FirstOrDefaultAsync(p => p.Id == targetPlayerId && p.GameId == gmPlayer.GameId && p.Status == PlayerStatus.Active);
-
-        if (targetPlayer == null)
-        {
-            await Clients.Caller.SendAsync("Error", new { message = "Target player not found or inactive." });
-            return;
-        }
-
-        var message = new Message
-        {
-            SessionId = Guid.Empty,
-            PlayerId = gmPlayer.Id,
-            Content = content,
-            Type = Adnd.Server.Models.MessageType.InGameWhisper,
-            IsOOC = false,
-            WhisperFromId = gmPlayer.Id,
-            WhisperToId = targetPlayerId,
-            WhisperTarget = $"player:{targetPlayerId}",
-            Metadata = default,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _context.Messages.Add(message);
-        await _context.SaveChangesAsync();
-
-        // Generate embedding for in-game whisper (influences GM knowledge)
-        await EmbedMessageAsync(gmPlayer.GameId, message.Id, message.Content);
-
-        // Create whisper record
-        var whisper = await _whisperService.SendGMWhisperAsync(
-            gmPlayer.GameId, Guid.Empty, gmPlayer.Id,
-            new List<Guid> { targetPlayerId }, Adnd.Server.Models.WhisperType.InGameGMToPlayer, content);
-
-        // Send to the target player
-        var targetConnectionId = GetConnectionIdForPlayer(targetPlayer.Id);
-        if (targetConnectionId != null)
-        {
-            await Clients.Client(targetConnectionId)
-                .SendAsync("NewWhisper", new
-                {
-                    whisper.Id,
-                    FromPlayerId = whisper.FromPlayerId,
-                    FromCharacter = gmPlayer.CharacterName,
-                    FromRole = gmPlayer.Role,
-                    Content = whisper.Content,
-                    Type = whisper.Type,
-                    Targets = whisper.Targets,
-                    CreatedAt = whisper.CreatedAt,
-                    IsReceived = true
-                });
-        }
-
-        // Confirmation to GM
-        await Clients.Caller.SendAsync("NewWhisper", new
-        {
-            whisper.Id,
-            FromPlayerId = whisper.FromPlayerId,
-            FromCharacter = gmPlayer.CharacterName,
-            FromRole = gmPlayer.Role,
-            Content = whisper.Content,
-            Type = whisper.Type,
-            Targets = whisper.Targets,
-            CreatedAt = whisper.CreatedAt,
-            IsSent = true
-        });
-
-        _logger.LogInformation("In-game whisper from GM to {Target} in game {GameId}",
-            targetPlayer.CharacterName, gmPlayer.GameId);
-    }
-
 }

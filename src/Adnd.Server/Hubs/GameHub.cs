@@ -211,10 +211,13 @@ public partial class GameHub : Hub
     {
         try
         {
+            // Use game's current session when sessionId is not provided
+            var resolvedSession = sessionId ?? await ResolveGameSessionAsync(gameId);
+
             var message = new Adnd.Server.Models.Message
             {
                 Id = Guid.NewGuid(),
-                SessionId = sessionId ?? Guid.Empty,
+                SessionId = resolvedSession,
                 PlayerId = playerId,
                 Content = content,
                 Type = messageType,
@@ -236,6 +239,18 @@ public partial class GameHub : Hub
         {
             _logger.LogWarning(ex, "Failed to persist game event of type {MessageType} in game {GameId}", messageType, gameId);
         }
+    }
+
+    /// <summary>
+    /// Resolve the game's current session ID (auto-created, single per game).
+    /// </summary>
+    private async Task<Guid> ResolveGameSessionAsync(Guid gameId)
+    {
+        var game = await _context.Games
+            .Where(g => g.Id == gameId)
+            .Select(g => g.CurrentSessionId)
+            .FirstOrDefaultAsync();
+        return game ?? Guid.Empty;
     }
 
     // ==================== Connection Cleanup ====================

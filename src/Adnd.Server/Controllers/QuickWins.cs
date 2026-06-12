@@ -124,6 +124,16 @@ public partial class AdminController
         if (!await _authService.HasAccessAsync(_context, gameId, _userIdProvider.GetCurrentUserId()))
             return Forbid();
 
+        // Use game's current session if sessionId is empty (single-session-per-game default)
+        if (sessionId == Guid.Empty)
+        {
+            var game = await _context.Games.FindAsync(gameId);
+            if (game?.CurrentSessionId != null)
+            {
+                sessionId = game.CurrentSessionId.Value;
+            }
+        }
+
         var query = _context.Messages
             .Include(m => m.Player)
             .Include(m => m.Session)

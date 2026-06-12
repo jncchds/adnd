@@ -76,6 +76,7 @@ export interface GameDetail {
   llmPresetId?: string;
   llmPresetName?: string;
   language?: string;
+  sessionId?: string;
 }
 
 export interface InviteResponse {

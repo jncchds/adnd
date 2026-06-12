@@ -56,6 +56,7 @@ public class GameResponse
     public Guid? LLMPresetId { get; set; }
     public string? LLMPresetName { get; set; }
     public string? Language { get; set; }
+    public Guid? CurrentSessionId { get; set; }
 }
 
 public class InviteResponse

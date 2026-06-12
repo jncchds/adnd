@@ -23,8 +23,8 @@ public class GameAgent : IGameAgent
     private readonly ILogger<GameAgent> _logger;
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentQueue<Guid> _pendingCallIds = new();
+    private readonly ManualResetEventSlim _signal = new(false);
     private Task? _processingLoop;
-    private readonly SemaphoreSlim _semaphore = new(1, 1);
     private volatile bool _isPaused = false;
 
     /// <summary>
@@ -34,6 +34,7 @@ public class GameAgent : IGameAgent
     public void EnqueueCall(Guid callId)
     {
         _pendingCallIds.Enqueue(callId);
+        _signal.Set();
     }
 
     public GameAgent(
@@ -175,8 +176,8 @@ public class GameAgent : IGameAgent
     }
 
     /// <summary>
-    /// Main processing loop — checks the event-driven queue first, falls back to DB query
-    /// for crash recovery (calls queued before this agent instance existed).
+    /// Main processing loop — event-driven via _pendingCallIds queue.
+    /// Falls back to DB query for crash recovery (calls queued before this agent instance existed).
     /// </summary>
     private async Task ProcessLoopAsync()
     {
@@ -188,28 +189,31 @@ public class GameAgent : IGameAgent
             {
                 try
                 {
+                    // Wait for a signal (new call arrived) or 10s timeout (crash recovery check)
+                    var signaled = _signal.Wait(TimeSpan.FromSeconds(10), _cts.Token);
+
                     // Use per-iteration scope to avoid DbContext lifetime issues
-                    // (single scope for long-running loop causes stale data and ObjectDisposedException)
                     Game? game;
                     using (var scope = _scopeFactory.CreateScope())
                     {
                         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                         game = await context.Games.FindAsync(_gameId);
                     }
+
                     // Only process calls when the game is active/starting and the GM is running
                     if (game == null || (game.Status != Models.GameStatus.Active && game.Status != Models.GameStatus.Starting) || game.GMStatus == Models.GMStatus.Idle)
                     {
-                        await Task.Delay(5000, _cts.Token);
+                        _signal.Reset();
                         continue;
                     }
 
                     if (_isPaused)
                     {
-                        await Task.Delay(5000, _cts.Token);
+                        _signal.Reset();
                         continue;
                     }
 
-                    // Primary path: check the event-driven queue first (no DB query)
+                    // Drain the event-driven queue
                     List<AgentCall> pendingCalls = new();
                     while (_pendingCallIds.TryDequeue(out var callId))
                     {
@@ -227,7 +231,7 @@ public class GameAgent : IGameAgent
                         }
                     }
 
-                    // Fallback: if queue was empty, query DB for crash recovery
+                    // Crash recovery: if no calls from queue, query DB for missed calls
                     if (pendingCalls.Count == 0)
                     {
                         using var scope = _scopeFactory.CreateScope();
@@ -247,11 +251,8 @@ public class GameAgent : IGameAgent
                         await ProcessCallAsync(call);
                     }
 
-                    // Brief delay after processing to prevent tight polling loop
-                    await Task.Delay(100, _cts.Token);
-
-                    // Auto-narrate removed: idle time = players thinking or between sessions.
-                    // PlotWeaver handles dynamic story development via event-driven momentum tracking.
+                    // Reset signal — it will be Set() again when new calls arrive
+                    _signal.Reset();
                 }
                 catch (OperationCanceledException) when (_cts.Token.IsCancellationRequested)
                 {
@@ -260,7 +261,7 @@ public class GameAgent : IGameAgent
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error in game agent processing loop for game {GameId}", _gameId);
-                    await Task.Delay(5000, _cts.Token);
+                    _signal.Reset();
                 }
             }
         }
@@ -317,7 +318,7 @@ public class GameAgent : IGameAgent
     {
         _cts.Cancel();
         _cts.Dispose();
-        _semaphore.Dispose();
+        _signal.Dispose();
     }
 }
 

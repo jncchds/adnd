@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../api/hooks/useAuth';
 import { useGame } from '../api/hooks/useGameDetail';
@@ -393,8 +393,8 @@ export default function GameChatPage() {
   const { game, isLoading: isLoadingGame } = useGame(id);
   const { pendingCalls: calls } = useToolCalls(id);
   const { players } = usePlayers(id);
-  const { messages, isLoading, hasMore, loadOldest } = useMessagesInfiniteScroll(id, undefined);
-  const { isConnected, on, off } = useGameHub();
+  const { messages, isLoading, hasMore, loadOldest } = useMessagesInfiniteScroll(id, game?.sessionId);
+  const { isConnected, on, off, invoke } = useGameHub();
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -410,6 +410,9 @@ export default function GameChatPage() {
   // New messages indicator
   const [newMessagesCount, setNewMessagesCount] = useState(0);
   const [isAtBottom, setIsAtBottom] = useState(true);
+
+  // Live incoming messages (from SignalR)
+  const [liveMessages, setLiveMessages] = useState<any[]>([]);
 
   // Fetch active combat
   const fetchActiveCombat = useCallback(async () => {
@@ -457,7 +460,7 @@ export default function GameChatPage() {
     return () => clearInterval(interval);
   }, [fetchActiveCombat]);
 
-  // SignalR: listen for combat events
+  // SignalR: listen for combat events and new messages
   useEffect(() => {
     if (!isConnected) return;
 
@@ -469,6 +472,14 @@ export default function GameChatPage() {
     const handleTurnAdvanced = () => { fetchActiveCombat(); };
     const handleParticipantAdded = () => { fetchActiveCombat(); };
     const handleParticipantRemoved = () => { fetchActiveCombat(); };
+    const handleNewMessage = (msg: any) => {
+      // Append incoming message to live messages
+      setLiveMessages(prev => {
+        // Avoid duplicates
+        if (prev.some((m: any) => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
+    };
 
     on('CombatStarted', handleCombatStarted);
     on('CombatEnded', handleCombatEnded);
@@ -478,6 +489,7 @@ export default function GameChatPage() {
     on('TurnAdvanced', handleTurnAdvanced);
     on('ParticipantAdded', handleParticipantAdded);
     on('ParticipantRemoved', handleParticipantRemoved);
+    on('NewMessage', handleNewMessage);
 
     return () => {
       off('CombatStarted', handleCombatStarted);
@@ -488,6 +500,7 @@ export default function GameChatPage() {
       off('TurnAdvanced', handleTurnAdvanced);
       off('ParticipantAdded', handleParticipantAdded);
       off('ParticipantRemoved', handleParticipantRemoved);
+      off('NewMessage', handleNewMessage);
     };
   }, [isConnected, on, off, fetchActiveCombat]);
 
@@ -499,14 +512,24 @@ export default function GameChatPage() {
     setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < threshold);
   }, []);
 
+  // Merge paginated messages with live incoming messages
+  const allMessages = useMemo(() => {
+    if (liveMessages.length === 0) return messages;
+    // Deduplicate: live messages that already exist in paginated are removed
+    const liveIds = new Set(liveMessages.map((m: any) => m.id));
+    const filteredLive = liveMessages.filter((m: any) => !liveIds.has(m.id) || !messages.some((pm: any) => pm.id === m.id));
+    // Append live messages at the end (they're newest)
+    return [...messages, ...filteredLive];
+  }, [messages, liveMessages]);
+
   // Auto-scroll to bottom on mount and new messages (when at bottom)
   useEffect(() => {
     if (isAtBottom) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    } else if (messages.length > 0) {
+    } else if (allMessages.length > 0) {
       setNewMessagesCount(prev => prev + 1);
     }
-  }, [messages.length, isAtBottom]);
+  }, [allMessages.length, isAtBottom]);
 
   // Scroll listener
   useEffect(() => {
@@ -523,10 +546,29 @@ export default function GameChatPage() {
 
   const sendMessage = useCallback(async () => {
     if (!messageInput.trim() || !id) return;
-    // TODO: implement send via hub
-    setMessageInput('');
-    setNewMessagesCount(0);
-  }, [messageInput, id]);
+
+    // Resolve target player ID for GM→player whispers
+    let targetPlayerId: string | undefined;
+    if (inputTarget === 'player' && whisperTargetPlayer) {
+      targetPlayerId = whisperTargetPlayer;
+    }
+
+    // Determine hub message type
+    let hubMessageType: string;
+    if (messageType === 'ooc') {
+      hubMessageType = inputTarget === 'gm' ? 'oocWhisper' : 'ooc';
+    } else {
+      hubMessageType = inputTarget === 'gm' ? 'inGameWhisper' : 'inGame';
+    }
+
+    try {
+      await invoke(hubMessageType, messageInput, targetPlayerId);
+      setMessageInput('');
+      setNewMessagesCount(0);
+    } catch (err) {
+      // Error already sent via SignalR
+    }
+  }, [messageInput, id, messageType, inputTarget, whisperTargetPlayer, invoke]);
 
   const handleLeaveGame = useCallback(async () => {
     if (!id) return;
@@ -562,7 +604,7 @@ export default function GameChatPage() {
           ref={chatContainerRef}
         >
           <ChatPanel
-            messages={messages}
+            messages={allMessages}
             isLoadingMore={isLoading}
             hasMore={hasMore}
             loadMoreOldest={loadOldest}

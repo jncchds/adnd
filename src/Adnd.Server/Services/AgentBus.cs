@@ -1343,10 +1343,16 @@ public class AgentBus : IAgentBus
             // Truncate very long narratives to avoid message size limits
             var content = narrative.Length > 10000 ? narrative[..10000] : narrative;
 
+            // Resolve the game's current session
+            var session = await _context.Games
+                .Where(g => g.Id == gameId)
+                .Select(g => g.CurrentSessionId)
+                .FirstOrDefaultAsync();
+
             var message = new Message
             {
                 Id = Guid.NewGuid(),
-                SessionId = Guid.Empty,
+                SessionId = session ?? Guid.Empty,
                 PlayerId = null,
                 Content = content,
                 Type = Adnd.Server.Models.MessageType.GM,
