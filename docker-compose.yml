@@ -15,6 +15,23 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: adnd-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-adnd}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-adnd}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+      - "${RABBITMQ_PORT:-5672}:5672"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
   app:
     build:
       context: .
@@ -50,6 +67,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      rabbitmq:
+        condition: started
 
 volumes:
   adnd-data:
+  rabbitmq_data:

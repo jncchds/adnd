@@ -47,6 +47,9 @@ public class AppDbContext : DbContext
     // Game Templates
     public DbSet<GameTemplate> GameTemplates => Set<GameTemplate>();
 
+    // Event Records (durable event bus)
+    public DbSet<EventRecord> EventRecords => Set<EventRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -371,6 +374,21 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<GameTemplate>()
             .HasIndex(gt => new { gt.UserId, gt.CreatedAt })
             .IsDescending(new[] { false, true });
+
+        // EventRecord
+        modelBuilder.Entity<EventRecord>()
+            .Property(e => e.EventType)
+            .IsRequired();
+        modelBuilder.Entity<EventRecord>()
+            .Property(e => e.Payload)
+            .IsRequired();
+        modelBuilder.Entity<EventRecord>()
+            .HasIndex(e => new { e.GameId, e.Status });
+        modelBuilder.Entity<EventRecord>()
+            .HasIndex(e => new { e.Status, e.CreatedAt });
+        modelBuilder.Entity<EventRecord>()
+            .HasIndex(e => e.CorrelationId)
+            .IsUnique();
 
         // ==================== Soft-Delete Query Filters ====================
         // Automatically exclude soft-deleted entities from all queries
