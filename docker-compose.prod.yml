@@ -7,7 +7,7 @@ services:
       - RabbitMq__Port=5672
       - RabbitMq__Username=${RABBITMQ_USER:-adnd}
       - RabbitMq__Password=${RABBITMQ_PASS:-adnd}
-      - RabbitMq__VirtualHost=/adnd
+      - RabbitMq__VirtualHost=adnd
 
   rabbitmq:
     image: rabbitmq:3-management
