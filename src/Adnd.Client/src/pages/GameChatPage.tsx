@@ -612,6 +612,16 @@ export default function GameChatPage() {
       });
     };
 
+    const handlePlayerDisconnected = (data: { gameId: string; playerId: string; disconnectedAt: string }) => {
+      // Update players list via refetch
+      setPlayers(prev => prev.filter(p => p.id !== data.playerId));
+    };
+
+    const handlePlayerReconnected = (data: { gameId: string; playerId: string; reconnectedAt: string }) => {
+      // Players list will be refetched via the PlayerJoined event on reconnect
+      // No action needed here - the UI will update when the Hub broadcasts PlayerJoined
+    };
+
     const handleNewMessage = (msg: any) => {
       setLiveMessages(prev => {
         if (prev.some((m: any) => m.id === msg.id)) return prev;
@@ -628,6 +638,8 @@ export default function GameChatPage() {
     on('ParticipantAdded', handleParticipantAdded);
     on('ParticipantRemoved', handleParticipantRemoved);
     on('NewMessage', handleNewMessage);
+    on('PlayerDisconnected', handlePlayerDisconnected);
+    on('PlayerReconnected', handlePlayerReconnected);
 
     return () => {
       off('CombatStarted', handleCombatStarted);
@@ -639,6 +651,8 @@ export default function GameChatPage() {
       off('ParticipantAdded', handleParticipantAdded);
       off('ParticipantRemoved', handleParticipantRemoved);
       off('NewMessage', handleNewMessage);
+      off('PlayerDisconnected', handlePlayerDisconnected);
+      off('PlayerReconnected', handlePlayerReconnected);
     };
   }, [isConnected, on, off]);
 

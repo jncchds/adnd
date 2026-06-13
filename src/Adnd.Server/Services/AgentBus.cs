@@ -843,6 +843,26 @@ public class AgentBus : IAgentBus
                 var followUpCompletion = await provider.CompleteAsync(
                     systemPrompt, followUpPrompt, options.Options);
 
+                // If follow-up returned empty content, extract narrative from tool call context
+                if (string.IsNullOrWhiteSpace(followUpCompletion))
+                {
+                    var narrativeContext = toolResults
+                        .Where(tr => tr.result.Contains("\"context\""))
+                        .Select(tr =>
+                        {
+                            var m = System.Text.RegularExpressions.Regex.Match(tr.result, @"""context""\s*:\s*""(.*?)""" , System.Text.RegularExpressions.RegexOptions.Singleline);
+                            return m.Success && m.Groups[1].Value.Length > 50 ? m.Groups[1].Value : null;
+                        })
+                        .FirstOrDefault(c => c != null);
+
+                    if (!string.IsNullOrWhiteSpace(narrativeContext))
+                    {
+                        _logger.LogInformation("[TOOL_CALL] EmptyFollowUpExtracted | GameId={GameId} | ExtractedNarrativeLen={Len}",
+                            game.Id, narrativeContext.Length);
+                        followUpCompletion = narrativeContext;
+                    }
+                }
+
                 game.LastGMAction = $"Narrate (with {completion.ToolCalls.Count} tool calls)";
                 game.LastGMActionAt = DateTime.UtcNow;
                 await gmContext.SaveChangesAsync();
@@ -858,6 +878,44 @@ public class AgentBus : IAgentBus
                 return followUpCompletion;
             }
 
+            // Check if content looks like a JSON array of tool calls (LLM returned tool calls as text)
+            string? narrativeContent = completion.Content;
+            var trimmedContent = completion.Content?.Trim();
+            if (!string.IsNullOrWhiteSpace(trimmedContent) && trimmedContent.StartsWith("["))
+            {
+                try
+                {
+                    var doc = System.Text.Json.JsonDocument.Parse(trimmedContent);
+                    if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    {
+                        foreach (var tc in doc.RootElement.EnumerateArray())
+                        {
+                            if (tc.TryGetProperty("name", out var nameProp) && nameProp.GetString() == "narrate")
+                            {
+                                if (tc.TryGetProperty("arguments", out var argsProp) && argsProp.ValueKind == System.Text.Json.JsonValueKind.Object)
+                                {
+                                    if (argsProp.TryGetProperty("context", out var contextProp))
+                                    {
+                                        var narrativeContext = contextProp.GetString();
+                                        if (!string.IsNullOrWhiteSpace(narrativeContext) && narrativeContext.Length > 50)
+                                        {
+                                            narrativeContent = narrativeContext;
+                                            _logger.LogInformation("[TOOL_CALL] TextNarrateExtracted | GameId={GameId} | ExtractedNarrativeLen={Len}",
+                                                game.Id, narrativeContext.Length);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // Not a valid JSON array — use as-is
+                }
+            }
+
             game.LastGMAction = "Narrate";
             game.LastGMActionAt = DateTime.UtcNow;
             await gmContext.SaveChangesAsync();
@@ -870,7 +928,7 @@ public class AgentBus : IAgentBus
                 ChangedAt = game.LastGMActionAt
             });
 
-            return completion.Content;
+            return narrativeContent;
         }
 
         if (call.Action == AgentAction.Nudge)
@@ -935,12 +993,12 @@ public class AgentBus : IAgentBus
 
         if (call.Action == AgentAction.GenerateInitialThreads)
         {
-            return await HandleGenerateInitialThreads(game, options);
+            return await HandleGenerateInitialThreads(call.GameId, options);
         }
 
         if (call.Action == AgentAction.OpenNarrative)
         {
-            return await HandleOpenNarrative(game, options);
+            return await HandleOpenNarrative(call.GameId, options);
         }
 
         return "GM agent: action not handled.";
@@ -959,6 +1017,27 @@ public class AgentBus : IAgentBus
         // Use scoped context to avoid ObjectDisposedException
         using var toolScope = _scopeFactory.CreateScope();
         var toolContext = toolScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        // Lazy cleanup: remove expired tool calls waiting confirmation
+        try
+        {
+            var expired = await toolContext.GMToolCalls
+                .Where(tc => tc.Status == ToolCallStatus.WaitingConfirmation &&
+                            tc.CreatedAt + (tc.ExpirationTime ?? TimeSpan.FromMinutes(5)) < DateTime.UtcNow)
+                .ToListAsync();
+            foreach (var tc in expired)
+            {
+                tc.Status = ToolCallStatus.Cancelled;
+                tc.Error = "Expired: waiting for confirmation timed out";
+                tc.CompletedAt = DateTime.UtcNow;
+            }
+            if (expired.Any())
+            {
+                await toolContext.SaveChangesAsync();
+                _logger.LogDebug("[TOOL_CALL] ExpiredCleanup | CleanedUp={Count}", expired.Count);
+            }
+        }
+        catch { /* Ignore cleanup failures */ }
 
         // Log the tool call
         var toolCallRecord = new GMToolCall
@@ -1018,8 +1097,18 @@ public class AgentBus : IAgentBus
     /// <summary>
     /// Handle GenerateInitialThreads action — generates initial plot threads via LLM.
     /// </summary>
-    private async Task<string> HandleGenerateInitialThreads(Game game, GMDispatchOptions options)
+    private async Task<string> HandleGenerateInitialThreads(Guid gameId, GMDispatchOptions options)
     {
+        // Use scoped context to load game data
+        using var gameScope = _scopeFactory.CreateScope();
+        var gameContext = gameScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var game = await gameContext.Games
+            .Include(g => g.LLMPreset)
+            .FirstOrDefaultAsync(g => g.Id == gameId);
+
+        if (game == null)
+            return $"Game {gameId} not found.";
+
         if (game.LLMPreset == null)
             return "No LLM preset configured for this game.";
 
@@ -1027,26 +1116,77 @@ public class AgentBus : IAgentBus
         if (provider == null)
             return $"LLM provider '{game.LLMPreset.ProviderType}' not available.";
 
-        var input = JsonSerializer.Deserialize<GMDispatchOptions>(options.SystemPrompt ?? "{}") ?? new GMDispatchOptions();
-        var systemPrompt = input.SystemPrompt ?? $"You are the Game Master for a TTRPG session. " +
+        var systemPrompt = options.SystemPrompt ?? $"You are the Game Master for a TTRPG session. " +
             $"Generate initial plot threads for this game. " +
             $"Plot seed: {game.PlotSeed ?? "No premise provided."}. " +
             $"Game parameters: {game.GameParameters ?? "Standard tone and difficulty."}. " +
             $"Game system: {game.SystemId}. " +
-            $"Respond with a JSON array of plot threads. Each thread should have: " +
-            $"title (string), category (Personal, Threat, Faction, Mystery, or Adventure), " +
+            $"Each thread must have: title (string), category (Personal, Threat, Faction, Mystery, or Adventure), " +
             $"description (string), nextMilestone (string), foreshadowing (string). " +
             $"Generate 2-4 threads appropriate for the premise.";
-        var userPrompt = input.UserPrompt ?? "Generate initial plot threads for this game.";
+        var userPrompt = options.UserPrompt ?? "Generate initial plot threads for this game.";
+
+        // Build a JSON schema for the expected output
+        var threadsSchemaJson = "{\"type\":\"array\",\"items\":{\"$ref\":\"#/definitions/PlotThread\"},\"definitions\":{\"PlotThread\":{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"},\"category\":{\"type\":\"string\",\"enum\":[\"Personal\",\"Threat\",\"Faction\",\"Mystery\",\"Adventure\"]},\"description\":{\"type\":\"string\"},\"nextMilestone\":{\"type\":\"string\"},\"foreshadowing\":{\"type\":\"string\"}},\"required\":[\"title\",\"category\",\"description\",\"nextMilestone\",\"foreshadowing\"]}}}";
+
+        var threadsSchema = new JsonSchemaOutput
+        {
+            Name = "PlotThreadsArray",
+            Schema = JsonDocument.Parse(threadsSchemaJson).RootElement
+        };
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var result = await provider.CompleteAsync(systemPrompt, userPrompt, options.Options);
+        var jsonOptions = options.Options ?? new LLMOptions();
+        var jsonResult = await provider.CompleteAsync(systemPrompt, userPrompt, new LLMOptions
+        {
+            Model = jsonOptions.Model,
+            Temperature = jsonOptions.Temperature,
+            MaxTokens = jsonOptions.MaxTokens,
+            TopP = jsonOptions.TopP,
+            JsonSchemaOutput = threadsSchema
+        });
         sw.Stop();
 
-        // Parse and save the generated threads
+        // Parse and save the generated threads — use robust JSON extraction
+        var extractedJson = JsonExtract.Extract(jsonResult);
+        if (extractedJson == null)
+        {
+            // Retry with a simpler prompt (some models struggle with JSON schema output)
+            _logger.LogWarning("[PLOTWEAVER] NoExtractableJson | GameId={GameId} | RawResponseLen={Len} | Retrying with simpler prompt",
+                game.Id, jsonResult?.Length ?? 0);
+
+            var simpleSystemPrompt = $"You are the Game Master for a TTRPG session. " +
+                $"Generate initial plot threads for this game. " +
+                $"Plot seed: {game.PlotSeed ?? "No premise provided."}. " +
+                $"Game system: {game.SystemId}. " +
+                $"Return a JSON array of 2-4 plot threads. Each thread has: title, category (Personal|Threat|Faction|Mystery|Adventure), description, nextMilestone, foreshadowing.";
+
+            var retryResult = await provider.CompleteAsync(
+                simpleSystemPrompt,
+                "Generate initial plot threads as a JSON array. Return ONLY the JSON array, nothing else.",
+                new LLMOptions
+                {
+                    Model = jsonOptions.Model,
+                    Temperature = Math.Max(0.3f, jsonOptions.Temperature - 0.3f), // Lower temperature for more deterministic output
+                    MaxTokens = jsonOptions.MaxTokens,
+                    TopP = jsonOptions.TopP
+                    // No JsonSchemaOutput — let JsonExtract.Extract handle parsing
+                });
+
+            extractedJson = JsonExtract.Extract(retryResult);
+            if (extractedJson == null)
+            {
+                _logger.LogWarning("[PLOTWEAVER] RetryFailed | GameId={GameId} | RawResponse={Raw}",
+                    game.Id, retryResult?.Length > 200 ? retryResult[..200] + "..." : retryResult);
+
+                // Fallback: generate default plot threads from the plot seed
+                return await GenerateFallbackPlotThreads(game, jsonOptions);
+            }
+        }
+
         try
         {
-            var threads = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(result);
+            var threads = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(extractedJson);
             if (threads != null && threads.Any())
             {
                 var newThreads = new List<PlotThread>();
@@ -1092,10 +1232,135 @@ public class AgentBus : IAgentBus
     }
 
     /// <summary>
+    /// Generate fallback plot threads from the game's plot seed when LLM fails.
+    /// </summary>
+    private async Task<string> GenerateFallbackPlotThreads(Game game, LLMOptions? options)
+    {
+        _logger.LogInformation("[PLOTWEAVER] GeneratingFallbackThreads | GameId={GameId} | PlotSeed={Seed}",
+            game.Id, game.PlotSeed);
+
+        // Use LLM with very simple prompt to generate fallback threads
+        var provider = GetProvider(game.LLMPreset!);
+        if (provider == null)
+        {
+            // Ultimate fallback: create generic threads from plot seed
+            var fallbackThreads = new List<PlotThread>
+            {
+                new() { GameId = game.Id, Title = "The Mystery Unfolds", Category = PlotThreadCategory.Mystery, Description = "Discover the secrets hidden beneath the school.", NextMilestone = "Find the first clue", Foreshadowing = "Whispers of ancient treasures", Momentum = 0f, RelevanceScore = 0.5f, Status = PlotThreadStatus.Active },
+                new() { GameId = game.Id, Title = "The Teachers' Secret", Category = PlotThreadCategory.Threat, Description = "The teachers are hiding something in the basement.", NextMilestone = "Confront a teacher", Foreshadowing = "Nervous glances toward the basement", Momentum = 0f, RelevanceScore = 0.5f, Status = PlotThreadStatus.Active },
+                new() { GameId = game.Id, Title = "The Hidden Entrance", Category = PlotThreadCategory.General, Description = "Find the secret entrance to the basement.", NextMilestone = "Locate the entrance", Foreshadowing = "The iron key left on the desk", Momentum = 0f, RelevanceScore = 0.5f, Status = PlotThreadStatus.Active }
+            };
+
+            using var scope = _scopeFactory.CreateScope();
+            var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            scopedContext.PlotThreads.AddRange(fallbackThreads);
+            await scopedContext.SaveChangesAsync();
+
+            await _eventBus.PublishAsync(new InitialThreadsGenerated(game.Id, fallbackThreads.Count));
+
+            return JsonSerializer.Serialize(new { threadCount = fallbackThreads.Count, threads = fallbackThreads.Select(t => new { t.Id, t.Title, t.Category }), fallback = true });
+        }
+
+        var systemPrompt = $"You are a creative TTRPG Game Master. Generate 3 plot threads for a game with this premise: {game.PlotSeed ?? "No premise"}. Return ONLY a JSON array. Each thread: title, category (Personal|Threat|Faction|Mystery|Adventure), description, nextMilestone, foreshadowing.";
+
+        var retryResult = await provider.CompleteAsync(
+            systemPrompt,
+            "Return a JSON array of 3 plot threads.",
+            new LLMOptions
+            {
+                Model = options?.Model,
+                Temperature = 0.3f,
+                MaxTokens = options?.MaxTokens ?? 1024,
+                TopP = options != null && options.TopP > 0 ? options.TopP : 0.9f,
+                JsonSchemaOutput = new JsonSchemaOutput
+                {
+                    Name = "PlotThreadsArray",
+                    Schema = JsonDocument.Parse(@"{""type"":""array"",""items"":{""$ref"":""#/definitions/PlotThread""},""definitions"":{""PlotThread"":{""type"":""object"",""properties"":{""title"":{""type"":""string""},""category"":{""type"":""string"",""enum"":[""Personal"",""Threat"",""Faction"",""Mystery"",""Adventure""]},""description"":{""type"":""string""},""nextMilestone"":{""type"":""string""},""foreshadowing"":{""type"":""string""}},""required"":[""title"",""category"",""description"",""nextMilestone"",""foreshadowing""]}}}}").RootElement
+                }
+            });
+
+        var extractedJson = JsonExtract.Extract(retryResult);
+        if (extractedJson == null)
+        {
+            _logger.LogWarning("[PLOTWEAVER] UltimateFallback | GameId={GameId}", game.Id);
+            return await GenerateFallbackPlotThreadsFromSeed(game);
+        }
+
+        try
+        {
+            var threads = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(extractedJson);
+            if (threads != null && threads.Any())
+            {
+                var newThreads = new List<PlotThread>();
+                foreach (var threadData in threads)
+                {
+                    var thread = new PlotThread
+                    {
+                        GameId = game.Id,
+                        Title = threadData.GetValueOrDefault("title")?.ToString() ?? "Untitled Thread",
+                        Category = Enum.TryParse<PlotThreadCategory>(threadData.GetValueOrDefault("category")?.ToString(), true, out var cat) ? cat : PlotThreadCategory.Personal,
+                        Description = threadData.GetValueOrDefault("description")?.ToString() ?? "",
+                        NextMilestone = threadData.GetValueOrDefault("nextMilestone")?.ToString(),
+                        Foreshadowing = threadData.GetValueOrDefault("foreshadowing")?.ToString(),
+                        Momentum = 0f,
+                        RelevanceScore = 0.5f,
+                        Status = PlotThreadStatus.Active
+                    };
+                    newThreads.Add(thread);
+                }
+
+                using var scope = _scopeFactory.CreateScope();
+                var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                scopedContext.PlotThreads.AddRange(newThreads);
+                await scopedContext.SaveChangesAsync();
+
+                await _eventBus.PublishAsync(new InitialThreadsGenerated(game.Id, newThreads.Count));
+
+                return JsonSerializer.Serialize(new { threadCount = newThreads.Count, threads = newThreads.Select(t => new { t.Id, t.Title, t.Category }), fallback = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[PLOTWEAVER] FallbackParseFailed | GameId={GameId}", game.Id);
+        }
+
+        return await GenerateFallbackPlotThreadsFromSeed(game);
+    }
+
+    private async Task<string> GenerateFallbackPlotThreadsFromSeed(Game game)
+    {
+        var fallbackThreads = new List<PlotThread>
+        {
+            new() { GameId = game.Id, Title = "The Mystery Unfolds", Category = PlotThreadCategory.Mystery, Description = "Discover the secrets hidden in the game world.", NextMilestone = "Find the first clue", Foreshadowing = "Whispers of something hidden", Momentum = 0f, RelevanceScore = 0.5f, Status = PlotThreadStatus.Active },
+            new() { GameId = game.Id, Title = "The Hidden Threat", Category = PlotThreadCategory.Threat, Description = "A hidden danger lurks beneath the surface.", NextMilestone = "Discover the threat", Foreshadowing = "Signs of something wrong", Momentum = 0f, RelevanceScore = 0.5f, Status = PlotThreadStatus.Active },
+            new() { GameId = game.Id, Title = "The Adventure Begins", Category = PlotThreadCategory.General, Description = "A new adventure awaits in the unknown.", NextMilestone = "Take the first step", Foreshadowing = "An invitation to explore", Momentum = 0f, RelevanceScore = 0.5f, Status = PlotThreadStatus.Active }
+        };
+
+        using var scope = _scopeFactory.CreateScope();
+        var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        scopedContext.PlotThreads.AddRange(fallbackThreads);
+        await scopedContext.SaveChangesAsync();
+
+        await _eventBus.PublishAsync(new InitialThreadsGenerated(game.Id, fallbackThreads.Count));
+
+        return JsonSerializer.Serialize(new { threadCount = fallbackThreads.Count, threads = fallbackThreads.Select(t => new { t.Id, t.Title, t.Category }), fallback = true });
+    }
+
+    /// <summary>
     /// Handle OpenNarrative action — generates opening narrative with iterative tool calling.
     /// </summary>
-    private async Task<string> HandleOpenNarrative(Game game, GMDispatchOptions options)
+    private async Task<string> HandleOpenNarrative(Guid gameId, GMDispatchOptions options)
     {
+        // Use scoped context to load game data
+        using var gameScope = _scopeFactory.CreateScope();
+        var gameContext = gameScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var game = await gameContext.Games
+            .Include(g => g.LLMPreset)
+            .FirstOrDefaultAsync(g => g.Id == gameId);
+
+        if (game == null)
+            return $"Game {gameId} not found.";
+
         if (game.LLMPreset == null)
             return "No LLM preset configured for this game.";
 
@@ -1155,12 +1420,82 @@ public class AgentBus : IAgentBus
 
             if (!completion.HasToolCalls)
             {
-                // No more tool calls — this is the final narrative
-                lastNarrative = completion.Content;
+                // Check if the content looks like a JSON array of tool calls (LLM returned tool calls as text)
+                string? extractedNarrative = null;
+                var trimmedContent = completion.Content?.Trim();
+                if (!string.IsNullOrWhiteSpace(trimmedContent) && trimmedContent.StartsWith("["))
+                {
+                    try
+                    {
+                        var doc = System.Text.Json.JsonDocument.Parse(trimmedContent);
+                        if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                        {
+                            foreach (var tc in doc.RootElement.EnumerateArray())
+                            {
+                                if (tc.TryGetProperty("name", out var nameProp) && nameProp.GetString() == "narrate")
+                                {
+                                    if (tc.TryGetProperty("arguments", out var argsProp) && argsProp.ValueKind == System.Text.Json.JsonValueKind.Object)
+                                    {
+                                        if (argsProp.TryGetProperty("context", out var contextProp))
+                                        {
+                                            var narrativeContext = contextProp.GetString();
+                                            if (!string.IsNullOrWhiteSpace(narrativeContext) && narrativeContext.Length > 50)
+                                            {
+                                                extractedNarrative = narrativeContext;
+                                                _logger.LogInformation("[OPEN_NARRATIVE] TextToolCallExtracted | GameId={GameId} | Depth={Depth} | ExtractedNarrativeLen={Len}",
+                                                    game.Id, currentDepth, narrativeContext.Length);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Not a valid JSON array — treat as regular content
+                    }
+                }
+
+                if (extractedNarrative != null)
+                {
+                    lastNarrative = extractedNarrative;
+                }
+                else
+                {
+                    lastNarrative = completion.Content;
+                }
                 allToolCalls.AddRange(completion.ToolCalls);
                 _logger.LogInformation("[OPEN_NARRATIVE] FinalNarrative | GameId={GameId} | Depth={Depth} | TotalToolCalls={TotalCalls} | NarrativeLen={NarrativeLen}",
-                    game.Id, currentDepth, allToolCalls.Count, completion.Content.Length);
+                    game.Id, currentDepth, allToolCalls.Count, lastNarrative?.Length ?? 0);
                 break;
+            }
+
+            // Check if the LLM used the 'narrate' tool as its FINAL tool call
+            // In that case, the narrative text is in the tool call's 'context' argument
+            var narrateToolCall = completion.ToolCalls.FirstOrDefault(tc => tc.Name == "narrate");
+            if (narrateToolCall != null && currentFollowUpPrompt == userPrompt)
+            {
+                // This is the first iteration and LLM used 'narrate' directly
+                // Extract narrative from the tool call's context argument
+                try
+                {
+                    var args = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(narrateToolCall.Arguments ?? "{}") ?? new();
+                    var narrativeContext = args.GetValueOrDefault("context")?.ToString();
+                    if (!string.IsNullOrWhiteSpace(narrativeContext) && narrativeContext.Length > 50)
+                    {
+                        lastNarrative = narrativeContext;
+                        allToolCalls.AddRange(completion.ToolCalls);
+                        _logger.LogInformation("[OPEN_NARRATIVE] DirectNarrateTool | GameId={GameId} | Depth={Depth} | ExtractedNarrativeLen={Len}",
+                            game.Id, currentDepth, narrativeContext.Length);
+                        break;
+                    }
+                }
+                catch
+                {
+                    // JSON parse failed — continue with normal flow
+                }
             }
 
             _logger.LogInformation("[OPEN_NARRATIVE] ToolCallsFound | GameId={GameId} | Depth={Depth} | Count={Count} | Tools={Tools}",

@@ -6,7 +6,8 @@ import { usePlotWeaver } from '../api/hooks/usePlot';
 import { useCharacters } from '../api/hooks/useCharacters';
 import { useNPCs } from '../api/hooks/useNPCs';
 import { useGameHub } from '../api/hooks/useHub';
-import { Box, Typography, Grid, Paper, Chip, Button, Divider } from '@mui/material';
+import { api } from '../api/client';
+import { Box, Typography, Grid, Paper, Chip, Button, Divider, Alert } from '@mui/material';
 import {
   People as PeopleIcon,
   MenuBook as PlotIcon,
@@ -14,6 +15,7 @@ import {
   SmartToy as AgentIcon,
   History as LogsIcon,
   Balance as ConsistencyIcon,
+  Sync as SyncIcon,
   Chat as ChatIcon,
   SportsEsports as CombatIcon,
   Settings as SettingsIcon,
@@ -70,6 +72,9 @@ export default function AdminDashboardPage() {
   const { invoke } = useGameHub();
   const [agentCallCount, setAgentCallCount] = useState(0);
   const [llmLogCount, setLlmLogCount] = useState(0);
+  const [pendingEventsCount, setPendingEventsCount] = useState(0);
+  const [pushingEvents, setPushingEvents] = useState(false);
+  const [pushResult, setPushResult] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -80,10 +85,28 @@ export default function AdminDashboardPage() {
         setAgentCallCount(calls?.length || 0);
         const logs = await invoke('GetLLMInteractions', id, undefined, undefined, undefined, undefined, 1);
         setLlmLogCount(logs?.length || 0);
+        const pending = await api.getPendingEventsCount(id);
+        setPendingEventsCount(pending?.count || 0);
       } catch { /* ignore */ }
       setLoading(false);
     })();
   }, [id, invoke]);
+
+  const handlePushPendingEvents = async () => {
+    if (!id) return;
+    setPushingEvents(true);
+    setPushResult(null);
+    try {
+      const result = await api.pushPendingEvents(id);
+      setPushResult(result?.pushed || 0);
+      setPendingEventsCount(0);
+      setTimeout(() => setPushResult(null), 3000);
+    } catch {
+      setPushResult(-1);
+      setTimeout(() => setPushResult(null), 3000);
+    }
+    setPushingEvents(false);
+  };
 
   if (gameLoading) return <Box sx={{ textAlign: 'center', mt: 8 }}><Typography>Loading...</Typography></Box>;
   if (!game) return <Box sx={{ textAlign: 'center', mt: 8 }}><Typography variant="h5" color="error">Game not found</Typography></Box>;
@@ -172,6 +195,16 @@ export default function AdminDashboardPage() {
             isLoading={loading}
           />
         </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 4, lg: 2 }}>
+          <QuickStatCard
+            title="Pending Events"
+            value={pendingEventsCount}
+            icon={<SyncIcon fontSize="small" />}
+            color="info"
+            isLoading={loading}
+            sub={pendingEventsCount > 0 ? 'Click push below' : undefined}
+          />
+        </Grid>
       </Grid>
 
       <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.08)' }} />
@@ -193,6 +226,17 @@ export default function AdminDashboardPage() {
         <Button variant="outlined" startIcon={<LogsIcon />} onClick={() => navigate(`/admin/${id}/llm-logs`)}>
           LLM Logs
         </Button>
+        {pendingEventsCount > 0 && (
+          <Button
+            variant="outlined"
+            startIcon={<SyncIcon />}
+            onClick={handlePushPendingEvents}
+            disabled={pushingEvents}
+            color={pushResult === -1 ? 'error' : pushResult !== null ? 'success' : 'info'}
+          >
+            {pushingEvents ? 'Pushing...' : pushResult !== null ? `Pushed ${pushResult}!` : `Push Pending Events (${pendingEventsCount})`}
+          </Button>
+        )}
       </Box>
 
       {/* Game Details */}

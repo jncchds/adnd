@@ -222,6 +222,12 @@ export interface ConditionEntry {
 
 
 
+export interface PlayerDisconnectedEvent {
+  gameId: string;
+  playerId: string;
+  disconnectedAt: string;
+}
+
 export interface PlayerReconnectedEvent {
   gameId: string;
   playerId: string;

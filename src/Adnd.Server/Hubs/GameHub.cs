@@ -84,9 +84,20 @@ public partial class GameHub : Hub
 
             if (player != null)
             {
+                var wasAlreadyConnected = _playerConnections.ContainsKey(player.Id.ToString());
                 _playerConnections.AddOrUpdate(player.Id.ToString(), Context.ConnectionId, (k, oldValue) => Context.ConnectionId);
                 await Groups.AddToGroupAsync(Context.ConnectionId, player.GameId.ToString());
-                await _eventBus.PublishAsync(new PlayerJoined(player.GameId, player.Id, player.UserId, player.CharacterName ?? "Unknown"));
+
+                if (wasAlreadyConnected)
+                {
+                    // Player reconnected after a disconnect
+                    await _eventBus.PublishAsync(new PlayerReconnected(player.GameId, player.Id, player.UserId));
+                }
+                else
+                {
+                    // First connection
+                    await _eventBus.PublishAsync(new PlayerJoined(player.GameId, player.Id, player.UserId, player.CharacterName ?? "Unknown"));
+                }
             }
         }
 
@@ -112,6 +123,9 @@ public partial class GameHub : Hub
 
             _logger.LogInformation("Player {CharacterName} ({UserId}) disconnected from game {GameId}",
                 player.CharacterName, player.UserId, player.GameId);
+
+            // Publish disconnect event for UI updates and observability
+            await _eventBus.PublishAsync(new PlayerDisconnected(player.GameId, player.Id, player.UserId));
         }
 
         await base.OnDisconnectedAsync(exception);

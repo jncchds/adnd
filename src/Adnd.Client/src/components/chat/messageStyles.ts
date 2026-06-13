@@ -54,9 +54,11 @@ export const MESSAGE_STYLES: Record<UnifiedMessageType, {
   itemEquipped:    { bg: 'rgba(76, 175, 80, 0.05)',    border: 'rgba(76, 175, 80, 0.20)',  chipColor: 'success', chipLabel: '⚔️ Equip', chipIcon: '⚔️' },
   itemUnequipped:  { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '📦 Unequip', chipIcon: '📦' },
   // Player lifecycle
-  playerJoined:    { bg: 'rgba(103, 194, 58, 0.06)',   border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '👤 Joined', chipIcon: '👤' },
-  playerLeft:      { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '👤 Left', chipIcon: '👤' },
-  playerRoleChanged: { bg: 'rgba(33, 150, 243, 0.06)', border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info', chipLabel: '🔄 Role', chipIcon: '🔄' },
+  playerJoined:       { bg: 'rgba(103, 194, 58, 0.06)',   border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '👤 Joined', chipIcon: '👤' },
+  playerLeft:         { bg: 'rgba(158, 158, 158, 0.05)',  border: 'rgba(158, 158, 158, 0.20)', chipColor: 'default', chipLabel: '👤 Left', chipIcon: '👤' },
+  playerDisconnected: { bg: 'rgba(255, 82, 82, 0.05)',   border: 'rgba(255, 82, 82, 0.20)', chipColor: 'error', chipLabel: '👤 Disconnected', chipIcon: '👤' },
+  playerReconnected:  { bg: 'rgba(76, 175, 80, 0.06)',   border: 'rgba(76, 175, 80, 0.25)',  chipColor: 'success', chipLabel: '👤 Reconnected', chipIcon: '👤' },
+  playerRoleChanged:  { bg: 'rgba(33, 150, 243, 0.06)', border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info', chipLabel: '🔄 Role', chipIcon: '🔄' },
   // Character lifecycle
   characterCreated: { bg: 'rgba(103, 194, 58, 0.06)',  border: 'rgba(103, 194, 58, 0.25)',  chipColor: 'success', chipLabel: '📝 Character', chipIcon: '📝' },
   characterUpdated: { bg: 'rgba(33, 150, 243, 0.06)',  border: 'rgba(33, 150, 243, 0.25)',  chipColor: 'info', chipLabel: '📝 Updated', chipIcon: '📝' },

@@ -28,6 +28,10 @@ public record PlayerJoined(Guid GameId, Guid PlayerId, Guid UserId, string Chara
 
 public record PlayerLeft(Guid GameId, Guid PlayerId) : IGameEvent;
 
+public record PlayerDisconnected(Guid GameId, Guid PlayerId, Guid UserId) : IGameEvent;
+
+public record PlayerReconnected(Guid GameId, Guid PlayerId, Guid UserId) : IGameEvent;
+
 public record PlayerRoleChanged(Guid GameId, Guid PlayerId, string NewRole) : IGameEvent;
 
 // ==================== Session Events ====================

@@ -167,6 +167,27 @@ public class PlotWeaver : IPlotWeaver
 
     public async Task<PlotReview> ReviewAndAdaptAsync(Guid gameId, string context, string trigger)
     {
+        // Lazy archive: soft-delete resolved/abandoned threads older than 30 days
+        try
+        {
+            var threshold = DateTime.UtcNow.AddDays(-30);
+            var oldThreads = await _context.PlotThreads
+                .Where(t => (t.Status == PlotThreadStatus.Resolved || t.Status == PlotThreadStatus.Abandoned) &&
+                            t.UpdatedAt.HasValue && t.UpdatedAt.Value < threshold)
+                .ToListAsync();
+            foreach (var thread in oldThreads)
+            {
+                thread.IsDeleted = true;
+                thread.DeletedAt = DateTime.UtcNow;
+            }
+            if (oldThreads.Any())
+            {
+                await _context.SaveChangesAsync();
+                _logger.LogDebug("[PLOTWEAVER] LazyArchive | Archived={Count}", oldThreads.Count);
+            }
+        }
+        catch { /* Ignore archive failures */ }
+
         var game = await _context.Games
             .Include(g => g.LLMPreset)
             .FirstOrDefaultAsync(g => g.Id == gameId);

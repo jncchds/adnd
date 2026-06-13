@@ -125,6 +125,8 @@ class APIClient {
   async updateCharacter(id: string, u: Partial<CharacterUpdateRequest>) { return this.request('/admin/characters/' + id, { method: 'PUT', body: JSON.stringify(u) }); }
   async getGameState(g: string) { return this.request(`/admin/games/${g}/state`); }
   async updateGameState(g: string, gs?: string, ps?: string, gp?: string) { return this.request(`/admin/games/${g}/state`, { method: 'PUT', body: JSON.stringify({ gameState: gs, plotSeed: ps, gameParameters: gp }) }); }
+  async getPendingEventsCount(g: string) { return this.request<{ count: number }>(`/admin/${g}/pending-events-count`); }
+  async pushPendingEvents(g: string) { return this.request<{ pushed: number }>(`/admin/${g}/push-pending-events`, { method: 'POST' }); }
   async getPlotContext(g: string, m = 20) { return this.request(`/admin/games/${g}/plot-context?maxMessages=${m}`); }
   async findSimilarThreads(g: string, q: string, l = 5) { return this.request('/admin/games/' + g + '/rag/similar-threads', { method: 'POST', body: JSON.stringify({ query: q, limit: l }) }); }
   async checkConsistency(g: string, m = 50) { return this.request(`/admin/games/${g}/rag/consistency?messageCount=${m}`); }

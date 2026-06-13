@@ -37,6 +37,7 @@ public partial class AdminController : ControllerBase
     protected readonly IPromptTemplateService _promptTemplateService;
     protected readonly IDiceStatsService _diceStatsService;
     protected readonly IGameTemplateService _gameTemplateService;
+    protected readonly EventBusWorker _eventBusWorker;
 
     public AdminController(
         AppDbContext context,
@@ -56,7 +57,8 @@ public partial class AdminController : ControllerBase
         ISessionNoteService sessionNoteService,
         IPromptTemplateService promptTemplateService,
         IDiceStatsService diceStatsService,
-        IGameTemplateService gameTemplateService)
+        IGameTemplateService gameTemplateService,
+        EventBusWorker eventBusWorker)
     {
         _context = context;
         _gameEngine = gameEngine;
@@ -76,6 +78,7 @@ public partial class AdminController : ControllerBase
         _promptTemplateService = promptTemplateService;
         _diceStatsService = diceStatsService;
         _gameTemplateService = gameTemplateService;
+        _eventBusWorker = eventBusWorker;
     }
 
     /// <summary>
@@ -471,6 +474,29 @@ public partial class AdminController : ControllerBase
         if (template == null)
             return NotFound(new { error = "Template not found." });
         return Ok(template);
+    }
+
+    // ==================== Pending Events ====================
+
+    /// <summary>
+    /// Get count of pending events for a game.
+    /// </summary>
+    [HttpGet("{gameId}/pending-events-count")]
+    public async Task<IActionResult> GetPendingEventsCount(Guid gameId)
+    {
+        var count = await _eventBusWorker.GetPendingEventsCountAsync(gameId);
+        return Ok(new { count });
+    }
+
+    /// <summary>
+    /// Push all pending events for a game to RabbitMQ.
+    /// Used as an operational tool when RabbitMQ was down and events accumulated in DB.
+    /// </summary>
+    [HttpPost("{gameId}/push-pending-events")]
+    public async Task<IActionResult> PushPendingEvents(Guid gameId)
+    {
+        var pushed = await _eventBusWorker.PushPendingEventsAsync(gameId);
+        return Ok(new { pushed });
     }
 }
 

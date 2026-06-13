@@ -174,10 +174,9 @@ builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
 
 // Event Bus — RabbitMQ-backed durable pub/sub
 builder.Services.AddSingleton<RabbitMqEventBus>();
-builder.Services.AddSingleton<IEventBus>(sp => sp.GetRequiredService<RabbitMqEventBus>());
+builder.Services.AddSingleton<EventBusWorker>();
+builder.Services.AddSingleton<IEventBus>(sp => sp.GetRequiredService<EventBusWorker>());
 builder.Services.AddHostedService<EventBusWorker>();
-builder.Services.AddHostedService<EventRecordCleanupService>();
-
 // Whisper Service
 builder.Services.AddScoped<IWhisperService, WhisperService>();
 
@@ -229,9 +228,6 @@ builder.Services.AddScoped<ISessionNoteService, SessionNoteService>();
 builder.Services.AddScoped<IPromptTemplateService, PromptTemplateService>();
 builder.Services.AddScoped<IDiceStatsService, DiceStatsService>();
 builder.Services.AddScoped<IGameTemplateService, GameTemplateService>();
-
-// Maintenance service — periodic cleanup of stale data
-builder.Services.AddHostedService<MaintenanceService>();
 
 // Rate limiting configuration (bound from app settings)
 builder.Services.AddRateLimitingOptions();

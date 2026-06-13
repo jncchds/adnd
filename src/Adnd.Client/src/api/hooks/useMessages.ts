@@ -55,6 +55,8 @@ export type UnifiedMessageType =
   // Player lifecycle
   | 'playerJoined'
   | 'playerLeft'
+  | 'playerDisconnected'
+  | 'playerReconnected'
   | 'playerRoleChanged'
   // Character lifecycle
   | 'characterCreated'

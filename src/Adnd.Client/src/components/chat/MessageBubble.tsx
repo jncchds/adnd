@@ -12,7 +12,7 @@ export default function MessageBubble({ msg }: { msg: UnifiedMessage }) {
     'conditionApplied', 'conditionRemoved', 'xpGranted', 'levelUp', 'sanLoss', 'sanRecovery', 'sanCheck',
     'actionSpent', 'bonusActionSpent', 'reactionSpent', 'movementSpent', 'actionsRefreshed', 'participantAdded',
     'participantRemoved', 'gridSet', 'positionSet', 'combatMove', 'itemAdded', 'itemRemoved', 'itemEquipped',
-    'itemUnequipped', 'playerJoined', 'playerLeft', 'playerRoleChanged',
+    'itemUnequipped', 'playerJoined', 'playerLeft', 'playerDisconnected', 'playerReconnected', 'playerRoleChanged',
     'characterCreated', 'characterUpdated', 'sessionCreated', 'sessionClosed', 'gameStarted', 'gamePaused',
     'gameResumed', 'gameArchived', 'system', 'agentCall', 'agentResponse', 'toolCall', 'toolCallConfirmed',
     'toolCallDenied', 'playerRollRequest', 'playerRollConfirmed', 'playerRollDeclined', 'playerRollResult',
@@ -20,7 +20,7 @@ export default function MessageBubble({ msg }: { msg: UnifiedMessage }) {
 
   // Determine if this is a system/notification message (rendered more subtly)
   const isNotification = ['combatStart', 'combatEnd', 'combatPause', 'combatResume', 'initiative', 'initiativeComplete',
-    'turnAdvanced', 'turnRetreated', 'turnSet', 'participantAdded', 'participantRemoved', 'playerJoined', 'playerLeft',
+    'turnAdvanced', 'turnRetreated', 'turnSet', 'participantAdded', 'participantRemoved', 'playerJoined', 'playerLeft', 'playerDisconnected', 'playerReconnected',
     'playerRoleChanged', 'characterCreated', 'characterUpdated',
     'sessionCreated', 'sessionClosed', 'gameStarted', 'gamePaused', 'gameResumed', 'gameArchived', 'stateChange',
     'gridSet', 'positionSet', 'combatMove', 'itemAdded', 'itemRemoved', 'itemEquipped', 'itemUnequipped',

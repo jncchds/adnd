@@ -13,10 +13,12 @@ using System.Text.Json;
 namespace Adnd.Server.Services;
 
 /// <summary>
-/// Background service that polls EventRecords for pending/failed events
-/// and publishes them to RabbitMQ. Also replays pending events on startup.
+/// Background service that implements IEventBus with RabbitMQ delivery.
+/// On startup, replays pending EventRecords. On publish, persists to DB
+/// and pushes to RabbitMQ with bounded retry (3 × 500ms).
+/// No polling — event-driven via RabbitMQ consumer.
 /// </summary>
-public class EventBusWorker : BackgroundService
+public class EventBusWorker : BackgroundService, IEventBus
 {
     private readonly ILogger<EventBusWorker> _logger;
     private readonly IServiceProvider _serviceProvider;
@@ -37,6 +39,197 @@ public class EventBusWorker : BackgroundService
         _serviceProvider = serviceProvider;
         _configuration = configuration;
         _handlerMap = new();
+    }
+
+    // ==================== IEventBus Implementation ====================
+
+    public async Task PublishAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : IGameEvent
+    {
+        // Persist to DB (fire-and-forget)
+        var record = new EventRecord
+        {
+            Id = Guid.NewGuid(),
+            GameId = evt.GameId,
+            EventType = typeof(TEvent).FullName!,
+            Payload = JsonSerializer.Serialize(evt),
+            Status = EventStatus.Pending,
+            CorrelationId = Guid.NewGuid().ToString(),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.EventRecords.Add(record);
+        await context.SaveChangesAsync(ct);
+
+        _logger.LogInformation("[EVENT] Queued | GameId={GameId} | EventType={EventType} | EventId={EventId}",
+            evt.GameId, typeof(TEvent).Name, record.Id);
+
+        // Publish to RabbitMQ with bounded retry
+        var success = await PublishWithRetry(record, ct);
+
+        if (success)
+        {
+            // Lazy cleanup: delete old acknowledged records after each successful publish
+            await CleanupOldAcknowledgedRecords(context, ct);
+        }
+        else
+        {
+            // All retries failed — event stays in DB as Pending
+            // Will be recovered on next app restart via ReplayPendingEvents
+            _logger.LogWarning("[EVENT] PublishFailedAfterRetry | GameId={GameId} | EventType={EventType} | EventId={EventId} | Stays in DB as Pending", 
+                evt.GameId, typeof(TEvent).Name, record.Id);
+        }
+    }
+
+    /// <summary>
+    /// Publish an event to RabbitMQ with bounded retry (3 attempts, 500ms between each).
+    /// Returns true if successful, false if all retries failed.
+    /// </summary>
+    private async Task<bool> PublishWithRetry(EventRecord record, CancellationToken ct)
+    {
+        const int maxRetries = 3;
+        const int retryDelayMs = 500;
+
+        for (int attempt = 0; attempt < maxRetries; attempt++)
+        {
+            try
+            {
+                // Ensure RabbitMQ connection is alive
+                lock (_lock)
+                {
+                    if (_channel == null || !_rabbitMqConnection?.IsOpen == true)
+                    {
+                        ConnectToRabbitMq();
+                    }
+                }
+
+                var body = System.Text.Encoding.UTF8.GetBytes(record.Payload);
+                var properties = _channel!.CreateBasicProperties();
+                properties.Persistent = true;
+                properties.CorrelationId = record.CorrelationId;
+                properties.DeliveryMode = 2; // persistent
+
+                _channel.BasicPublish(
+                    exchange: "adnd.events",
+                    routingKey: $"game.{record.GameId}",
+                    mandatory: false,
+                    basicProperties: properties,
+                    body: body);
+
+                // Update status in DB
+                using var dbScope = _serviceProvider.CreateScope();
+                var dbContext = dbScope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var updated = await dbScope.ServiceProvider.GetRequiredService<AppDbContext>()
+                    .EventRecords.FindAsync(record.Id);
+                if (updated != null)
+                {
+                    updated.Status = EventStatus.Published;
+                    updated.PublishedAt = DateTime.UtcNow;
+                    await dbScope.ServiceProvider.GetRequiredService<AppDbContext>().SaveChangesAsync(ct);
+                }
+
+                _logger.LogInformation("[EVENT] PublishedToRabbitMQ | GameId={GameId} | EventType={EventType} | EventId={EventId}",
+                    record.GameId, record.EventType, record.Id);
+
+                // Dispatch to registered handlers
+                return await DispatchToHandlers(record, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[EVENT] PublishAttempt{Attempt}Failed | GameId={GameId} | EventType={EventType} | EventId={EventId}",
+                    attempt + 1, record.GameId, record.EventType, record.Id);
+
+                if (attempt < maxRetries - 1)
+                {
+                    await Task.Delay(retryDelayMs, ct);
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Push all pending events for a specific game to RabbitMQ.
+    /// Called by the admin UI "Push Pending Events" button.
+    /// </summary>
+    public async Task<int> PushPendingEventsAsync(Guid gameId)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var pending = await context.EventRecords
+            .Where(e => e.GameId == gameId && e.Status == EventStatus.Pending)
+            .OrderBy(e => e.CreatedAt)
+            .ToListAsync();
+
+        int pushed = 0;
+        foreach (var record in pending)
+        {
+            try
+            {
+                var success = await PublishWithRetry(record, CancellationToken.None);
+                if (success) pushed++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[EVENT] FailedToPushPending | GameId={GameId} | EventId={EventId}", gameId, record.Id);
+            }
+        }
+
+        _logger.LogInformation("[EVENT] PushPendingEvents | GameId={GameId} | Pushed={Pushed} | TotalPending={Total}",
+            gameId, pushed, pending.Count);
+
+        return pushed;
+    }
+
+    /// <summary>
+    /// Get count of pending events for a specific game.
+    /// Called by the admin UI to display pending count.
+    /// </summary>
+    public async Task<int> GetPendingEventsCountAsync(Guid gameId)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        return await context.EventRecords
+            .CountAsync(e => e.GameId == gameId && e.Status == EventStatus.Pending);
+    }
+
+    /// <summary>
+    /// Lazy cleanup: delete acknowledged EventRecords older than 7 days.
+    /// Called after each successful publish to keep the table bounded.
+    /// </summary>
+    private async Task CleanupOldAcknowledgedRecords(AppDbContext context, CancellationToken ct)
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow.AddDays(-7);
+            var deleted = await context.EventRecords
+                .Where(e => e.Status == EventStatus.Acknowledged && e.AckedAt < cutoff)
+                .ExecuteDeleteAsync(ct);
+
+            if (deleted > 0)
+            {
+                _logger.LogDebug("[EVENT] CleanupOldRecords | Deleted={Count} | Cutoff={Cutoff}", deleted, cutoff);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[EVENT] CleanupFailed");
+        }
+    }
+
+    public void Subscribe<TEvent>(IEventHandler<TEvent> handler) where TEvent : IGameEvent
+    {
+        // Dynamic subscription — not used in current design (startup scan handles it)
+        // Kept for future extensibility
+    }
+
+    public void Unsubscribe<TEvent>(IEventHandler<TEvent> handler) where TEvent : IGameEvent
+    {
+        // Dynamic unsubscription
     }
 
     public override async Task StartAsync(CancellationToken ct)
@@ -131,35 +324,15 @@ public class EventBusWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                using var scope = _serviceProvider.CreateScope();
-                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-                var pending = await context.EventRecords
-                    .Where(e => e.Status == EventStatus.Pending || e.Status == EventStatus.Failed)
-                    .OrderBy(e => e.CreatedAt)
-                    .Take(100)
-                    .ToListAsync(stoppingToken);
-
-                foreach (var record in pending)
-                {
-                    await DispatchEvent(record, stoppingToken);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in EventBusWorker poll loop");
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
-        }
+        // No polling loop — event-driven via RabbitMQ consumer.
+        // The service runs only to keep the process alive and handle shutdown.
+        await Task.CompletedTask;
     }
 
     /// <summary>
     /// Dispatch a single event record to RabbitMQ and then to handlers.
+    /// Used by startup replay and admin push-pending. Not used for runtime publishing
+    /// (that goes through PublishAsync with bounded retry).
     /// Returns true if the event was successfully dispatched to all handlers.
     /// </summary>
     public async Task<bool> DispatchEvent(EventRecord record, CancellationToken ct)

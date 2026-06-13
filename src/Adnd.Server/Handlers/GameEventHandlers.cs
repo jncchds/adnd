@@ -435,3 +435,54 @@ public class SessionHandler :
         return Task.CompletedTask;
     }
 }
+
+/// <summary>
+/// Handles player disconnect/reconnect events.
+/// Broadcasts to the game group so the UI updates the player list in real-time.
+/// Purely for observability — does not trigger plot thread adaptation.
+/// </summary>
+public class PlayerDisconnectHandler :
+    IEventHandler<PlayerDisconnected>,
+    IEventHandler<PlayerReconnected>
+{
+    private readonly IHubContext<GameHub> _hubContext;
+    private readonly ILogger<PlayerDisconnectHandler> _logger;
+
+    public PlayerDisconnectHandler(
+        IHubContext<GameHub> hubContext,
+        ILogger<PlayerDisconnectHandler> logger)
+    {
+        _hubContext = hubContext;
+        _logger = logger;
+    }
+
+    public async Task HandleAsync(PlayerDisconnected notification, CancellationToken ct = default)
+    {
+        _logger.LogInformation("[PLAYER] Disconnected | GameId={GameId} | PlayerId={PlayerId} | UserId={UserId}",
+            notification.GameId, notification.PlayerId, notification.UserId);
+
+        // Broadcast to game group so UI updates player list
+        await _hubContext.Clients.Group(notification.GameId.ToString())
+            .SendAsync("PlayerDisconnected", new
+            {
+                GameId = notification.GameId,
+                PlayerId = notification.PlayerId,
+                DisconnectedAt = DateTime.UtcNow
+            });
+    }
+
+    public async Task HandleAsync(PlayerReconnected notification, CancellationToken ct = default)
+    {
+        _logger.LogInformation("[PLAYER] Reconnected | GameId={GameId} | PlayerId={PlayerId} | UserId={UserId}",
+            notification.GameId, notification.PlayerId, notification.UserId);
+
+        // Broadcast to game group so UI updates player list
+        await _hubContext.Clients.Group(notification.GameId.ToString())
+            .SendAsync("PlayerReconnected", new
+            {
+                GameId = notification.GameId,
+                PlayerId = notification.PlayerId,
+                ReconnectedAt = DateTime.UtcNow
+            });
+    }
+}

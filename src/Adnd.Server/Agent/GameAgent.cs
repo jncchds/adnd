@@ -16,7 +16,6 @@ public class GameAgent : IGameAgent
 {
     private readonly Guid _gameId;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IAgentBus _agentBus;
     private readonly IGameEngine _gameEngine;
     private readonly IRAGService _ragService;
     private readonly SystemRegistry _systemRegistry;
@@ -40,7 +39,6 @@ public class GameAgent : IGameAgent
     public GameAgent(
         Guid gameId,
         IServiceScopeFactory scopeFactory,
-        IAgentBus agentBus,
         IGameEngine gameEngine,
         IRAGService ragService,
         SystemRegistry systemRegistry,
@@ -48,7 +46,6 @@ public class GameAgent : IGameAgent
     {
         _gameId = gameId;
         _scopeFactory = scopeFactory;
-        _agentBus = agentBus;
         _gameEngine = gameEngine;
         _ragService = ragService;
         _systemRegistry = systemRegistry;
@@ -177,7 +174,9 @@ public class GameAgent : IGameAgent
 
     /// <summary>
     /// Main processing loop — event-driven via _pendingCallIds queue.
-    /// Falls back to DB query for crash recovery (calls queued before this agent instance existed).
+    /// Blocks indefinitely on _signal.Wait() until a call is enqueued.
+    /// No polling — if the agent crashes, pending calls in DB are recovered
+    /// on next app start via GameAgentManager.StartAllActiveGamesAsync().
     /// </summary>
     private async Task ProcessLoopAsync()
     {
@@ -189,8 +188,9 @@ public class GameAgent : IGameAgent
             {
                 try
                 {
-                    // Wait for a signal (new call arrived) or 10s timeout (crash recovery check)
-                    var signaled = _signal.Wait(TimeSpan.FromSeconds(10), _cts.Token);
+                    // Wait for a signal (new call arrived) — blocks indefinitely
+                    // Use WaitHandle.WaitOne with timeout to support cancellation
+                    bool signaled = _signal.Wait(Timeout.Infinite, _cts.Token);
 
                     // Use per-iteration scope to avoid DbContext lifetime issues
                     Game? game;
@@ -228,24 +228,6 @@ public class GameAgent : IGameAgent
                         {
                             // Call was already processed or doesn't exist — ignore
                             _logger.LogDebug("[AGENT] StaleCallInQueue | GameId={GameId} | CallId={CallId}", _gameId, callId);
-                        }
-                    }
-
-                    // Crash recovery: if no calls from queue, query DB for missed calls
-                    if (pendingCalls.Count == 0)
-                    {
-                        using var scope = _scopeFactory.CreateScope();
-                        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                        pendingCalls = await context.AgentCalls
-                            .Where(c => c.GameId == _gameId && c.Status == AgentCallStatus.Pending)
-                            .OrderBy(c => c.CreatedAt)
-                            .Take(10)
-                            .ToListAsync(_cts.Token);
-
-                        if (pendingCalls.Any())
-                        {
-                            _logger.LogInformation("[AGENT] CrashRecovery | GameId={GameId} | Found {Count} pending calls in DB",
-                                _gameId, pendingCalls.Count);
                         }
                     }
 
@@ -291,39 +273,34 @@ public class GameAgent : IGameAgent
         _logger.LogInformation("[AGENT] CallStart | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | CreatedAt={CreatedAt}",
             _gameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.CreatedAt);
 
-        using (var scope = _scopeFactory.CreateScope())
-        {
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            call.Status = AgentCallStatus.Running;
-            call.StartedAt = DateTime.UtcNow;
-            await context.SaveChangesAsync();
-        }
+        // Single scope for the entire call. AgentBus is Scoped and holds scoped deps
+        // (AppDbContext, ILLMInteractionLogger). GameAgent is long-lived so we must
+        // not hold scoped references beyond the scope that created them.
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        call.Status = AgentCallStatus.Running;
+        call.StartedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync();
+
+        var agentBus = scope.ServiceProvider.GetRequiredService<IAgentBus>();
 
         try
         {
-            var result = await _agentBus.ExecuteCallAsync(call);
+            var result = await agentBus.ExecuteCallAsync(call);
 
-            using (var scope = _scopeFactory.CreateScope())
-            {
-                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                call.Status = AgentCallStatus.Completed;
-                call.CompletedAt = DateTime.UtcNow;
-                await context.SaveChangesAsync();
-            }
+            call.Status = AgentCallStatus.Completed;
+            call.CompletedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
 
             _logger.LogInformation("[AGENT] CallComplete | GameId={GameId} | CallId={CallId} | Action={Action} | Duration={Duration}ms | OutputLen={OutputLen}",
                 _gameId, call.Id, call.Action, call.DurationMs, call.Output?.Length ?? 0);
         }
         catch (Exception ex)
         {
-            using (var scope = _scopeFactory.CreateScope())
-            {
-                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                call.Status = AgentCallStatus.Failed;
-                call.Error = ex.Message;
-                call.CompletedAt = DateTime.UtcNow;
-                await context.SaveChangesAsync();
-            }
+            call.Status = AgentCallStatus.Failed;
+            call.Error = ex.Message;
+            call.CompletedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
 
             _logger.LogError("[AGENT] CallFailed | GameId={GameId} | CallId={CallId} | Action={Action} | Duration={Duration}ms | Error={Error}",
                 _gameId, call.Id, call.Action, call.DurationMs, ex.Message);
@@ -409,13 +386,9 @@ public class GameAgentManager : IGameAgentManager, IDisposable
             }
 
             var agentLogger = _loggerFactory.CreateLogger<GameAgent>();
-            // Resolve IAgentBus within a scope to avoid singleton-scoped DbContext sharing
-            using var scope = _scopeFactory.CreateScope();
-            var agentBus = scope.ServiceProvider.GetRequiredService<IAgentBus>();
             var agent = new GameAgent(
                 gameId,
                 _scopeFactory,
-                agentBus,
                 _gameEngine,
                 _ragService,
                 _systemRegistry,
