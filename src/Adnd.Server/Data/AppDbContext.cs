@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<CustomSystemDefinition> CustomSystems => Set<CustomSystemDefinition>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AgentCall> AgentCalls => Set<AgentCall>();
+    public DbSet<ToolCallCoordinator> ToolCallCoordinators => Set<ToolCallCoordinator>();
     public DbSet<GMToolCall> GMToolCalls => Set<GMToolCall>();
     public DbSet<Whisper> Whispers => Set<Whisper>();
     public DbSet<LLMPreset> LLMPresets => Set<LLMPreset>();

@@ -43,6 +43,9 @@ public class AgentCall
     public Guid? ParentCallId { get; set; }
     public AgentCall? ParentCall { get; set; }
     public ICollection<AgentCall> ChildCalls { get; set; } = new List<AgentCall>();
+
+    // Saga state (reactive saga architecture)
+    public SagaStep CurrentStep { get; set; } = SagaStep.Init;
 }
 
 public enum AgentType
@@ -82,4 +85,18 @@ public enum AgentCallStatus
     Completed,
     Failed,
     Cancelled
+}
+
+public enum SagaStep
+{
+    None = 0,
+    Init = 1,
+    LLMDispatchRequested = 2,
+    LLMResponseReceived = 3,
+    ToolCallRequested = 4,
+    ToolCallCompleted = 5,
+    LLMFollowUpRequested = 6,
+    NarrativeReady = 7,
+    Completed = 8,
+    Failed = 9
 }
