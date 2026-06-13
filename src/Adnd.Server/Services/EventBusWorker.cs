@@ -26,6 +26,7 @@ public class EventBusWorker : BackgroundService, IEventBus
     private readonly ILogger<EventBusWorker> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
+    private readonly IGameAgentManager _gameAgentManager;
     private readonly Dictionary<string, List<(string handlerId, Type eventType, Type handlerType)>> _handlerMap;
     private IConnection? _rabbitMqConnection;
     private IModel? _channel;
@@ -38,11 +39,13 @@ public class EventBusWorker : BackgroundService, IEventBus
     public EventBusWorker(
         ILogger<EventBusWorker> logger,
         IServiceProvider serviceProvider,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IGameAgentManager gameAgentManager)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _configuration = configuration;
+        _gameAgentManager = gameAgentManager;
         _handlerMap = new();
     }
 
@@ -282,22 +285,32 @@ public class EventBusWorker : BackgroundService, IEventBus
                                                    i.GetGenericTypeDefinition() == iEventHandlerType)
         ))
         {
-            // Get the IEventHandler<T> interface this type implements
-            var handlerInterface = type.GetInterfaces()
-                .First(i => i.IsGenericType && i.GetGenericTypeDefinition() == iEventHandlerType);
-            var eventType = handlerInterface.GetGenericArguments()[0];
-            var key = eventType.FullName!;
+            // Register for ALL IEventHandler<T> interfaces this type implements
+            var handlerInterfaces = type.GetInterfaces()
+                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == iEventHandlerType);
 
-            var handlerId = Guid.NewGuid().ToString();
-            if (!_handlerMap.TryGetValue(key, out var list))
+            foreach (var handlerInterface in handlerInterfaces)
             {
-                list = new List<(string, Type, Type)>();
-                _handlerMap[key] = list;
+                var eventType = handlerInterface.GetGenericArguments()[0];
+                var key = eventType.FullName!;
+
+                var handlerId = Guid.NewGuid().ToString();
+                if (!_handlerMap.TryGetValue(key, out var list))
+                {
+                    list = new List<(string, Type, Type)>();
+                    _handlerMap[key] = list;
+                }
+                list.Add((handlerId, eventType, type));
             }
-            list.Add((handlerId, eventType, type));
         }
 
         _logger.LogInformation("Registered {Count} event handler types", _handlerMap.Count);
+        foreach (var kvp in _handlerMap.OrderBy(k => k.Key))
+        {
+            _logger.LogInformation("  Handler for {EventType}: {Count} handlers [{Handlers}]",
+                kvp.Key, kvp.Value.Count,
+                string.Join(", ", kvp.Value.Select(h => h.handlerType.Name)));
+        }
     }
 
     private void ConnectToRabbitMq()
@@ -412,6 +425,25 @@ public class EventBusWorker : BackgroundService, IEventBus
         // Ensure handlers are registered (lazy init to avoid constructor deadlocks)
         EnsureHandlersRegistered();
 
+        // Special handling: AgentCallQueued events must wake up the GameAgent
+        // regardless of whether there are registered handlers
+        if (record.EventType == typeof(Events.AgentCallQueued).FullName)
+        {
+            try
+            {
+                var callEvt = JsonSerializer.Deserialize(record.Payload, typeof(Events.AgentCallQueued)) as Events.AgentCallQueued;
+                if (callEvt != null)
+                {
+                    _gameAgentManager.OnAgentCallQueued(callEvt.GameId, callEvt.SagaId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[EVENT] FailedToWakeGameAgent | EventType={EventType} | EventId={EventId}",
+                    record.EventType, record.Id);
+            }
+        }
+
         if (!_handlerMap.TryGetValue(record.EventType, out var handlers))
         {
             _logger.LogDebug("[EVENT] NoHandlerForType | EventType={EventType} | EventId={EventId}",
@@ -442,6 +474,8 @@ public class EventBusWorker : BackgroundService, IEventBus
         }
 
         // Invoke each handler
+        _logger.LogInformation("[EVENT] Dispatching {Count} handlers for {EventType} | EventId={EventId}",
+            handlers.Count, record.EventType, record.Id);
         foreach (var (handlerId, _, handlerType) in handlers)
         {
             try
@@ -457,6 +491,8 @@ public class EventBusWorker : BackgroundService, IEventBus
                     .FirstOrDefault(m => m.Name == "HandleAsync" &&
                                          m.GetParameters().Length >= 1 &&
                                          m.GetParameters()[0].ParameterType == handlers[0].eventType);
+                _logger.LogInformation("[EVENT] HandleMethod | Handler={Handler} | Found={Found} | EventType={EventType}",
+                    handlerType.Name, handleMethod != null, handlers[0].eventType.FullName);
                 if (handleMethod == null)
                 {
                     _logger.LogError("[EVENT] NoHandleAsync | Handler={HandlerType} | EventId={EventId} | EventType={EventType}",

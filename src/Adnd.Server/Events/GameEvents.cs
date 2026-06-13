@@ -125,9 +125,59 @@ public record StorySwayed(Guid GameId, Guid CreatorId, string Direction) : IGame
 
 public record GMActioned(Guid GameId, string Action, string? OutputMessage, string? Error) : IGameEvent;
 
-// ==================== Agent Call Events ====================
+// ==================== Saga Events ====================
 
-public record AgentCallQueued(Guid GameId, Guid CallId) : IGameEvent;
+public record AgentCallQueued(Guid SagaId, Guid GameId) : IGameEvent;
+
+public record LLMDispatchRequested(
+    Guid SagaId,
+    Guid GameId,
+    string SystemPrompt,
+    string UserPrompt,
+    string? Options) : IGameEvent;
+
+public record LLMResponseReceived(
+    Guid SagaId,
+    Guid GameId,
+    string Response,
+    bool HasToolCalls,
+    int ToolCallCount) : IGameEvent;
+
+public record ToolCallRequested(
+    Guid SagaId,
+    Guid GameId,
+    int ToolIndex,
+    string ToolName,
+    string ToolArgs) : IGameEvent;
+
+public record ToolCallCompleted(
+    Guid SagaId,
+    Guid GameId,
+    int ToolIndex,
+    string Result,
+    string? Error) : IGameEvent;
+
+public record CoordinatorUpdated(
+    Guid SagaId,
+    Guid GameId,
+    int CurrentIndex,
+    int TotalTools) : IGameEvent;
+
+public record LLMFollowUpRequested(
+    Guid SagaId,
+    Guid GameId,
+    List<ToolResult> ToolResults) : IGameEvent;
+
+public record ToolResult(int Index, string ToolName, string Result, string? Error);
+
+public record NarrativeReady(
+    Guid SagaId,
+    Guid GameId,
+    string Narrative) : IGameEvent;
+
+public record AgentCallCompleted(Guid SagaId, Guid GameId) : IGameEvent;
+
+public record AgentCallFailed(Guid SagaId, Guid GameId, string Error) : IGameEvent;
 
 // ==================== Helper Enums (inline to avoid duplicate definitions) ====================
 
