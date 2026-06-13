@@ -29,6 +29,8 @@ public class EventBusWorker : BackgroundService, IEventBus
     private readonly object _lock = new();
     private readonly ConcurrentDictionary<string, IModel> _channelsByGame = new();
     private readonly ConcurrentDictionary<string, IModel> _channelsByAgent = new();
+    private bool _handlersRegistered = false;
+    private readonly object _registerLock = new();
 
     public EventBusWorker(
         ILogger<EventBusWorker> logger,
@@ -39,7 +41,6 @@ public class EventBusWorker : BackgroundService, IEventBus
         _serviceProvider = serviceProvider;
         _configuration = configuration;
         _handlerMap = new();
-        RegisterHandlers();
     }
 
     // ==================== IEventBus Implementation ====================
@@ -245,6 +246,25 @@ public class EventBusWorker : BackgroundService, IEventBus
         _logger.LogInformation("EventBusWorker started with {HandlerCount} registered handlers", _handlerMap.Count);
     }
 
+    /// <summary>
+    /// Thread-safe lazy initialization of event handlers.
+    /// Called before first dispatch to avoid constructor deadlocks during DI resolution.
+    /// </summary>
+    private void EnsureHandlersRegistered()
+    {
+        if (_handlersRegistered)
+            return;
+
+        lock (_registerLock)
+        {
+            if (_handlersRegistered)
+                return;
+
+            RegisterHandlers();
+            _handlersRegistered = true;
+        }
+    }
+
     private void RegisterHandlers()
     {
         var assembly = typeof(IGameEvent).Assembly;
@@ -384,6 +404,9 @@ public class EventBusWorker : BackgroundService, IEventBus
     {
         using var dbScope = _serviceProvider.CreateScope();
         var context = dbScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        // Ensure handlers are registered (lazy init to avoid constructor deadlocks)
+        EnsureHandlersRegistered();
 
         if (!_handlerMap.TryGetValue(record.EventType, out var handlers))
         {
