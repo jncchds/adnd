@@ -1,5 +1,6 @@
 using Adnd.Server.Data;
 using Adnd.Server.Events;
+using Adnd.Server.Handlers;
 using Adnd.Server.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -8,7 +9,9 @@ using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RabbitMQ.Client.Framing;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Adnd.Server.Services;
 
@@ -267,30 +270,31 @@ public class EventBusWorker : BackgroundService, IEventBus
 
     private void RegisterHandlers()
     {
-        var assembly = typeof(IGameEvent).Assembly;
+        // Only scan the Handlers namespace to avoid loading all types in the assembly
+        // (which can trigger static constructors / DI resolution that cause deadlocks)
+        var handlerAssembly = typeof(GameLifecycleHandler).Assembly;
+        var iEventHandlerType = typeof(IEventHandler<>);
 
-        foreach (var type in assembly.GetTypes())
+        foreach (var type in handlerAssembly.GetTypes()
+            .Where(t => t.Namespace == "Adnd.Server.Handlers" &&
+                        !t.IsAbstract && !t.IsInterface &&
+                        t.GetInterfaces().Any(i => i.IsGenericType &&
+                                                   i.GetGenericTypeDefinition() == iEventHandlerType)
+        ))
         {
-            // Skip abstract classes and interfaces
-            if (type.IsAbstract || type.IsInterface) continue;
+            // Get the IEventHandler<T> interface this type implements
+            var handlerInterface = type.GetInterfaces()
+                .First(i => i.IsGenericType && i.GetGenericTypeDefinition() == iEventHandlerType);
+            var eventType = handlerInterface.GetGenericArguments()[0];
+            var key = eventType.FullName!;
 
-            var interfaces = type.GetInterfaces()
-                .Where(i => i.IsGenericType &&
-                           i.GetGenericTypeDefinition() == typeof(IEventHandler<>));
-
-            foreach (var iface in interfaces)
+            var handlerId = Guid.NewGuid().ToString();
+            if (!_handlerMap.TryGetValue(key, out var list))
             {
-                var eventType = iface.GetGenericArguments()[0];
-                var key = eventType.FullName!;
-
-                var handlerId = Guid.NewGuid().ToString();
-                if (!_handlerMap.TryGetValue(key, out var list))
-                {
-                    list = new List<(string, Type, Type)>();
-                    _handlerMap[key] = list;
-                }
-                list.Add((handlerId, eventType, type));
+                list = new List<(string, Type, Type)>();
+                _handlerMap[key] = list;
             }
+            list.Add((handlerId, eventType, type));
         }
 
         _logger.LogInformation("Registered {Count} event handler types", _handlerMap.Count);
@@ -442,16 +446,21 @@ public class EventBusWorker : BackgroundService, IEventBus
         {
             try
             {
-                // Create a scoped service provider for the handler
+                // Create handler via ActivatorUtilities to avoid DI circular dependencies
+                // (handlers depend on IAgentBus which depends on IEventBus which is EventBusWorker)
                 using var scope = _serviceProvider.CreateScope();
-                var handlerInstance = scope.ServiceProvider.GetRequiredService(handlerType);
+                var handlerInstance = ActivatorUtilities.CreateInstance(scope.ServiceProvider, handlerType);
 
-                // Get the HandleAsync method
-                var handleMethod = handlerType.GetMethod("HandleAsync");
+                // Get the HandleAsync method that matches the event type
+                // Handlers have multiple overloads (one per event type), so we must match by parameter
+                var handleMethod = handlerType.GetMethods()
+                    .FirstOrDefault(m => m.Name == "HandleAsync" &&
+                                         m.GetParameters().Length >= 1 &&
+                                         m.GetParameters()[0].ParameterType == handlers[0].eventType);
                 if (handleMethod == null)
                 {
-                    _logger.LogError("[EVENT] NoHandleAsync | Handler={HandlerType} | EventId={EventId}",
-                        handlerType.Name, record.Id);
+                    _logger.LogError("[EVENT] NoHandleAsync | Handler={HandlerType} | EventId={EventId} | EventType={EventType}",
+                        handlerType.Name, record.Id, handlers[0].eventType.FullName);
                     success = false;
                     continue;
                 }
