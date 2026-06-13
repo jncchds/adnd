@@ -145,24 +145,27 @@ public class RabbitMqEventBus : IEventBus
     }
 
     /// <summary>
-    /// Publish an event to a specific agent's queue.
-    /// Called by AgentBus for GameAgent wakeup.
+    /// Publish an event to a specific agent's queue with optional headers.
     /// </summary>
-    public void PublishToAgent(Guid gameId, string eventType, string payload, string? correlationId = null)
+    public void PublishToAgent(Guid gameId, string routingKey, string payload, string? correlationId = null, Dictionary<string, object>? headers = null)
     {
         var channel = GetOrCreateAgentChannel(gameId);
 
         var body = System.Text.Encoding.UTF8.GetBytes(payload);
-        var properties = channel.CreateBasicProperties();
-        properties.Persistent = true;
-        properties.CorrelationId = correlationId;
-        properties.DeliveryMode = 2; // persistent
+        var props = channel.CreateBasicProperties();
+        props.Persistent = true;
+        props.CorrelationId = correlationId;
+        props.DeliveryMode = 2; // persistent
+        if (headers != null && headers.Count > 0)
+        {
+            props.Headers = headers;
+        }
 
         channel.BasicPublish(
             exchange: "adnd.events",
-            routingKey: $"agent.{gameId}",
+            routingKey: routingKey,
             mandatory: false,
-            basicProperties: properties,
+            basicProperties: props,
             body: body);
     }
 

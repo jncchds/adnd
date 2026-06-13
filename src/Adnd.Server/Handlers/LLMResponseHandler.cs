@@ -12,11 +12,13 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<LLMResponseHandler> _logger;
+    private readonly RabbitMqEventBus _rabbitMq;
 
-    public LLMResponseHandler(IServiceProvider serviceProvider, ILogger<LLMResponseHandler> logger)
+    public LLMResponseHandler(IServiceProvider serviceProvider, ILogger<LLMResponseHandler> logger, RabbitMqEventBus rabbitMq)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _rabbitMq = rabbitMq;
     }
 
     public async Task HandleAsync(LLMResponseReceived evt, CancellationToken ct)
@@ -33,25 +35,23 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
             return;
         }
 
-        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
-
         if (!evt.HasToolCalls)
         {
-            // No tools — emit narrative directly
             call.CurrentStep = SagaStep.NarrativeReady;
             await context.SaveChangesAsync(ct);
 
-            await eventBus.PublishAsync(new NarrativeReady(evt.SagaId, evt.GameId, evt.Response), ct);
+            var narrativeEvent = new NarrativeReady(evt.SagaId, evt.GameId, evt.Response);
+            var narrativePayload = JsonSerializer.Serialize(narrativeEvent);
+            var narrativeHeaders = new Dictionary<string, object> { ["x-event-type"] = narrativeEvent.GetType().FullName };
+            _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", narrativePayload, Guid.NewGuid().ToString(), narrativeHeaders);
             return;
         }
 
-        // Has tool calls — check if we already have a coordinator
         var coordinator = await context.ToolCallCoordinators
             .FirstOrDefaultAsync(c => c.SagaId == evt.SagaId && c.Status == CoordinatorStatus.Active, ct);
 
         if (coordinator == null)
         {
-            // Create new coordinator with extracted tool calls
             var toolCalls = ExtractToolCalls(evt.Response);
             coordinator = new ToolCallCoordinator
             {
@@ -64,19 +64,19 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
             };
             context.ToolCallCoordinators.Add(coordinator);
             await context.SaveChangesAsync(ct);
-
             _logger.LogInformation("[SAGA] CoordinatorCreated | SagaId={SagaId} | Total={Total}", evt.SagaId, evt.ToolCallCount);
         }
 
-        // Emit first tool call
         var tools = JsonSerializer.Deserialize<List<ToolCallInfo>>(coordinator.ToolsJson) ?? new();
         var firstTool = tools.FirstOrDefault();
 
         call.CurrentStep = SagaStep.ToolCallRequested;
         await context.SaveChangesAsync(ct);
 
-        await eventBus.PublishAsync(new ToolCallRequested(
-            evt.SagaId, evt.GameId, 0, firstTool?.Name ?? "unknown", firstTool?.Arguments ?? "{}"), ct);
+        var nextEvent = new ToolCallRequested(evt.SagaId, evt.GameId, 0, firstTool?.Name ?? "unknown", firstTool?.Arguments ?? "{}");
+        var payload = JsonSerializer.Serialize(nextEvent);
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
     }
 
     private List<ToolCallInfo> ExtractToolCalls(string response)
@@ -99,7 +99,6 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
         }
         catch
         {
-            // Fallback: regex-based extraction
             tools = ExtractToolCallsRegex(response);
         }
         return tools;
@@ -110,7 +109,6 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
         var tools = new List<ToolCallInfo>();
         var namePattern = new System.Text.RegularExpressions.Regex(@"""name""\s*:\s*""([^""]+)""");
         var argsPattern = new System.Text.RegularExpressions.Regex(@"""arguments""\s*:\s*(\{[^}]+\})");
-
         var names = namePattern.Matches(response);
         var args = argsPattern.Matches(response);
 

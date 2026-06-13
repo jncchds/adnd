@@ -12,11 +12,13 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<LLMFollowUpHandler> _logger;
+    private readonly RabbitMqEventBus _rabbitMq;
 
-    public LLMFollowUpHandler(IServiceProvider serviceProvider, ILogger<LLMFollowUpHandler> logger)
+    public LLMFollowUpHandler(IServiceProvider serviceProvider, ILogger<LLMFollowUpHandler> logger, RabbitMqEventBus rabbitMq)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _rabbitMq = rabbitMq;
     }
 
     public async Task HandleAsync(LLMFollowUpRequested evt, CancellationToken ct)
@@ -44,7 +46,6 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
             return;
         }
 
-        // Build tool results text
         var toolResultsText = string.Join("\n", evt.ToolResults.Select(tr =>
             $"Tool '{tr.ToolName}': {tr.Result}"));
         var userPrompt = $"Tool results:\n{toolResultsText}\n\nNow continue the narrative based on these results.";
@@ -79,8 +80,10 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
             return;
         }
 
-        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
-        await eventBus.PublishAsync(new NarrativeReady(evt.SagaId, evt.GameId, result), ct);
+        var nextEvent = new NarrativeReady(evt.SagaId, evt.GameId, result);
+        var payload = JsonSerializer.Serialize(nextEvent);
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
 
         call.CurrentStep = SagaStep.NarrativeReady;
         await context.SaveChangesAsync(ct);
@@ -106,7 +109,9 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
             await context.SaveChangesAsync(ct);
         }
 
-        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
-        await eventBus.PublishAsync(new AgentCallFailed(sagaId, gameId, error), ct);
+        var nextEvent = new AgentCallFailed(sagaId, gameId, error);
+        var payload = JsonSerializer.Serialize(nextEvent);
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        _rabbitMq.PublishToAgent(gameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
     }
 }

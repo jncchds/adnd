@@ -12,11 +12,13 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<LLMDispatchHandler> _logger;
+    private readonly RabbitMqEventBus _rabbitMq;
 
-    public LLMDispatchHandler(IServiceProvider serviceProvider, ILogger<LLMDispatchHandler> logger)
+    public LLMDispatchHandler(IServiceProvider serviceProvider, ILogger<LLMDispatchHandler> logger, RabbitMqEventBus rabbitMq)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _rabbitMq = rabbitMq;
     }
 
     public async Task HandleAsync(LLMDispatchRequested evt, CancellationToken ct)
@@ -54,7 +56,6 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
             result = await provider.CompleteAsync(evt.SystemPrompt, evt.UserPrompt, llmOptions);
             sw.Stop();
 
-            // Log interaction
             var interactionLogger = scope.ServiceProvider.GetRequiredService<ILLMInteractionLogger>();
             var tokenUsage = provider.GetTokenUsage(result);
             await interactionLogger.LogInteractionAsync(
@@ -73,13 +74,13 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
             return;
         }
 
-        // Determine if response has tool calls
         var hasToolCalls = result.Contains("\"name\":") || result.Contains("tool_calls");
         var toolCallCount = hasToolCalls ? CountToolCalls(result) : 0;
 
-        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
-        await eventBus.PublishAsync(new LLMResponseReceived(
-            evt.SagaId, evt.GameId, result, hasToolCalls, toolCallCount), ct);
+        var nextEvent = new LLMResponseReceived(evt.SagaId, evt.GameId, result, hasToolCalls, toolCallCount);
+        var payload = JsonSerializer.Serialize(nextEvent);
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
 
         call.CurrentStep = SagaStep.LLMResponseReceived;
         await context.SaveChangesAsync(ct);
@@ -96,7 +97,6 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
 
     private int CountToolCalls(string response)
     {
-        // Simple heuristic: count occurrences of tool call patterns
         var count = 0;
         var pos = 0;
         while ((pos = response.IndexOf("\"name\":", pos, StringComparison.Ordinal)) >= 0)
@@ -119,7 +119,9 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
             await context.SaveChangesAsync(ct);
         }
 
-        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
-        await eventBus.PublishAsync(new AgentCallFailed(sagaId, gameId, error), ct);
+        var nextEvent = new AgentCallFailed(sagaId, gameId, error);
+        var payload = JsonSerializer.Serialize(nextEvent);
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        _rabbitMq.PublishToAgent(gameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
     }
 }

@@ -129,10 +129,23 @@ public class GameAgent : IGameAgent
                 var body = ea.Body.ToArray();
                 var payload = System.Text.Encoding.UTF8.GetString(body);
 
+                // Get event type from RabbitMQ headers (set by saga handlers)
+                var eventTypeFullName = ea.BasicProperties?.Headers?.TryGetValue("x-event-type", out var eventTypeObj) == true
+                    ? eventTypeObj?.ToString()
+                    : null;
+
                 using var scope = _serviceProvider.CreateScope();
 
-                // Deserialize event and dispatch to handlers via EventBusWorker
-                var evt = JsonSerializer.Deserialize<IGameEvent>(payload);
+                IGameEvent? evt = null;
+                if (!string.IsNullOrEmpty(eventTypeFullName))
+                {
+                    var eventType = Type.GetType(eventTypeFullName);
+                    if (eventType != null)
+                    {
+                        evt = JsonSerializer.Deserialize(payload, eventType) as IGameEvent;
+                    }
+                }
+
                 if (evt != null)
                 {
                     // Direct dispatch — do NOT call PublishAsync (that would re-publish to RabbitMQ)

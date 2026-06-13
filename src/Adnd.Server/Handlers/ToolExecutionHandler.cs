@@ -12,11 +12,13 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ToolExecutionHandler> _logger;
+    private readonly RabbitMqEventBus _rabbitMq;
 
-    public ToolExecutionHandler(IServiceProvider serviceProvider, ILogger<ToolExecutionHandler> logger)
+    public ToolExecutionHandler(IServiceProvider serviceProvider, ILogger<ToolExecutionHandler> logger, RabbitMqEventBus rabbitMq)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _rabbitMq = rabbitMq;
     }
 
     public async Task HandleAsync(ToolCallRequested evt, CancellationToken ct)
@@ -34,19 +36,14 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
             return;
         }
 
-        // Execute the tool
         var toolRegistry = scope.ServiceProvider.GetRequiredService<IGMToolRegistry>();
         var result = await toolRegistry.ExecuteToolAsync(call.GameId, call.SessionId ?? Guid.Empty, evt.ToolName, evt.ToolArgs);
 
-        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
-
         if (result.RequiresUserInput)
         {
-            // Tool needs confirmation — save state and emit waiting event
             call.CurrentStep = SagaStep.ToolCallRequested;
             await context.SaveChangesAsync(ct);
 
-            // Update game status for UI
             if (call.Game != null)
             {
                 call.Game.LastGMAction = $"ToolCall: {evt.ToolName} (waiting confirmation)";
@@ -54,11 +51,13 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
                 await context.SaveChangesAsync(ct);
             }
 
-            await eventBus.PublishAsync(new AgentCallFailed(evt.SagaId, evt.GameId, $"Waiting user input for {evt.ToolName}"), ct);
+            var failEvent = new AgentCallFailed(evt.SagaId, evt.GameId, $"Waiting user input for {evt.ToolName}");
+            var failPayload = JsonSerializer.Serialize(failEvent);
+            var failHeaders = new Dictionary<string, object> { ["x-event-type"] = failEvent.GetType().FullName };
+            _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", failPayload, Guid.NewGuid().ToString(), failHeaders);
             return;
         }
 
-        // Update coordinator if one exists
         var coordinator = await context.ToolCallCoordinators
             .FirstOrDefaultAsync(c => c.SagaId == evt.SagaId && c.Status == CoordinatorStatus.Active, ct);
 
@@ -83,9 +82,10 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
             await context.SaveChangesAsync(ct);
         }
 
-        // Emit ToolCallCompleted — CoordinatorHandler will listen and emit next tool or follow-up
-        await eventBus.PublishAsync(new ToolCallCompleted(
-            evt.SagaId, evt.GameId, evt.ToolIndex, result.Output ?? "", result.Error), ct);
+        var nextEvent = new ToolCallCompleted(evt.SagaId, evt.GameId, evt.ToolIndex, result.Output ?? "", result.Error);
+        var payload = JsonSerializer.Serialize(nextEvent);
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
 
         _logger.LogInformation("[TOOL] Executed | SagaId={SagaId} | Index={Index} | Success={Success}",
             evt.SagaId, evt.ToolIndex, result.Success);

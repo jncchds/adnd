@@ -12,11 +12,16 @@ public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SagaOrchestratorHandler> _logger;
+    private readonly RabbitMqEventBus _rabbitMq;
 
-    public SagaOrchestratorHandler(IServiceProvider serviceProvider, ILogger<SagaOrchestratorHandler> logger)
+    public SagaOrchestratorHandler(
+        IServiceProvider serviceProvider,
+        ILogger<SagaOrchestratorHandler> logger,
+        RabbitMqEventBus rabbitMq)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _rabbitMq = rabbitMq;
     }
 
     public async Task HandleAsync(AgentCallQueued evt, CancellationToken ct)
@@ -38,46 +43,20 @@ public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
         call.CurrentStep = SagaStep.Init;
         await context.SaveChangesAsync(ct);
 
-        // Determine action type and emit the appropriate next event
         IGameEvent nextEvent = call.Action switch
         {
             AgentAction.Narrate or AgentAction.Generate or AgentAction.OpenNarrative
-                => new LLMDispatchRequested(
-                    evt.SagaId,
-                    evt.GameId,
-                    "You are the Game Master for a TTRPG session.",
-                    call.Input ?? "Continue the narrative.",
-                    null),
-
-            AgentAction.Nudge => new LLMDispatchRequested(
-                evt.SagaId,
-                evt.GameId,
-                "You are the Game Master for a TTRPG session. The creator has sent a narrative nudge.",
-                call.Input ?? "Incorporate the direction.",
-                null),
-
-            AgentAction.Query => new LLMDispatchRequested(
-                evt.SagaId,
-                evt.GameId,
-                "You are a helpful TTRPG assistant.",
-                call.Input ?? "Answer the question.",
-                null),
-
-            AgentAction.Suggest => new LLMDispatchRequested(
-                evt.SagaId,
-                evt.GameId,
-                "You are a creative TTRPG Game Master assistant.",
-                call.Input ?? "Suggest plot continuations.",
-                null),
-
+                => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are the Game Master for a TTRPG session.", call.Input ?? "Continue the narrative.", null),
+            AgentAction.Nudge => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are the Game Master for a TTRPG session. The creator has sent a narrative nudge.", call.Input ?? "Incorporate the direction.", null),
+            AgentAction.Query => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are a helpful TTRPG assistant.", call.Input ?? "Answer the question.", null),
+            AgentAction.Suggest => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are a creative TTRPG Game Master assistant.", call.Input ?? "Suggest plot continuations.", null),
             AgentAction.ManageState => new AgentCallCompleted(evt.SagaId, evt.GameId),
-
             _ => new AgentCallFailed(evt.SagaId, evt.GameId, $"Unknown action: {call.Action}")
         };
 
-        // Publish next event via the event bus
-        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
-        await eventBus.PublishAsync(nextEvent, ct);
+        var payload = JsonSerializer.Serialize(nextEvent);
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
 
         call.CurrentStep = call.Action == AgentAction.ManageState ? SagaStep.Completed : SagaStep.LLMDispatchRequested;
         await context.SaveChangesAsync(ct);

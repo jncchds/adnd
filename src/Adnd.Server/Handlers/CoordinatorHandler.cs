@@ -12,11 +12,13 @@ public class CoordinatorHandler : IEventHandler<ToolCallCompleted>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<CoordinatorHandler> _logger;
+    private readonly RabbitMqEventBus _rabbitMq;
 
-    public CoordinatorHandler(IServiceProvider serviceProvider, ILogger<CoordinatorHandler> logger)
+    public CoordinatorHandler(IServiceProvider serviceProvider, ILogger<CoordinatorHandler> logger, RabbitMqEventBus rabbitMq)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _rabbitMq = rabbitMq;
     }
 
     public async Task HandleAsync(ToolCallCompleted evt, CancellationToken ct)
@@ -40,20 +42,22 @@ public class CoordinatorHandler : IEventHandler<ToolCallCompleted>
                 .Select(t => new ToolResult(t.Index, t.ToolName, t.Result, t.Error))
                 .ToList();
 
-            var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
-            await eventBus.PublishAsync(new LLMFollowUpRequested(evt.SagaId, evt.GameId, toolResults), ct);
+            var followUpEvent = new LLMFollowUpRequested(evt.SagaId, evt.GameId, toolResults);
+            var followUpPayload = JsonSerializer.Serialize(followUpEvent);
+            var followUpHeaders = new Dictionary<string, object> { ["x-event-type"] = followUpEvent.GetType().FullName };
+            _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", followUpPayload, Guid.NewGuid().ToString(), followUpHeaders);
 
             _logger.LogInformation("[COORD] AllToolsDone | SagaId={SagaId} | Tools={Count}", evt.SagaId, toolResults.Count);
             return;
         }
 
-        // Parse tools from JSON and emit next tool call
         var tools = JsonSerializer.Deserialize<List<ToolCallInfo>>(coordinator.ToolsJson) ?? new();
         var nextTool = tools[coordinator.CurrentIndex];
 
-        var eventBus2 = scope.ServiceProvider.GetRequiredService<IEventBus>();
-        await eventBus2.PublishAsync(new ToolCallRequested(
-            evt.SagaId, evt.GameId, coordinator.CurrentIndex, nextTool.Name, nextTool.Arguments), ct);
+        var nextEvent = new ToolCallRequested(evt.SagaId, evt.GameId, coordinator.CurrentIndex, nextTool.Name, nextTool.Arguments);
+        var payload = JsonSerializer.Serialize(nextEvent);
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
 
         _logger.LogInformation("[COORD] NextTool | SagaId={SagaId} | Index={Index}/{Total}",
             evt.SagaId, coordinator.CurrentIndex, coordinator.TotalTools);
