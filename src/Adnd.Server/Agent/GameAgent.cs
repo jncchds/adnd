@@ -129,10 +129,12 @@ public class GameAgent : IGameAgent
                 var body = ea.Body.ToArray();
                 var payload = System.Text.Encoding.UTF8.GetString(body);
 
-                // Get event type from RabbitMQ headers (set by saga handlers)
                 var eventTypeFullName = ea.BasicProperties?.Headers?.TryGetValue("x-event-type", out var eventTypeObj) == true
                     ? eventTypeObj?.ToString()
                     : null;
+
+                _logger.LogInformation("[CONSUMER] MessageReceived | GameId={GameId} | EventType={EventType} | PayloadLen={Len}",
+                    _gameId, eventTypeFullName ?? "unknown", payload.Length);
 
                 using var scope = _serviceProvider.CreateScope();
 

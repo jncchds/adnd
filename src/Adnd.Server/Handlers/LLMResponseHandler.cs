@@ -57,14 +57,14 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
             {
                 SagaId = evt.SagaId,
                 GameId = call.GameId,
-                TotalTools = evt.ToolCallCount,
+                TotalTools = toolCalls.Count,  // Use actual extracted count, not heuristic
                 CurrentIndex = 0,
                 ToolsJson = JsonSerializer.Serialize(toolCalls),
                 Status = CoordinatorStatus.Active
             };
             context.ToolCallCoordinators.Add(coordinator);
             await context.SaveChangesAsync(ct);
-            _logger.LogInformation("[SAGA] CoordinatorCreated | SagaId={SagaId} | Total={Total}", evt.SagaId, evt.ToolCallCount);
+            _logger.LogInformation("[SAGA] CoordinatorCreated | SagaId={SagaId} | Total={Total}", evt.SagaId, toolCalls.Count);
         }
 
         var tools = JsonSerializer.Deserialize<List<ToolCallInfo>>(coordinator.ToolsJson) ?? new();

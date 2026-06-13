@@ -74,27 +74,24 @@ public class RabbitMqEventBus : IEventBus
         {
             var channel = CreateChannel();
 
-            // Declare game queue
+            // Declare game queue with DLQ binding in one call
             var queueName = $"game.{gameId}";
-            channel.QueueDeclare(queueName, durable: true, exclusive: false, autoDelete: false, null);
-
-            // Declare DLQ
             var dlqName = $"dlq.game.{gameId}";
-            channel.QueueDeclare(dlqName, durable: true, exclusive: false, autoDelete: false, null);
 
-            // Bind DLQ to exchange
+            // Declare DLQ first
+            channel.QueueDeclare(dlqName, durable: true, exclusive: false, autoDelete: false, null);
             channel.QueueBind(dlqName, "adnd.events", $"dlq.game.{gameId}");
 
-            // Bind game queue to exchange
-            channel.QueueBind(queueName, "adnd.events", $"game.{gameId}");
-
-            // Set dead-letter exchange on main queue
+            // Declare main queue with DLQ args
             var args = new Dictionary<string, object>
             {
                 ["x-dead-letter-exchange"] = "adnd.events",
                 ["x-dead-letter-routing-key"] = $"dlq.game.{gameId}"
             };
             channel.QueueDeclare(queueName, durable: true, exclusive: false, autoDelete: false, args);
+
+            // Bind game queue to exchange
+            channel.QueueBind(queueName, "adnd.events", $"game.{gameId}");
 
             _logger.LogInformation("[RABBITMQ] DeclaredQueue | Queue={Queue} | DLQ={DLQ}", queueName, dlqName);
 

@@ -52,6 +52,26 @@ public class CoordinatorHandler : IEventHandler<ToolCallCompleted>
         }
 
         var tools = JsonSerializer.Deserialize<List<ToolCallInfo>>(coordinator.ToolsJson) ?? new();
+        if (coordinator.CurrentIndex >= tools.Count)
+        {
+            _logger.LogWarning("[COORD] NoNextTool | SagaId={SagaId} | Index={Index} | Available={Count}",
+                evt.SagaId, coordinator.CurrentIndex, tools.Count);
+            // No more tools — mark completed and emit follow-up with empty results
+            coordinator.Status = CoordinatorStatus.Completed;
+            coordinator.CompletedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync(ct);
+
+            var toolResults = coordinator.CompletedTools
+                .OrderBy(t => t.Index)
+                .Select(t => new ToolResult(t.Index, t.ToolName, t.Result, t.Error))
+                .ToList();
+
+            var followUpEvent = new LLMFollowUpRequested(evt.SagaId, evt.GameId, toolResults);
+            var followUpPayload = JsonSerializer.Serialize(followUpEvent);
+            var followUpHeaders = new Dictionary<string, object> { ["x-event-type"] = followUpEvent.GetType().FullName };
+            _rabbitMq.PublishToAgent(evt.GameId, followUpPayload, Guid.NewGuid().ToString(), followUpHeaders);
+            return;
+        }
         var nextTool = tools[coordinator.CurrentIndex];
 
         var nextEvent = new ToolCallRequested(evt.SagaId, evt.GameId, coordinator.CurrentIndex, nextTool.Name, nextTool.Arguments);

@@ -95,6 +95,7 @@ public class EventBusWorker : BackgroundService, IEventBus
         const int maxRetries = 3;
         const int retryDelayMs = 500;
 
+        // Retry loop: only handle RabbitMQ publish, NOT dispatch
         for (int attempt = 0; attempt < maxRetries; attempt++)
         {
             try
@@ -136,8 +137,8 @@ public class EventBusWorker : BackgroundService, IEventBus
                 _logger.LogInformation("[EVENT] PublishedToRabbitMQ | GameId={GameId} | EventType={EventType} | EventId={EventId}",
                     record.GameId, record.EventType, record.Id);
 
-                // Dispatch to registered handlers
-                return await DispatchToHandlers(record, ct);
+                // Publish succeeded — break out of retry loop
+                break;
             }
             catch (Exception ex)
             {
@@ -149,6 +150,13 @@ public class EventBusWorker : BackgroundService, IEventBus
                     await Task.Delay(retryDelayMs, ct);
                 }
             }
+        }
+
+        // Dispatch outside retry loop — only dispatch once, after publish succeeds
+        // (dispatching inside the loop would cause duplicate events on retry)
+        if (record.Status == EventStatus.Published)
+        {
+            return await DispatchToHandlers(record, ct);
         }
 
         return false;

@@ -44,10 +44,12 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
             call.CurrentStep = SagaStep.ToolCallRequested;
             await context.SaveChangesAsync(ct);
 
-            if (call.Game != null)
+            // Update game status via context (not nav prop) to avoid EF tracking issues
+            var game = await context.Games.FindAsync(call.GameId);
+            if (game != null)
             {
-                call.Game.LastGMAction = $"ToolCall: {evt.ToolName} (waiting confirmation)";
-                call.Game.LastGMActionAt = DateTime.UtcNow;
+                game.LastGMAction = $"ToolCall: {evt.ToolName} (waiting confirmation)";
+                game.LastGMActionAt = DateTime.UtcNow;
                 await context.SaveChangesAsync(ct);
             }
 
