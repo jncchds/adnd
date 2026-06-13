@@ -101,6 +101,7 @@ public class AgentBus : IAgentBus
     private readonly IConfiguration _configuration;
     private readonly int _toolCallingMaxDepth;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IGameAgentManager _gameAgentManager;
 
     public AgentBus(
         AppDbContext context,
@@ -118,7 +119,8 @@ public class AgentBus : IAgentBus
         IEventBus mediator,
         IDeadLetterQueue dlq,
         IConfiguration configuration,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        IGameAgentManager gameAgentManager)
     {
         _context = context;
         _providerFactory = providerFactory;
@@ -132,6 +134,7 @@ public class AgentBus : IAgentBus
         _encryption = encryption;
         _logger = logger;
         _hubContext = hubContext;
+        _gameAgentManager = gameAgentManager;
         _eventBus = mediator;
         _dlq = dlq;
         _configuration = configuration;
@@ -177,8 +180,8 @@ public class AgentBus : IAgentBus
         _logger.LogInformation("[AGENT_CALL] Queued | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | SessionId={SessionId}",
             call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.SessionId);
 
-        // Wake up the GameAgent immediately — eliminates polling delay
-        await _eventBus.PublishAsync(new Events.AgentCallQueued(call.GameId, call.Id));
+        // Publish AgentCallQueued event — routed via RabbitMQ to GameAgent consumer
+        await _eventBus.PublishAsync(new AgentCallQueued(call.Id, call.GameId));
 
         return call;
     }

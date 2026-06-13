@@ -1,104 +1,295 @@
 using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Data;
+using Adnd.Server.Events;
+using Adnd.Server.Handlers;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Microsoft.Extensions.Logging;
+using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
+using RabbitMQ.Client.Framing;
 using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace Adnd.Server.Agent;
 
 /// <summary>
-/// Per-game game agent that processes events sequentially.
-/// Events are persisted to the database (AgentCalls table) so they survive restarts.
+/// Per-game game agent that processes events reactively via RabbitMQ.
+/// No polling loops — the agent lives and dies by the RabbitMQ consumer lifecycle.
+/// Saga state is persisted in AgentCall.CurrentStep and ToolCallCoordinator for crash recovery.
 /// </summary>
 public class GameAgent : IGameAgent
 {
     private readonly Guid _gameId;
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IGameEngine _gameEngine;
-    private readonly IRAGService _ragService;
-    private readonly SystemRegistry _systemRegistry;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<GameAgent> _logger;
     private readonly CancellationTokenSource _cts = new();
-    private readonly ConcurrentQueue<Guid> _pendingCallIds = new();
-    private readonly ManualResetEventSlim _signal = new(false);
-    private Task? _processingLoop;
+    private IConnection? _rabbitMqConnection;
+    private IModel? _channel;
+    private AsyncEventingBasicConsumer? _consumer;
     private volatile bool _isPaused = false;
-
-    /// <summary>
-    /// Enqueue a pending call ID — called by AgentCallQueued event handler.
-    /// The processing loop checks this queue before querying the database.
-    /// </summary>
-    public void EnqueueCall(Guid callId)
-    {
-        _pendingCallIds.Enqueue(callId);
-        _signal.Set();
-    }
+    private volatile bool _isConnected = false;
 
     public GameAgent(
         Guid gameId,
-        IServiceScopeFactory scopeFactory,
-        IGameEngine gameEngine,
-        IRAGService ragService,
-        SystemRegistry systemRegistry,
+        IServiceProvider serviceProvider,
+        IConfiguration configuration,
         ILogger<GameAgent> logger)
     {
         _gameId = gameId;
-        _scopeFactory = scopeFactory;
-        _gameEngine = gameEngine;
-        _ragService = ragService;
-        _systemRegistry = systemRegistry;
+        _serviceProvider = serviceProvider;
+        _configuration = configuration;
         _logger = logger;
-    }
-
-    private async Task WithContextAsync(Func<AppDbContext, Task> action)
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await action(context);
-    }
-
-    private async Task<T> WithContextAsync<T>(Func<AppDbContext, Task<T>> action)
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        return await action(context);
     }
 
     public async Task StartAsync(Guid gameId, Guid creatorId)
     {
-        if (_processingLoop != null && !_processingLoop.IsCompleted)
+        if (_isConnected)
         {
-            _logger.LogWarning("Game agent already running for game {GameId}", gameId);
+            _logger.LogWarning("Game agent already connected for game {GameId}", gameId);
             return;
         }
 
         // Activate the game in the DB
-        Game? game;
-        using (var scope = _scopeFactory.CreateScope())
-        {
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            game = await context.Games.FindAsync(gameId);
-        }
+        var game = await GetGameAsync(gameId);
         if (game == null)
             throw new KeyNotFoundException($"Game {gameId} not found.");
 
         if (game.LLMPresetId == null)
             throw new InvalidOperationException("Cannot start: no LLM preset configured.");
 
-        using (var scope = _scopeFactory.CreateScope())
-        {
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            game = await context.Games.FindAsync(gameId);
-            game.Status = Models.GameStatus.Starting;
-            game.StartedAt = DateTime.UtcNow;
-            game.GMStatus = Models.GMStatus.Running;
-            await context.SaveChangesAsync();
-        }
+        game.Status = Models.GameStatus.Starting;
+        game.StartedAt = DateTime.UtcNow;
+        game.GMStatus = Models.GMStatus.Running;
+
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await context.SaveChangesAsync();
 
         _logger.LogInformation("Starting game agent for game {GameId}", gameId);
-        _processingLoop = ProcessLoopAsync();
+
+        // Connect to RabbitMQ
+        ConnectToRabbitMq();
+
+        // Declare agent queue
+        DeclareAgentQueue();
+
+        // Recover pending sagas
+        await RecoverPendingSagas();
+
+        // Start consuming
+        StartConsuming();
+
+        _isConnected = true;
+    }
+
+    private void ConnectToRabbitMq()
+    {
+        var host = _configuration["RabbitMq:Host"] ?? "localhost";
+        var port = _configuration.GetValue<int>("RabbitMq:Port", 5672);
+        var username = _configuration["RabbitMq:Username"] ?? "adnd";
+        var password = _configuration["RabbitMq:Password"] ?? "adnd";
+        var virtualHost = _configuration["RabbitMq:VirtualHost"] ?? "/adnd";
+
+        var factory = new ConnectionFactory
+        {
+            HostName = host,
+            Port = port,
+            UserName = username,
+            Password = password,
+            VirtualHost = virtualHost
+        };
+
+        _rabbitMqConnection = factory.CreateConnection();
+        _channel = _rabbitMqConnection.CreateModel();
+        _channel.ExchangeDeclare("adnd.events", ExchangeType.Direct, durable: true);
+
+        _logger.LogInformation("RabbitMQ connected for game {GameId}", _gameId);
+    }
+
+    private void DeclareAgentQueue()
+    {
+        var queueName = $"agent.{_gameId}";
+
+        _channel!.QueueDeclare(queueName, durable: true, exclusive: false, autoDelete: false, null);
+        _channel.QueueBind(queueName, "adnd.events", $"agent.{_gameId}");
+
+        _logger.LogInformation("Declared agent queue {Queue} for game {GameId}", queueName, _gameId);
+    }
+
+    private void StartConsuming()
+    {
+        _consumer = new AsyncEventingBasicConsumer(_channel!);
+
+        _consumer.Received += async (model, ea) =>
+        {
+            try
+            {
+                var body = ea.Body.ToArray();
+                var payload = System.Text.Encoding.UTF8.GetString(body);
+
+                using var scope = _serviceProvider.CreateScope();
+
+                // Deserialize event and dispatch to handlers via EventBusWorker
+                var evt = JsonSerializer.Deserialize<IGameEvent>(payload);
+                if (evt != null)
+                {
+                    // Direct dispatch — do NOT call PublishAsync (that would re-publish to RabbitMQ)
+                    await DispatchToHandlers(evt, payload, scope.ServiceProvider, CancellationToken.None);
+                }
+
+                _channel!.BasicAck(ea.DeliveryTag, multiple: false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing message for game {GameId}", _gameId);
+                _channel!.BasicNack(ea.DeliveryTag, multiple: false, requeue: true);
+            }
+        };
+
+        _channel!.BasicConsume(
+            queue: $"agent.{_gameId}",
+            autoAck: false,
+            consumer: _consumer!);
+
+        _logger.LogInformation("Started consuming agent queue for game {GameId}", _gameId);
+    }
+
+    /// <summary>
+    /// Dispatch an event to registered handlers. Called by the consumer on message receipt.
+    /// Persists the event as an EventRecord and invokes all registered handlers.
+    /// </summary>
+    private async Task DispatchToHandlers(IGameEvent evt, string payload, IServiceProvider sp, CancellationToken ct)
+    {
+        using var scope = sp.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        // Persist as EventRecord
+        var record = new EventRecord
+        {
+            Id = Guid.NewGuid(),
+            GameId = evt.GameId,
+            EventType = evt.GetType().FullName!,
+            Payload = payload,
+            Status = EventStatus.Published,
+            CorrelationId = Guid.NewGuid().ToString(),
+            CreatedAt = DateTime.UtcNow,
+            PublishedAt = DateTime.UtcNow
+        };
+        context.EventRecords.Add(record);
+        await context.SaveChangesAsync(ct);
+
+        // Dispatch to handlers
+        var registry = scope.ServiceProvider.GetRequiredService<IHandlerRegistry>();
+        var key = evt.GetType().FullName!;
+
+        if (!registry.Handlers.TryGetValue(key, out var handlers))
+        {
+            _logger.LogDebug("[EVENT] NoHandlerForType | EventType={EventType} | EventId={EventId}",
+                key, record.Id);
+            record.Status = EventStatus.Acknowledged;
+            record.AckedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync(ct);
+            return;
+        }
+
+        var success = true;
+        foreach (var handlerType in handlers)
+        {
+            try
+            {
+                using var handlerScope = sp.CreateScope();
+                var handlerInstance = ActivatorUtilities.CreateInstance(handlerScope.ServiceProvider, handlerType);
+
+                var handleMethod = handlerType.GetMethods()
+                    .FirstOrDefault(m => m.Name == "HandleAsync"
+                                         && m.GetParameters().Length >= 1
+                                         && m.GetParameters()[0].ParameterType == evt.GetType());
+
+                if (handleMethod == null)
+                {
+                    _logger.LogError("[EVENT] NoHandleAsync | Handler={HandlerType} | EventType={EventType}",
+                        handlerType.Name, key);
+                    success = false;
+                    continue;
+                }
+
+                var task = (Task)handleMethod.Invoke(handlerInstance, new object[] { evt, ct })!;
+                await task;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[EVENT] HandlerException | Handler={Handler} | EventType={EventType} | EventId={EventId}",
+                    handlerType.Name, key, record.Id);
+                success = false;
+            }
+        }
+
+        record.Status = success ? EventStatus.Acknowledged : EventStatus.Failed;
+        record.AckedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(ct);
+    }
+
+    private async Task RecoverPendingSagas()
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var pendingSagas = await context.AgentCalls
+            .Where(c => c.GameId == _gameId &&
+                       c.Status != AgentCallStatus.Completed &&
+                       c.Status != AgentCallStatus.Failed &&
+                       c.Status != AgentCallStatus.Cancelled)
+            .OrderBy(c => c.CreatedAt)
+            .ToListAsync();
+
+        if (pendingSagas.Count == 0)
+        {
+            _logger.LogInformation("No pending sagas for game {GameId}", _gameId);
+            return;
+        }
+
+        _logger.LogInformation("Recovering {Count} sagas for game {GameId}", pendingSagas.Count, _gameId);
+
+        foreach (var call in pendingSagas)
+        {
+            // Check for coordinator
+            var coordinator = await context.ToolCallCoordinators
+                .FirstOrDefaultAsync(c => c.SagaId == call.Id && c.Status == CoordinatorStatus.Active);
+
+            if (coordinator != null && coordinator.CompletedTools.Any())
+            {
+                // Resume from coordinator state
+                var tools = JsonSerializer.Deserialize<List<ToolCallInfo>>(coordinator.ToolsJson) ?? new();
+                if (coordinator.CurrentIndex < coordinator.TotalTools)
+                {
+                    var nextTool = tools[coordinator.CurrentIndex];
+                    var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
+                    await eventBus.PublishAsync(new ToolCallRequested(
+                        call.Id, call.GameId, coordinator.CurrentIndex, nextTool.Name, nextTool.Arguments));
+                    _logger.LogInformation("Resumed saga {SagaId} from tool {Index}", call.Id, coordinator.CurrentIndex);
+                }
+                else if (coordinator.Status == CoordinatorStatus.Active)
+                {
+                    // All tools done but coordinator still active — emit follow-up
+                    var toolResults = coordinator.CompletedTools
+                        .OrderBy(t => t.Index)
+                        .Select(t => new ToolResult(t.Index, t.ToolName, t.Result, t.Error))
+                        .ToList();
+                    var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
+                    await eventBus.PublishAsync(new LLMFollowUpRequested(call.Id, call.GameId, toolResults));
+                    _logger.LogInformation("Resumed saga {SagaId} with follow-up LLM", call.Id);
+                }
+            }
+            else
+            {
+                // No coordinator — emit AgentCallQueued to restart saga
+                var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
+                await eventBus.PublishAsync(new AgentCallQueued(call.Id, call.GameId));
+                _logger.LogInformation("Resumed saga {SagaId} from AgentCallQueued", call.Id);
+            }
+        }
     }
 
     public async Task PauseAsync(Guid gameId)
@@ -106,17 +297,15 @@ public class GameAgent : IGameAgent
         _isPaused = true;
         _logger.LogInformation("Pausing game agent for game {GameId}", gameId);
 
-        using (var scope = _scopeFactory.CreateScope())
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var game = await context.Games.FindAsync(gameId);
+        if (game != null)
         {
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var game = await context.Games.FindAsync(gameId);
-            if (game != null)
-            {
-                game.GMStatus = Models.GMStatus.Paused;
-                game.LastGMAction = "Paused";
-                game.LastGMActionAt = DateTime.UtcNow;
-                await context.SaveChangesAsync();
-            }
+            game.GMStatus = Models.GMStatus.Paused;
+            game.LastGMAction = "Paused";
+            game.LastGMActionAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
         }
     }
 
@@ -125,46 +314,31 @@ public class GameAgent : IGameAgent
         _isPaused = false;
         _logger.LogInformation("Resuming game agent for game {GameId}", gameId);
 
-        using (var scope = _scopeFactory.CreateScope())
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var game = await context.Games.FindAsync(gameId);
+        if (game != null)
         {
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var game = await context.Games.FindAsync(gameId);
-            if (game != null)
-            {
-                game.GMStatus = Models.GMStatus.Running;
-                game.LastGMAction = "Resumed";
-                game.LastGMActionAt = DateTime.UtcNow;
-                await context.SaveChangesAsync();
-            }
-        }
-
-        // Restart the processing loop if it was disposed (e.g., due to error or unexpected exit)
-        if (_processingLoop == null || _processingLoop.IsCompleted)
-        {
-            var loopState = _processingLoop == null ? "null" : _processingLoop.Status.ToString();
-            _logger.LogInformation("Restarting processing loop for game {GameId} (loop was {State})",
-                gameId, loopState);
-            _processingLoop = ProcessLoopAsync();
+            game.GMStatus = Models.GMStatus.Running;
+            game.LastGMAction = "Resumed";
+            game.LastGMActionAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
         }
     }
 
     public async Task<GMStatus> GetStatusAsync(Guid gameId)
     {
-        Game? game;
-        using (var scope = _scopeFactory.CreateScope())
-        {
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            game = await context.Games.FindAsync(gameId);
-        }
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var game = await context.Games.FindAsync(gameId);
         if (game == null)
             throw new KeyNotFoundException($"Game {gameId} not found.");
-
         return game.GMStatus;
     }
 
     public bool IsActive(Guid gameId)
     {
-        return _processingLoop != null && !_processingLoop.IsCompleted && !_isPaused;
+        return _isConnected && !_isPaused;
     }
 
     public IEnumerable<Guid> GetActiveGameIds()
@@ -172,146 +346,18 @@ public class GameAgent : IGameAgent
         yield return _gameId;
     }
 
-    /// <summary>
-    /// Main processing loop — event-driven via _pendingCallIds queue.
-    /// Blocks indefinitely on _signal.Wait() until a call is enqueued.
-    /// No polling — if the agent crashes, pending calls in DB are recovered
-    /// on next app start via GameAgentManager.StartAllActiveGamesAsync().
-    /// </summary>
-    private async Task ProcessLoopAsync()
+    private async Task<Game?> GetGameAsync(Guid gameId)
     {
-        _logger.LogInformation("Game agent processing loop started for game {GameId}", _gameId);
-
-        try
-        {
-            while (!_cts.Token.IsCancellationRequested)
-            {
-                try
-                {
-                    // Wait for a signal (new call arrived) — blocks indefinitely
-                    // Use WaitHandle.WaitOne with timeout to support cancellation
-                    bool signaled = _signal.Wait(Timeout.Infinite, _cts.Token);
-
-                    // Use per-iteration scope to avoid DbContext lifetime issues
-                    Game? game;
-                    using (var scope = _scopeFactory.CreateScope())
-                    {
-                        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                        game = await context.Games.FindAsync(_gameId);
-                    }
-
-                    // Only process calls when the game is active/starting and the GM is running
-                    if (game == null || (game.Status != Models.GameStatus.Active && game.Status != Models.GameStatus.Starting) || game.GMStatus == Models.GMStatus.Idle)
-                    {
-                        _signal.Reset();
-                        continue;
-                    }
-
-                    if (_isPaused)
-                    {
-                        _signal.Reset();
-                        continue;
-                    }
-
-                    // Drain the event-driven queue
-                    List<AgentCall> pendingCalls = new();
-                    while (_pendingCallIds.TryDequeue(out var callId))
-                    {
-                        using var scope = _scopeFactory.CreateScope();
-                        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                        var call = await context.AgentCalls.FindAsync(callId);
-                        if (call != null && call.Status == AgentCallStatus.Pending)
-                        {
-                            pendingCalls.Add(call);
-                        }
-                        else
-                        {
-                            // Call was already processed or doesn't exist — ignore
-                            _logger.LogDebug("[AGENT] StaleCallInQueue | GameId={GameId} | CallId={CallId}", _gameId, callId);
-                        }
-                    }
-
-                    if (pendingCalls.Any())
-                    {
-                        _logger.LogInformation("[AGENT] ProcessingBatch | GameId={GameId} | BatchSize={Size} | Sources={Sources}",
-                            _gameId, pendingCalls.Count,
-                            string.Join(", ", pendingCalls.Select(c => $"{c.FromAgent}->{c.Action}")));
-                    }
-
-                    // Process each pending event sequentially
-                    foreach (var call in pendingCalls)
-                    {
-                        if (_cts.Token.IsCancellationRequested || _isPaused) break;
-
-                        await ProcessCallAsync(call);
-                    }
-
-                    // Reset signal — it will be Set() again when new calls arrive
-                    _signal.Reset();
-                }
-                catch (OperationCanceledException) when (_cts.Token.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error in game agent processing loop for game {GameId}", _gameId);
-                    _signal.Reset();
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected on shutdown
-        }
-
-        _logger.LogInformation("Game agent processing loop stopped for game {GameId}", _gameId);
-    }
-
-    private async Task ProcessCallAsync(AgentCall call)
-    {
-        _logger.LogInformation("[AGENT] CallStart | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | CreatedAt={CreatedAt}",
-            _gameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.CreatedAt);
-
-        // Single scope for the entire call. AgentBus is Scoped and holds scoped deps
-        // (AppDbContext, ILLMInteractionLogger). GameAgent is long-lived so we must
-        // not hold scoped references beyond the scope that created them.
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        call.Status = AgentCallStatus.Running;
-        call.StartedAt = DateTime.UtcNow;
-        await context.SaveChangesAsync();
-
-        var agentBus = scope.ServiceProvider.GetRequiredService<IAgentBus>();
-
-        try
-        {
-            var result = await agentBus.ExecuteCallAsync(call);
-
-            call.Status = AgentCallStatus.Completed;
-            call.CompletedAt = DateTime.UtcNow;
-            await context.SaveChangesAsync();
-
-            _logger.LogInformation("[AGENT] CallComplete | GameId={GameId} | CallId={CallId} | Action={Action} | Duration={Duration}ms | OutputLen={OutputLen}",
-                _gameId, call.Id, call.Action, call.DurationMs, call.Output?.Length ?? 0);
-        }
-        catch (Exception ex)
-        {
-            call.Status = AgentCallStatus.Failed;
-            call.Error = ex.Message;
-            call.CompletedAt = DateTime.UtcNow;
-            await context.SaveChangesAsync();
-
-            _logger.LogError("[AGENT] CallFailed | GameId={GameId} | CallId={CallId} | Action={Action} | Duration={Duration}ms | Error={Error}",
-                _gameId, call.Id, call.Action, call.DurationMs, ex.Message);
-        }
+        return await context.Games.FindAsync(gameId);
     }
 
     public void Dispose()
     {
         _cts.Cancel();
         _cts.Dispose();
-        _signal.Dispose();
+        _isConnected = false;
     }
 }
 
@@ -321,45 +367,16 @@ public class GameAgent : IGameAgent
 /// </summary>
 public class GameAgentManager : IGameAgentManager, IDisposable
 {
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IGameEngine _gameEngine;
-    private readonly IRAGService _ragService;
-    private readonly SystemRegistry _systemRegistry;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ConcurrentDictionary<Guid, GameAgent> _agents = new();
 
     public GameAgentManager(
-        IServiceScopeFactory scopeFactory,
-        IGameEngine gameEngine,
-        IRAGService ragService,
-        SystemRegistry systemRegistry,
+        IServiceProvider serviceProvider,
         ILoggerFactory loggerFactory)
     {
-        _scopeFactory = scopeFactory;
-        _gameEngine = gameEngine;
-        _ragService = ragService;
-        _systemRegistry = systemRegistry;
+        _serviceProvider = serviceProvider;
         _loggerFactory = loggerFactory;
-    }
-
-    /// <summary>
-    /// Enqueue a pending call ID into the GameAgent's queue — called by the AgentCallQueued event handler.
-    /// If the agent doesn't exist yet, the DB fallback in the loop will pick it up.
-    /// </summary>
-    public void OnAgentCallQueued(Guid gameId, Guid callId)
-    {
-        if (_agents.TryGetValue(gameId, out var agent))
-        {
-            try
-            {
-                agent.EnqueueCall(callId);
-            }
-            catch (Exception ex)
-            {
-                _loggerFactory.CreateLogger<GameAgentManager>()
-                    .LogWarning(ex, "Failed to enqueue call for game {GameId}", gameId);
-            }
-        }
     }
 
     public IGameAgent GetOrCreate(Guid gameId)
@@ -386,13 +403,9 @@ public class GameAgentManager : IGameAgentManager, IDisposable
             }
 
             var agentLogger = _loggerFactory.CreateLogger<GameAgent>();
-            var agent = new GameAgent(
-                gameId,
-                _scopeFactory,
-                _gameEngine,
-                _ragService,
-                _systemRegistry,
-                agentLogger);
+            var agentLogger2 = _loggerFactory.CreateLogger<GameAgent>();
+            var config = _serviceProvider.GetRequiredService<IConfiguration>();
+            var agent = new GameAgent(gameId, _serviceProvider, config, agentLogger2);
 
             if (_agents.TryAdd(gameId, agent))
             {
@@ -424,7 +437,7 @@ public class GameAgentManager : IGameAgentManager, IDisposable
         logger.LogInformation("Recovering active game agents from database...");
 
         var activeGames = new List<Guid>();
-        using (var scope = _scopeFactory.CreateScope())
+        using (var scope = _serviceProvider.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             activeGames = await context.Games
@@ -440,7 +453,6 @@ public class GameAgentManager : IGameAgentManager, IDisposable
             try
             {
                 var agent = GetOrCreate(gameId);
-                // Start the processing loop — without this, recovered agents are dead (never start polling)
                 await agent.StartAsync(gameId, Guid.Empty);
                 logger.LogInformation("Recovered game agent for game {GameId}", gameId);
             }

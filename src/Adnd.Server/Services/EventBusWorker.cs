@@ -26,7 +26,6 @@ public class EventBusWorker : BackgroundService, IEventBus
     private readonly ILogger<EventBusWorker> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
-    private readonly IGameAgentManager _gameAgentManager;
     private readonly Dictionary<string, List<(string handlerId, Type eventType, Type handlerType)>> _handlerMap;
     private IConnection? _rabbitMqConnection;
     private IModel? _channel;
@@ -39,13 +38,11 @@ public class EventBusWorker : BackgroundService, IEventBus
     public EventBusWorker(
         ILogger<EventBusWorker> logger,
         IServiceProvider serviceProvider,
-        IConfiguration configuration,
-        IGameAgentManager gameAgentManager)
+        IConfiguration configuration)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _configuration = configuration;
-        _gameAgentManager = gameAgentManager;
         _handlerMap = new();
     }
 
@@ -424,25 +421,6 @@ public class EventBusWorker : BackgroundService, IEventBus
 
         // Ensure handlers are registered (lazy init to avoid constructor deadlocks)
         EnsureHandlersRegistered();
-
-        // Special handling: AgentCallQueued events must wake up the GameAgent
-        // regardless of whether there are registered handlers
-        if (record.EventType == typeof(Events.AgentCallQueued).FullName)
-        {
-            try
-            {
-                var callEvt = JsonSerializer.Deserialize(record.Payload, typeof(Events.AgentCallQueued)) as Events.AgentCallQueued;
-                if (callEvt != null)
-                {
-                    _gameAgentManager.OnAgentCallQueued(callEvt.GameId, callEvt.SagaId);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[EVENT] FailedToWakeGameAgent | EventType={EventType} | EventId={EventId}",
-                    record.EventType, record.Id);
-            }
-        }
 
         if (!_handlerMap.TryGetValue(record.EventType, out var handlers))
         {

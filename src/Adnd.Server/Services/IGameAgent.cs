@@ -26,12 +26,6 @@ public interface IGameAgent
     Task ResumeAsync(Guid gameId);
 
     /// <summary>
-    /// Enqueue a pending call ID — called by the AgentCallQueued event handler.
-    /// The processing loop checks this queue before querying the database.
-    /// </summary>
-    void EnqueueCall(Guid callId);
-
-    /// <summary>
     /// Get the current status of the game agent.
     /// </summary>
     Task<GMStatus> GetStatusAsync(Guid gameId);
@@ -66,10 +60,4 @@ public interface IGameAgentManager
     /// Start all game agents that should be running (called on startup to recover from restart).
     /// </summary>
     Task StartAllActiveGamesAsync();
-
-    /// <summary>
-    /// Wake up a GameAgent when a new call is queued — eliminates polling delay.
-    /// Called by the AgentCallQueued event handler.
-    /// </summary>
-    void OnAgentCallQueued(Guid gameId, Guid callId);
 }
