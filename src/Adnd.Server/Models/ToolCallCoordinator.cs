@@ -1,3 +1,6 @@
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json;
+
 namespace Adnd.Server.Models;
 
 public class ToolCallCoordinator
@@ -9,6 +12,7 @@ public class ToolCallCoordinator
     public int CurrentIndex { get; set; }
     public string? ToolName { get; set; }
     public string? ToolArgs { get; set; }
+    [NotMapped]
     public List<ToolCallResult> CompletedTools { get; set; } = new();
     public string? ToolsJson { get; set; }  // JSON: [{name, arguments}, ...]
     public CoordinatorStatus Status { get; set; } = CoordinatorStatus.Active;
