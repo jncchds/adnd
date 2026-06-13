@@ -146,8 +146,9 @@ public class RabbitMqEventBus : IEventBus
 
     /// <summary>
     /// Publish an event to a specific agent's queue with optional headers.
+    /// The routing key is always 'agent.{gameId}' — the queue binding matches this.
     /// </summary>
-    public void PublishToAgent(Guid gameId, string routingKey, string payload, string? correlationId = null, Dictionary<string, object>? headers = null)
+    public void PublishToAgent(Guid gameId, string payload, string? correlationId = null, Dictionary<string, object>? headers = null)
     {
         var channel = GetOrCreateAgentChannel(gameId);
 
@@ -163,7 +164,7 @@ public class RabbitMqEventBus : IEventBus
 
         channel.BasicPublish(
             exchange: "adnd.events",
-            routingKey: routingKey,
+            routingKey: $"agent.{gameId}",
             mandatory: false,
             basicProperties: props,
             body: body);

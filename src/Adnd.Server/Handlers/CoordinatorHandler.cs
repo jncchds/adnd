@@ -45,7 +45,7 @@ public class CoordinatorHandler : IEventHandler<ToolCallCompleted>
             var followUpEvent = new LLMFollowUpRequested(evt.SagaId, evt.GameId, toolResults);
             var followUpPayload = JsonSerializer.Serialize(followUpEvent);
             var followUpHeaders = new Dictionary<string, object> { ["x-event-type"] = followUpEvent.GetType().FullName };
-            _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", followUpPayload, Guid.NewGuid().ToString(), followUpHeaders);
+            _rabbitMq.PublishToAgent(evt.GameId, followUpPayload, Guid.NewGuid().ToString(), followUpHeaders);
 
             _logger.LogInformation("[COORD] AllToolsDone | SagaId={SagaId} | Tools={Count}", evt.SagaId, toolResults.Count);
             return;
@@ -57,7 +57,7 @@ public class CoordinatorHandler : IEventHandler<ToolCallCompleted>
         var nextEvent = new ToolCallRequested(evt.SagaId, evt.GameId, coordinator.CurrentIndex, nextTool.Name, nextTool.Arguments);
         var payload = JsonSerializer.Serialize(nextEvent);
         var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
-        _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
+        _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
 
         _logger.LogInformation("[COORD] NextTool | SagaId={SagaId} | Index={Index}/{Total}",
             evt.SagaId, coordinator.CurrentIndex, coordinator.TotalTools);

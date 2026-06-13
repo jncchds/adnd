@@ -83,7 +83,7 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
         var nextEvent = new NarrativeReady(evt.SagaId, evt.GameId, result);
         var payload = JsonSerializer.Serialize(nextEvent);
         var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
-        _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
+        _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
 
         call.CurrentStep = SagaStep.NarrativeReady;
         await context.SaveChangesAsync(ct);
@@ -112,6 +112,6 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
         var nextEvent = new AgentCallFailed(sagaId, gameId, error);
         var payload = JsonSerializer.Serialize(nextEvent);
         var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
-        _rabbitMq.PublishToAgent(gameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
+        _rabbitMq.PublishToAgent(gameId, payload, Guid.NewGuid().ToString(), headers);
     }
 }

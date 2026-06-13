@@ -56,7 +56,7 @@ public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
 
         var payload = JsonSerializer.Serialize(nextEvent);
         var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
-        _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
+        _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
 
         call.CurrentStep = call.Action == AgentAction.ManageState ? SagaStep.Completed : SagaStep.LLMDispatchRequested;
         await context.SaveChangesAsync(ct);

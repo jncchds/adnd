@@ -54,7 +54,7 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
             var failEvent = new AgentCallFailed(evt.SagaId, evt.GameId, $"Waiting user input for {evt.ToolName}");
             var failPayload = JsonSerializer.Serialize(failEvent);
             var failHeaders = new Dictionary<string, object> { ["x-event-type"] = failEvent.GetType().FullName };
-            _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", failPayload, Guid.NewGuid().ToString(), failHeaders);
+            _rabbitMq.PublishToAgent(evt.GameId, failPayload, Guid.NewGuid().ToString(), failHeaders);
             return;
         }
 
@@ -85,7 +85,7 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
         var nextEvent = new ToolCallCompleted(evt.SagaId, evt.GameId, evt.ToolIndex, result.Output ?? "", result.Error);
         var payload = JsonSerializer.Serialize(nextEvent);
         var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
-        _rabbitMq.PublishToAgent(evt.GameId, "adnd.saga", payload, Guid.NewGuid().ToString(), headers);
+        _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
 
         _logger.LogInformation("[TOOL] Executed | SagaId={SagaId} | Index={Index} | Success={Success}",
             evt.SagaId, evt.ToolIndex, result.Success);
