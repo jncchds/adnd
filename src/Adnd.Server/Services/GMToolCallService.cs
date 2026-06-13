@@ -89,7 +89,7 @@ public class GMToolCallService : IGMToolCallService
             .Where(tc => tc.GameId == gameId && 
                          tc.RequiresConfirmation && 
                          tc.Status == ToolCallStatus.WaitingConfirmation &&
-                         tc.CreatedAt.Add(tc.ExpirationTime ?? TimeSpan.FromMinutes(5)) < DateTime.UtcNow)
+                         tc.CreatedAt.Add(tc.ExpirationTime) < DateTime.UtcNow)
             .ToListAsync();
 
         if (!expiredCalls.Any())

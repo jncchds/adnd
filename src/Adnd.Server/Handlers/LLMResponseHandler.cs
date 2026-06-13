@@ -42,7 +42,7 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
 
             var narrativeEvent = new NarrativeReady(evt.SagaId, evt.GameId, evt.Response);
             var narrativePayload = JsonSerializer.Serialize(narrativeEvent);
-            var narrativeHeaders = new Dictionary<string, object> { ["x-event-type"] = narrativeEvent.GetType().FullName };
+            var narrativeHeaders = new Dictionary<string, object> { ["x-event-type"] = narrativeEvent.GetType().FullName! };
             _rabbitMq.PublishToAgent(evt.GameId, narrativePayload, Guid.NewGuid().ToString(), narrativeHeaders);
             return;
         }
@@ -75,7 +75,7 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
 
         var nextEvent = new ToolCallRequested(evt.SagaId, evt.GameId, 0, firstTool?.Name ?? "unknown", firstTool?.Arguments ?? "{}");
         var payload = JsonSerializer.Serialize(nextEvent);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
         _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
     }
 

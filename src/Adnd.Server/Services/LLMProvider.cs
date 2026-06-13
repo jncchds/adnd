@@ -334,7 +334,7 @@ public abstract class BaseLLMProvider : ILLMProvider
                 tokenUsage?.completionTokens,
                 tokenUsage?.totalTokens);
 
-            return response;
+            return response ?? "";
         }
         catch (Exception ex)
         {
@@ -402,7 +402,7 @@ public abstract class BaseLLMProvider : ILLMProvider
             _logger.LogInformation("[PROVIDER] GetEmbeddingAsync | Provider={ProviderId} | Model={Model} | TextLen={TextLen} | Dim={Dim} | Duration={Duration}ms",
                 ProviderId, ModelName, text.Length, result?.Length ?? 0, sw.ElapsedMilliseconds);
 
-            return result;
+            return result ?? Array.Empty<float>();
         }
         catch (Exception ex)
         {
@@ -555,8 +555,8 @@ public abstract class BaseLLMProvider : ILLMProvider
             return calls.Select(c => new ToolCall
             {
                 Id = c.id ?? $"call_{Guid.NewGuid():N[..8]}",
-                Name = c.name,
-                Arguments = c.arguments
+                Name = c.name ?? "",
+                Arguments = c.arguments ?? ""
             }).ToList();
         }
         catch

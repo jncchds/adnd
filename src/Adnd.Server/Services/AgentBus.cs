@@ -1026,7 +1026,7 @@ public class AgentBus : IAgentBus
         {
             var expired = await toolContext.GMToolCalls
                 .Where(tc => tc.Status == ToolCallStatus.WaitingConfirmation &&
-                            tc.CreatedAt + (tc.ExpirationTime ?? TimeSpan.FromMinutes(5)) < DateTime.UtcNow)
+                            tc.CreatedAt + tc.ExpirationTime < DateTime.UtcNow)
                 .ToListAsync();
             foreach (var tc in expired)
             {

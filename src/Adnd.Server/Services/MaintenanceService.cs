@@ -85,7 +85,7 @@ public class MaintenanceService : IHostedService
             .ToListAsync();
 
         var expiredCalls = pendingCalls
-            .Where(tc => tc.CreatedAt + (tc.ExpirationTime ?? TimeSpan.FromMinutes(5)) < DateTime.UtcNow)
+            .Where(tc => tc.CreatedAt + tc.ExpirationTime < DateTime.UtcNow)
             .ToList();
 
         if (!expiredCalls.Any())

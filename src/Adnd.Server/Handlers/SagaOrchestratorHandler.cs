@@ -57,7 +57,7 @@ public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
         if (nextEvent != null)
         {
             var payload = JsonSerializer.Serialize(nextEvent);
-            var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+            var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
             _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
         }
 

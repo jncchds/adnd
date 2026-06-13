@@ -79,7 +79,7 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
 
         var nextEvent = new LLMResponseReceived(evt.SagaId, evt.GameId, result, hasToolCalls, toolCallCount);
         var payload = JsonSerializer.Serialize(nextEvent);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
         _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
 
         call.CurrentStep = SagaStep.LLMResponseReceived;
@@ -121,7 +121,7 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
 
         var nextEvent = new AgentCallFailed(sagaId, gameId, error);
         var payload = JsonSerializer.Serialize(nextEvent);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
         _rabbitMq.PublishToAgent(gameId, payload, Guid.NewGuid().ToString(), headers);
     }
 }
