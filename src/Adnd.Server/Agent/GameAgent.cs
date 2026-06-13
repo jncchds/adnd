@@ -148,6 +148,14 @@ public class GameAgent : IGameAgent
 
                 if (evt != null)
                 {
+                    // Skip trigger events — they should only be handled by EventBusWorker
+                    if (evt is AgentCallQueued)
+                    {
+                        _logger.LogDebug("[CONSUMER] Skipping trigger event | EventType={EventType}", eventTypeFullName);
+                        _channel!.BasicAck(ea.DeliveryTag, multiple: false);
+                        return;
+                    }
+
                     // Direct dispatch — do NOT call PublishAsync (that would re-publish to RabbitMQ)
                     await DispatchToHandlers(evt, payload, scope.ServiceProvider, CancellationToken.None);
                 }
