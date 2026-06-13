@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -28,7 +29,17 @@ builder.Services.AddControllers()
     {
         opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         opts.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    })
+    .ConfigureApplicationPartManager(manager =>
+    {
+        // Ensure conventions assembly is discovered
     });
+
+// Register lowercase controller convention for consistent REST paths
+builder.Services.Configure<MvcOptions>(options =>
+{
+    options.Conventions.Add(new Adnd.Server.Conventions.LowerCaseControllerConvention());
+});
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -328,16 +339,20 @@ app.MapHealthChecks("/health/ready");
 
 if (app.Environment.IsDevelopment())
 {
-    app.UseCors("AllowAll");
+    app.UseHttpsRedirection();
 }
 else
 {
+    app.UseHttpsRedirection();
     app.UseExceptionHandler("/error");
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
 app.UseStaticFiles();
+
+// CORS — always enabled (needed for SPA dev server proxy)
+app.UseCors("AllowAll");
+
 app.UseRouting();
 
 // Security Headers Middleware

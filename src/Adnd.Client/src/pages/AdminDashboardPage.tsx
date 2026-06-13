@@ -7,7 +7,7 @@ import { useCharacters } from '../api/hooks/useCharacters';
 import { useNPCs } from '../api/hooks/useNPCs';
 import { useGameHub } from '../api/hooks/useHub';
 import { api } from '../api/client';
-import { Box, Typography, Grid, Paper, Chip, Button, Divider, Alert } from '@mui/material';
+import { Box, Typography, Grid, Paper, Chip, Button, Divider } from '@mui/material';
 import {
   People as PeopleIcon,
   MenuBook as PlotIcon,

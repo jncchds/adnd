@@ -417,7 +417,7 @@ export default function GameChatPage() {
   const { user } = useAuth();
   const { game, isLoading: isLoadingGame } = useGame(id);
   const { pendingCalls: calls } = useToolCalls(id);
-  const { players } = usePlayers(id);
+  const { players, refetch: refetchPlayers } = usePlayers(id);
   const { messages, isLoading, hasMore, loadOldest } = useMessagesInfiniteScroll(id, game?.sessionId);
   const { isConnected, on, off, invoke } = useGameHub();
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -612,12 +612,12 @@ export default function GameChatPage() {
       });
     };
 
-    const handlePlayerDisconnected = (data: { gameId: string; playerId: string; disconnectedAt: string }) => {
-      // Update players list via refetch
-      setPlayers(prev => prev.filter(p => p.id !== data.playerId));
+    const handlePlayerDisconnected = (_data: { gameId: string; playerId: string; disconnectedAt: string }) => {
+      // Refetch players list from server
+      refetchPlayers();
     };
 
-    const handlePlayerReconnected = (data: { gameId: string; playerId: string; reconnectedAt: string }) => {
+    const handlePlayerReconnected = (_data: { gameId: string; playerId: string; reconnectedAt: string }) => {
       // Players list will be refetched via the PlayerJoined event on reconnect
       // No action needed here - the UI will update when the Hub broadcasts PlayerJoined
     };
