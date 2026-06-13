@@ -53,17 +53,6 @@ public class RabbitMqEventBus : IEventBus
             evt.GameId, typeof(TEvent).Name, record.Id);
     }
 
-    public void Subscribe<TEvent>(IEventHandler<TEvent> handler) where TEvent : IGameEvent
-    {
-        // Dynamic subscription — not used in current design (startup scan handles it)
-        // Kept for future extensibility
-    }
-
-    public void Unsubscribe<TEvent>(IEventHandler<TEvent> handler) where TEvent : IGameEvent
-    {
-        // Dynamic unsubscription
-    }
-
     /// <summary>
     /// Get or create a RabbitMQ channel for a specific game queue.
     /// Declares the queue, DLQ, and bindings if they don't exist.

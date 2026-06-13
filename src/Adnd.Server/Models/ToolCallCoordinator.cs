@@ -10,8 +10,6 @@ public class ToolCallCoordinator
     public Guid GameId { get; set; }
     public int TotalTools { get; set; }
     public int CurrentIndex { get; set; }
-    public string? ToolName { get; set; }
-    public string? ToolArgs { get; set; }
     [NotMapped]
     public List<ToolCallResult> CompletedTools { get; set; } = new();
     public string? ToolsJson { get; set; }  // JSON: [{name, arguments}, ...]

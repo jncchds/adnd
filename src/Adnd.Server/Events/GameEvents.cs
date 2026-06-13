@@ -157,12 +157,6 @@ public record ToolCallCompleted(
     string Result,
     string? Error) : IGameEvent;
 
-public record CoordinatorUpdated(
-    Guid SagaId,
-    Guid GameId,
-    int CurrentIndex,
-    int TotalTools) : IGameEvent;
-
 public record LLMFollowUpRequested(
     Guid SagaId,
     Guid GameId,
@@ -174,8 +168,6 @@ public record NarrativeReady(
     Guid SagaId,
     Guid GameId,
     string Narrative) : IGameEvent;
-
-public record AgentCallCompleted(Guid SagaId, Guid GameId) : IGameEvent;
 
 public record AgentCallFailed(Guid SagaId, Guid GameId, string Error) : IGameEvent;
 

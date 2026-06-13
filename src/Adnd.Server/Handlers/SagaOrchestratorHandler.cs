@@ -43,22 +43,25 @@ public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
         call.CurrentStep = SagaStep.Init;
         await context.SaveChangesAsync(ct);
 
-        IGameEvent nextEvent = call.Action switch
+        IGameEvent? nextEvent = call.Action switch
         {
             AgentAction.Narrate or AgentAction.Generate or AgentAction.OpenNarrative
                 => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are the Game Master for a TTRPG session.", call.Input ?? "Continue the narrative.", null),
             AgentAction.Nudge => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are the Game Master for a TTRPG session. The creator has sent a narrative nudge.", call.Input ?? "Incorporate the direction.", null),
             AgentAction.Query => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are a helpful TTRPG assistant.", call.Input ?? "Answer the question.", null),
             AgentAction.Suggest => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are a creative TTRPG Game Master assistant.", call.Input ?? "Suggest plot continuations.", null),
-            AgentAction.ManageState => new AgentCallCompleted(evt.SagaId, evt.GameId),
+            AgentAction.ManageState => null,
             _ => new AgentCallFailed(evt.SagaId, evt.GameId, $"Unknown action: {call.Action}")
         };
 
-        var payload = JsonSerializer.Serialize(nextEvent);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
-        _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
+        if (nextEvent != null)
+        {
+            var payload = JsonSerializer.Serialize(nextEvent);
+            var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName };
+            _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
+        }
 
-        call.CurrentStep = call.Action == AgentAction.ManageState ? SagaStep.Completed : SagaStep.LLMDispatchRequested;
+        call.CurrentStep = nextEvent == null ? SagaStep.Completed : SagaStep.LLMDispatchRequested;
         await context.SaveChangesAsync(ct);
 
         _logger.LogInformation("[SAGA] NextStep | SagaId={SagaId} | Step={Step}", evt.SagaId, call.CurrentStep);

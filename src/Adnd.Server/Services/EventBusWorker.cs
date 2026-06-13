@@ -233,17 +233,6 @@ public class EventBusWorker : BackgroundService, IEventBus
         }
     }
 
-    public void Subscribe<TEvent>(IEventHandler<TEvent> handler) where TEvent : IGameEvent
-    {
-        // Dynamic subscription — not used in current design (startup scan handles it)
-        // Kept for future extensibility
-    }
-
-    public void Unsubscribe<TEvent>(IEventHandler<TEvent> handler) where TEvent : IGameEvent
-    {
-        // Dynamic unsubscription
-    }
-
     public override async Task StartAsync(CancellationToken ct)
     {
         await base.StartAsync(ct);
