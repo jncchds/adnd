@@ -60,6 +60,18 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
         float temperature = options?.Temperature ?? 0.7f;
         int maxTokens = options?.MaxTokens ?? 2048;
 
+        // Build generationConfig for Google AI Studio
+        var generationConfig = new Dictionary<string, object>
+        {
+            { "temperature", temperature },
+            { "maxOutputTokens", maxTokens },
+            { "topP", options?.TopP ?? 0.9f }
+        };
+        if (options?.JsonSchemaOutput != null)
+        {
+            generationConfig["responseMimeType"] = "application/json";
+        }
+
         var payload = new
         {
             contents = new[]
@@ -67,12 +79,7 @@ public class GoogleAIStudioLLMProvider : BaseLLMProvider
                 new { role = "user", parts = new[] { new { text = userPrompt } } }
             },
             system_instruction = new { parts = new[] { new { text = systemPrompt } } },
-            generationConfig = new
-            {
-                temperature,
-                maxOutputTokens = maxTokens,
-                topP = options?.TopP ?? 0.9f
-            }
+            generationConfig = generationConfig
         };
 
         try

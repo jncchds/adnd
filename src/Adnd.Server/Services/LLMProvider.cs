@@ -69,7 +69,126 @@ public class LLMOptions
     public float? FrequencyPenalty { get; set; }
     public float? PresencePenalty { get; set; }
     public Dictionary<string, object>? ExtraParams { get; set; }
+    /// <summary>
+    /// If set, forces the LLM to return JSON using the provider-specific mechanism.
+    /// </summary>
+    public JsonSchemaOutput? JsonSchemaOutput { get; set; }
 }
+
+/// <summary>
+/// Describes a JSON output schema for structured LLM responses.
+/// Each provider handles this differently (LM Studio uses json_schema,
+/// Google uses responseMimeType, Ollama uses format:json, OpenAI uses json_schema).
+/// </summary>
+public class JsonSchemaOutput
+{
+    /// <summary>
+    /// The name of the schema (used for identification/logging).
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The JSON schema definition. For LM Studio, this is a full JSON schema object.
+    /// For Google AI, only the type is used.
+    /// </summary>
+    public JsonElement Schema { get; set; }
+
+    /// <summary>
+    /// Get the schema as a serialized string.
+    /// </summary>
+    public string GetSchemaString() => Schema.GetRawText();
+}
+
+/// <summary>
+    /// Extracts a valid JSON string from LLM output that may contain
+    /// markdown code fences, reasoning text, or other non-JSON content.
+    /// </summary>
+    public static class JsonExtract
+    {
+        public static string? Extract(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            var s = raw.Trim();
+
+            // Try direct parse first (fast path)
+            if (IsValidJson(s)) return s;
+
+            // Try to find a JSON array or object in the text
+            var json = ExtractEmbeddedJson(s);
+            if (json != null) return json;
+
+            return null;
+        }
+
+        private static bool IsValidJson(string s)
+        {
+            try
+            {
+                // JsonSerializer.Deserialize is stricter than JsonDocument.Parse:
+                // it throws on trailing content (e.g. "[{...}] }").
+                // This is exactly what we want for validation.
+                JsonSerializer.Deserialize<object>(s);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string? ExtractEmbeddedJson(string s)
+        {
+            // First try: markdown code fences (```json ... ``` or ``` ... ```)
+            var fenceMatch = System.Text.RegularExpressions.Regex.Match(s, @"```(?:json)?\s*\n?(.+?)```", System.Text.RegularExpressions.RegexOptions.Singleline);
+            if (fenceMatch.Success && IsValidJson(fenceMatch.Groups[1].Value.Trim()))
+                return fenceMatch.Groups[1].Value.Trim();
+
+            // Second try: find first { or [ and parse forward
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (s[i] != '{' && s[i] != '[') continue;
+                var json = TryFindClosingBracket(s, i);
+                if (json != null && IsValidJson(json))
+                    return json;
+            }
+
+            // Third try: try to find a valid JSON object by trimming trailing non-JSON content
+            // Some LLMs return valid JSON followed by extra text like "}" or markdown
+            for (int i = s.Length - 1; i >= 0; i--)
+            {
+                var trimmed = s[..(i + 1)];
+                if (IsValidJson(trimmed))
+                    return trimmed;
+            }
+
+            return null;
+        }
+
+        private static string? TryFindClosingBracket(string s, int start)
+        {
+            char open = s[start];
+            char close = open == '{' ? '}' : ']';
+            int depth = 0;
+            bool inString = false;
+            bool escaped = false;
+
+            for (int i = start; i < s.Length; i++)
+            {
+                var c = s[i];
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+                if (c == '\\') { escaped = true; continue; }
+                if (c == '"') { inString = !inString; continue; }
+                if (inString) continue;
+                if (c == open) depth++;
+                else if (c == close) { depth--; if (depth == 0) return s.Substring(start, i - start + 1); }
+            }
+            return null;
+        }
+    }
 
 public class ProviderStatus
 {

@@ -271,3 +271,32 @@ public class CharacterCreateInput
     public object? Inventory { get; set; }
     public string? SystemId { get; set; }
 }
+
+// ============= LLM Interaction Log Response DTOs =============
+
+public class LLMInteractionLogResponse
+{
+    public Guid Id { get; set; }
+    public Guid? PresetId { get; set; }
+    public string? PresetName { get; set; }
+    public string ProviderType { get; set; } = string.Empty;
+    public string Model { get; set; } = string.Empty;
+    public int? PromptTokens { get; set; }
+    public int? CompletionTokens { get; set; }
+    public int? TotalTokens { get; set; }
+    public int DurationMs { get; set; }
+    public bool Success { get; set; }
+    public string? Error { get; set; }
+    public string? SystemPrompt { get; set; }
+    public string? UserPrompt { get; set; }
+    public string? Response { get; set; }
+    public string? RequestJson { get; set; }
+    public string? ResponseJson { get; set; }
+    public string Origin { get; set; } = string.Empty;
+    public Guid? OriginGameId { get; set; }
+    public Guid? OriginSessionId { get; set; }
+    public string? OriginAgent { get; set; }
+    public string? OriginAction { get; set; }
+    public DateTime StartedAt { get; set; }
+    public DateTime CompletedAt { get; set; }
+}

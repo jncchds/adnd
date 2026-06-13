@@ -496,6 +496,22 @@ public class GMToolRegistry : IGMToolRegistry
         return result;
     }
 
+    /// <summary>
+    /// Extract narrative text from a tool call result or raw content.
+    /// Handles the case where the LLM's narrative is embedded in tool call arguments.
+    /// </summary>
+    private static string ExtractNarrativeFromToolResult(string toolResultsText)
+    {
+        // Check if any tool result contains a 'context' field (from the 'narrate' tool)
+        var contextMatch = System.Text.RegularExpressions.Regex.Match(toolResultsText, @"""context""\s*:\s*""(.*?)""", System.Text.RegularExpressions.RegexOptions.Singleline);
+        if (contextMatch.Success && contextMatch.Groups[1].Value.Length > 50)
+        {
+            return contextMatch.Groups[1].Value;
+        }
+        // Fall back to the full text
+        return toolResultsText;
+    }
+
     private async Task<ToolExecutionResult> ExecuteQueryRAG(Dictionary<string, object> args)
     {
         var query = args.GetValueOrDefault("query")?.ToString() ?? "";

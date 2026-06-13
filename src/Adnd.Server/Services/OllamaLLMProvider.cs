@@ -51,17 +51,24 @@ public class OllamaLLMProvider : BaseLLMProvider
         float temperature = options?.Temperature ?? 0.7f;
         int maxTokens = options?.MaxTokens ?? 2048;
 
+        // Build payload for Ollama
+        var opts = new Dictionary<string, object>
+        {
+            { "temperature", temperature },
+            { "num_predict", maxTokens }
+        };
+        if (options?.JsonSchemaOutput != null)
+        {
+            opts["format"] = "json";
+        }
+
         var payload = new
         {
             model = modelName,
             system = systemPrompt,
             prompt = userPrompt,
             stream = false,
-            opts = new
-            {
-                temperature,
-                num_predict = maxTokens
-            }
+            opts = opts
         };
 
         try

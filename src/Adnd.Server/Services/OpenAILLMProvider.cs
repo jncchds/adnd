@@ -60,6 +60,21 @@ public class OpenAILLMProvider : BaseLLMProvider
         int maxTokens = options?.MaxTokens ?? 2048;
         float topP = options?.TopP ?? 0.9f;
 
+        // Build response_format for OpenAI (uses json_schema type)
+        object? responseFormat = null;
+        if (options?.JsonSchemaOutput != null)
+        {
+            responseFormat = new
+            {
+                type = "json_schema",
+                json_schema = new
+                {
+                    name = options.JsonSchemaOutput.Name,
+                    schema = options.JsonSchemaOutput.Schema
+                }
+            };
+        }
+
         var payload = new
         {
             model = modelName,
@@ -73,7 +88,8 @@ public class OpenAILLMProvider : BaseLLMProvider
             max_tokens = maxTokens,
             top_p = topP,
             frequency_penalty = options?.FrequencyPenalty,
-            presence_penalty = options?.PresencePenalty
+            presence_penalty = options?.PresencePenalty,
+            response_format = responseFormat
         };
 
         try
