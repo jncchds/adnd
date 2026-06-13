@@ -188,6 +188,10 @@ builder.Services.AddSingleton<RabbitMqEventBus>();
 builder.Services.AddSingleton<EventBusWorker>();
 builder.Services.AddSingleton<IEventBus>(sp => sp.GetRequiredService<EventBusWorker>());
 builder.Services.AddHostedService<EventBusWorker>();
+
+// Handler Registry — scans Adnd.Server.Handlers for IEventHandler<T>
+builder.Services.AddSingleton<IHandlerRegistry, HandlerRegistry>();
+
 // Whisper Service
 builder.Services.AddScoped<IWhisperService, WhisperService>();
 
