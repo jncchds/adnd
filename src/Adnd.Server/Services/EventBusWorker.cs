@@ -39,6 +39,7 @@ public class EventBusWorker : BackgroundService, IEventBus
         _serviceProvider = serviceProvider;
         _configuration = configuration;
         _handlerMap = new();
+        RegisterHandlers();
     }
 
     // ==================== IEventBus Implementation ====================
@@ -65,10 +66,9 @@ public class EventBusWorker : BackgroundService, IEventBus
         _logger.LogInformation("[EVENT] Queued | GameId={GameId} | EventType={EventType} | EventId={EventId}",
             evt.GameId, typeof(TEvent).Name, record.Id);
 
-        // Publish to RabbitMQ with bounded retry
-        var success = await PublishWithRetry(record, ct);
+        var publishSuccess = await PublishWithRetry(record, ct);
 
-        if (success)
+        if (publishSuccess)
         {
             // Lazy cleanup: delete old acknowledged records after each successful publish
             await CleanupOldAcknowledgedRecords(context, ct);
@@ -236,9 +236,6 @@ public class EventBusWorker : BackgroundService, IEventBus
     {
         await base.StartAsync(ct);
 
-        // Register handlers via reflection
-        RegisterHandlers();
-
         // Connect to RabbitMQ
         ConnectToRabbitMq();
 
@@ -387,9 +384,10 @@ public class EventBusWorker : BackgroundService, IEventBus
     {
         using var dbScope = _serviceProvider.CreateScope();
         var context = dbScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
         if (!_handlerMap.TryGetValue(record.EventType, out var handlers))
         {
-            _logger.LogWarning("[EVENT] NoHandlerForType | EventType={EventType} | EventId={EventId}",
+            _logger.LogDebug("[EVENT] NoHandlerForType | EventType={EventType} | EventId={EventId}",
                 record.EventType, record.Id);
             return true; // No handlers = not an error
         }
