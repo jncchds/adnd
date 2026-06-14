@@ -1,6 +1,7 @@
 # Implementation Plan: System Registry and Health Checks
 
 **Design:** `docs/plans/2026-06-12-system-registry-and-health-checks-design.md`
+**Status:** ✅ Completed
 
 ## Task List
 

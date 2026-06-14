@@ -4,6 +4,8 @@
 
 **Goal:** Remove all tab-based navigation from GameRoomPage and AdminPage, replacing them with dedicated page files navigated purely through the left sidebar.
 
+**Status:** ✅ Completed
+
 **Architecture:** Extract tab content from GameRoomPage.tsx and AdminPage.tsx into 10 separate page files. Simplify AppShell state tracking (remove activeGameTab/activeAdminTab props). Update SidePanel to use useLocation() directly for highlighting. Update App.tsx routes to point to new pages.
 
 **Tech Stack:** React 19, TypeScript, MUI, react-router-dom, SignalR via hubHook

@@ -2,7 +2,9 @@
 
 **Date:** 2026-06-14  
 **Branch:** `feature/masstransit-bus`  
-**Status:** Session 1 Complete — Session 2 needed
+**Status:** ❌ Abandoned — superseded by `masstransit-postgresql-design.md`
+
+**Reason:** This plan aimed to replace RabbitMQ with MassTransit's PostgreSQL transport. The new design (`2026-06-14-masstransit-postgresql-design.md`) provides a more comprehensive approach including full saga implementation and admin UI. This plan's work (consumers, saga data models, handler migrations) was incorporated into the new design.
 
 ---
 

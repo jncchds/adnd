@@ -4,6 +4,8 @@
 
 **Goal:** Stabilize the game state system by making state visible, eliminating duplicate disconnect detection, fixing event handler timing, and unifying frontend state.
 
+**Status:** ✅ Completed — implemented as part of reactive event bus migration (commit `702f4d6`). All tasks completed.
+
 **Architecture:** Add a `Starting` lifecycle state with UI indicators, consolidate disconnect detection into `GameHub` (remove `PlayerDisconnectDetector`), make slow event handlers async, and create a `useGameGameState` hook for frontend state unification.
 
 **Tech Stack:** ASP.NET Core 10, MediatR, SignalR, React 19, TypeScript, MUI, EF Core, PostgreSQL

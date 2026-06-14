@@ -4,6 +4,8 @@
 
 **Goal:** Replace MediatR with a RabbitMQ-backed event bus while preserving all existing functionality.
 
+**Status:** ❌ Abandoned — superseded by `reactive-event-bus-design.md` and `masstransit-bus-cleanup.md`. The reactive event bus design replaced this plan, and MassTransit replaced the raw RabbitMQ approach.
+
 **Architecture:** Custom `IEventBus` with per-game RabbitMQ queues, `EventRecord` table for durability, startup reflection scan → O(1) dictionary dispatch, `EventBusWorker` background service for delivery, GameAgent subscribes to `agent.{GameId}` queue for reactive wakeup.
 
 **Tech Stack:** RabbitMQ.Client 7.x, .NET 10, EF Core, ASP.NET Core, docker-compose

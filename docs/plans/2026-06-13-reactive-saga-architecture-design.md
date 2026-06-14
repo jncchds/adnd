@@ -1,8 +1,9 @@
 # Reactive Saga Architecture — Design Document
 
 > **Date:** 2026-06-13
-> **Status:** Draft — awaiting validation
+> **Status:** ✅ Completed
 > **Goal:** Eliminate all polling loops in GameAgent, replace with fully reactive RabbitMQ choreography using small composable saga handlers.
+> **Implementation:** Implemented (commit `69f0ca8`). GameAgent rewritten as RabbitMQ consumer, saga handlers created, ToolCallCoordinator persisted.
 
 ---
 

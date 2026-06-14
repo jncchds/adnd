@@ -4,6 +4,7 @@
 > **Branch:** `chat-redesign`
 > **Worktree:** `../adnd-chat-redesign`
 > **Design doc:** `docs/plans/2026-06-12-chat-redesign-design.md`
+> **Status:** ✅ Completed
 
 ## Overview
 

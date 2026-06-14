@@ -8,6 +8,8 @@
 
 **Tech Stack:** ASP.NET Core 10, RabbitMQ.Client, EF Core, PostgreSQL, MediatR (existing)
 
+**Status:** ✅ Completed — all phases implemented (commit `69f0ca8`).
+
 ---
 
 ## Phase 1: Foundation — Types, Models, Interfaces

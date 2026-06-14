@@ -2,6 +2,8 @@
 
 > **Goal:** Eliminate all polling loops, make the system fully event-driven with bounded retry on RabbitMQ publish. Accept rare event loss (events lost only if RabbitMQ is down AND process crashes before restart).
 
+> **Status:** ✅ Completed — implemented (commit `702f4d6`). EventBusWorker replaced with RabbitMQ consumer, bounded retry added, admin endpoints for pending events.
+
 ## Design Decisions
 
 ### Loss Model

@@ -2,7 +2,9 @@
 
 **Date:** 2026-06-11
 **Priority:** P0 → P1 → P2
+**Status:** ✅ Completed
 **Scope:** Backend game state flow, disconnect detection, event handler coordination, frontend state management
+**Implementation:** Implemented as part of reactive event bus migration (commit `702f4d6`). Player disconnect/reconnect events, startup crash fix, and event handler timing fixes all applied.
 
 ---
 

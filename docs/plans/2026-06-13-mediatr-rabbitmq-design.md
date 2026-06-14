@@ -1,8 +1,9 @@
 # Design: Replace MediatR with RabbitMQ Event Bus
 
 **Date:** 2026-06-13  
-**Status:** Approved  
+**Status:** ❌ Abandoned  
 **Priority:** High — removes a heavy external dependency in favor of a battle-tested, durable pub/sub system
+**Reason:** Superseded by MassTransit approach. MediatR dependency removed (commit `31d3cb5`). MassTransit 8.3.6 used instead of raw RabbitMQ.Client.
 
 ---
 
