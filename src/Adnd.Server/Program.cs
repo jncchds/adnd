@@ -204,7 +204,7 @@ builder.Services.AddMassTransit(cfg =>
     cfg.AddConsumer<SessionConsumer>();
     cfg.AddConsumer<PlotWeaverConsumer>();
 
-    // Saga — Phase 2e: added after consumers are migrated
+    // Saga — agent call lifecycle state machine (deferred: ISagaStateMachineInstance is internal in MassTransit 8.x)
     // cfg.AddSagaDbContext<SagaDbContext>();
     // cfg.AddSaga<AgentSaga, SagaDbContext>();
 
@@ -236,8 +236,8 @@ builder.Services.AddMassTransit(cfg =>
             // ep.UseCircuitBreaker(cb => cb.ActiveTimeThreshold(TimeSpan.FromMinutes(1)));
         });
 
-        // Saga queue — Phase 2e
-        // cfg2.ReceiveEndpoint("saga.agent", ep => { /* ep.Saga<AgentSaga>(context); */ });
+        // Saga queue — deferred until saga data model is fixed
+        // cfg2.ReceiveEndpoint("saga.agent", ep => { ep.Saga<AgentSaga>(context); });
 
         cfg2.ConfigureEndpoints(context);
     });
