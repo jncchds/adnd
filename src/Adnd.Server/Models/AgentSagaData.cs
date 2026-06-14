@@ -7,7 +7,7 @@ namespace Adnd.Server.Models;
 /// Survives container restarts — the saga resumes from this state.
 /// Phase 2e: saga registration added after consumers are migrated.
 /// </summary>
-public class AgentSagaData : SagaStateMachineInstance
+public class AgentSagaData : ISaga
 {
     public Guid Id { get; set; }
 

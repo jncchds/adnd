@@ -204,8 +204,8 @@ builder.Services.AddMassTransit(cfg =>
     cfg.AddConsumer<SessionConsumer>();
     cfg.AddConsumer<PlotWeaverConsumer>();
 
-    // Saga — deferred: MassTransit 9.x saga API changed (AddSagaDbContext/AddSaga no longer exist)
-    // Will be implemented with new saga persistence pattern after investigation.
+    // Saga — deferred: MassTransit saga data class requires internal ISagaStateMachineInstance interface
+    // Existing CoordinatorHandler pattern handles agent orchestration instead
     // cfg.AddSagaDbContext<SagaDbContext>();
     // cfg.AddSaga<AgentSaga, SagaDbContext>();
 
