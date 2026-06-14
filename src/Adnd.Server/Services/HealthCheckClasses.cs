@@ -117,7 +117,7 @@ public class PgVectorHealthCheck : IHealthCheck
         {
             // Verify pgvector extension is installed by querying for vector type support
             var result = await _context.Database
-                .SqlQueryRaw<int>("SELECT 1 WHERE to_regclass('vector') IS NOT NULL")
+                .SqlQueryRaw<int>("SELECT CASE WHEN to_regclass('vector') IS NOT NULL THEN 1 ELSE 0 END")
                 .FirstOrDefaultAsync(token);
 
             if (result == 1)
