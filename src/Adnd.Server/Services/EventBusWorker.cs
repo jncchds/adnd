@@ -1,13 +1,10 @@
 using Adnd.Server.Data;
 using Adnd.Server.Events;
-using Adnd.Server.Handlers;
 using Adnd.Server.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MassTransit;
-using System.Collections.Concurrent;
-using System.Linq;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -25,9 +22,6 @@ public class EventBusWorker : BackgroundService, IEventBus
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
     private readonly IPublishEndpoint _publishEndpoint;
-    private readonly Dictionary<string, List<(string handlerId, Type eventType, Type handlerType)>> _handlerMap;
-    private bool _handlersRegistered = false;
-    private readonly object _registerLock = new();
 
     public EventBusWorker(
         ILogger<EventBusWorker> logger,
@@ -39,7 +33,6 @@ public class EventBusWorker : BackgroundService, IEventBus
         _serviceProvider = serviceProvider;
         _configuration = configuration;
         _publishEndpoint = publishEndpoint;
-        _handlerMap = new();
     }
 
     // ==================== IEventBus Implementation ====================
@@ -66,7 +59,7 @@ public class EventBusWorker : BackgroundService, IEventBus
         _logger.LogInformation("[EVENT] Queued | GameId={GameId} | EventType={EventType} | EventId={EventId}",
             evt.GameId, typeof(TEvent).Name, record.Id);
 
-        // Publish via MassTransit (parallel run — also published by MassTransit consumers)
+        // Publish via MassTransit (MassTransit consumers handle dispatch)
         var publishSuccess = await PublishWithRetry(record, ct);
 
         if (publishSuccess)
@@ -78,7 +71,7 @@ public class EventBusWorker : BackgroundService, IEventBus
         {
             // All retries failed — event stays in DB as Pending
             // Will be recovered on next app restart via ReplayPendingEvents
-            _logger.LogWarning("[EVENT] PublishFailedAfterRetry | GameId={GameId} | EventType={EventType} | EventId={EventId} | Stays in DB as Pending", 
+            _logger.LogWarning("[EVENT] PublishFailedAfterRetry | GameId={GameId} | EventType={EventType} | EventId={EventId} | Stays in DB as Pending",
                 evt.GameId, typeof(TEvent).Name, record.Id);
         }
     }
@@ -135,9 +128,8 @@ public class EventBusWorker : BackgroundService, IEventBus
                 _logger.LogInformation("[EVENT] PublishedToRabbitMQ | GameId={GameId} | EventType={EventType} | EventId={EventId}",
                     record.GameId, record.EventType, record.Id);
 
-                // Publish succeeded — dispatch to handlers and exit retry loop
-                var dispatched = await DispatchToHandlers(record, ct);
-                return dispatched;
+                // Publish succeeded — MassTransit consumers handle dispatch
+                return true;
             }
             catch (Exception ex)
             {
@@ -243,7 +235,7 @@ public class EventBusWorker : BackgroundService, IEventBus
             _logger.LogError(ex, "Failed to recover game agents during startup");
         }
 
-        _logger.LogInformation("EventBusWorker started with {HandlerCount} registered handlers", _handlerMap.Count);
+        _logger.LogInformation("EventBusWorker started — MassTransit consumers handle event dispatch");
     }
 
     /// <summary>
@@ -279,67 +271,6 @@ public class EventBusWorker : BackgroundService, IEventBus
         }
     }
 
-    /// <summary>
-    /// Thread-safe lazy initialization of event handlers.
-    /// Called before first dispatch to avoid constructor deadlocks during DI resolution.
-    /// </summary>
-    private void EnsureHandlersRegistered()
-    {
-        if (_handlersRegistered)
-            return;
-
-        lock (_registerLock)
-        {
-            if (_handlersRegistered)
-                return;
-
-            RegisterHandlers();
-            _handlersRegistered = true;
-        }
-    }
-
-    private void RegisterHandlers()
-    {
-        // Only scan the Handlers namespace to avoid loading all types in the assembly
-        // (which can trigger static constructors / DI resolution that cause deadlocks)
-        var handlerAssembly = typeof(GameLifecycleHandler).Assembly;
-        var iEventHandlerType = typeof(IEventHandler<>);
-
-        foreach (var type in handlerAssembly.GetTypes()
-            .Where(t => t.Namespace == "Adnd.Server.Handlers" &&
-                        !t.IsAbstract && !t.IsInterface &&
-                        t.GetInterfaces().Any(i => i.IsGenericType &&
-                                                   i.GetGenericTypeDefinition() == iEventHandlerType)
-        ))
-        {
-            // Register for ALL IEventHandler<T> interfaces this type implements
-            var handlerInterfaces = type.GetInterfaces()
-                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == iEventHandlerType);
-
-            foreach (var handlerInterface in handlerInterfaces)
-            {
-                var eventType = handlerInterface.GetGenericArguments()[0];
-                var key = eventType.FullName!;
-
-                var handlerId = Guid.NewGuid().ToString();
-                if (!_handlerMap.TryGetValue(key, out var list))
-                {
-                    list = new List<(string, Type, Type)>();
-                    _handlerMap[key] = list;
-                }
-                list.Add((handlerId, eventType, type));
-            }
-        }
-
-        _logger.LogInformation("Registered {Count} event handler types", _handlerMap.Count);
-        foreach (var kvp in _handlerMap.OrderBy(k => k.Key))
-        {
-            _logger.LogInformation("  Handler for {EventType}: {Count} handlers [{Handlers}]",
-                kvp.Key, kvp.Value.Count,
-                string.Join(", ", kvp.Value.Select(h => h.handlerType.Name)));
-        }
-    }
-
     private async Task ReplayPendingEvents(CancellationToken ct)
     {
         using var scope = _serviceProvider.CreateScope();
@@ -365,9 +296,9 @@ public class EventBusWorker : BackgroundService, IEventBus
     }
 
     /// <summary>
-    /// Dispatch a single event record to RabbitMQ (via MassTransit) and then to handlers.
+    /// Publish a single event record to RabbitMQ (via MassTransit).
     /// Used by startup replay and admin push-pending. Not used for runtime publishing.
-    /// Returns true if the event was successfully dispatched to all handlers.
+    /// Returns true if the event was successfully published.
     /// </summary>
     public async Task<bool> DispatchEvent(EventRecord record, CancellationToken ct)
     {
@@ -413,105 +344,8 @@ public class EventBusWorker : BackgroundService, IEventBus
             return false;
         }
 
-        // Dispatch to registered handlers
-        return await DispatchToHandlers(record, ct);
-    }
-
-    private async Task<bool> DispatchToHandlers(EventRecord record, CancellationToken ct)
-    {
-        using var dbScope = _serviceProvider.CreateScope();
-        var context = dbScope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        // Ensure handlers are registered (lazy init to avoid constructor deadlocks)
-        EnsureHandlersRegistered();
-
-        if (!_handlerMap.TryGetValue(record.EventType, out var handlers))
-        {
-            _logger.LogDebug("[EVENT] NoHandlerForType | EventType={EventType} | EventId={EventId}",
-                record.EventType, record.Id);
-            return true; // No handlers = not an error
-        }
-
-        var success = true;
-
-        // Deserialize the payload
-        IGameEvent? evt;
-        try
-        {
-            evt = (IGameEvent?)JsonSerializer.Deserialize(record.Payload, handlers[0].eventType);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogError(ex, "[EVENT] FailedToDeserialize | EventType={EventType} | EventId={EventId}",
-                record.EventType, record.Id);
-            return false;
-        }
-
-        if (evt == null)
-        {
-            _logger.LogError("[EVENT] NullDeserializedEvent | EventType={EventType} | EventId={EventId}",
-                record.EventType, record.Id);
-            return false;
-        }
-
-        // Invoke each handler
-        _logger.LogInformation("[EVENT] Dispatching {Count} handlers for {EventType} | EventId={EventId}",
-            handlers.Count, record.EventType, record.Id);
-        foreach (var (handlerId, _, handlerType) in handlers)
-        {
-            try
-            {
-                // Create handler via ActivatorUtilities to avoid DI circular dependencies
-                // (handlers depend on IAgentBus which depends on IEventBus which is EventBusWorker)
-                using var scope = _serviceProvider.CreateScope();
-                var handlerInstance = ActivatorUtilities.CreateInstance(scope.ServiceProvider, handlerType);
-
-                // Get the HandleAsync method that matches the event type
-                // Handlers have multiple overloads (one per event type), so we must match by parameter
-                var handleMethod = handlerType.GetMethods()
-                    .FirstOrDefault(m => m.Name == "HandleAsync" &&
-                                         m.GetParameters().Length >= 1 &&
-                                         m.GetParameters()[0].ParameterType == handlers[0].eventType);
-                _logger.LogInformation("[EVENT] HandleMethod | Handler={Handler} | Found={Found} | EventType={EventType}",
-                    handlerType.Name, handleMethod != null, handlers[0].eventType.FullName);
-                if (handleMethod == null)
-                {
-                    _logger.LogError("[EVENT] NoHandleAsync | Handler={HandlerType} | EventId={EventId} | EventType={EventType}",
-                        handlerType.Name, record.Id, handlers[0].eventType.FullName);
-                    success = false;
-                    continue;
-                }
-
-                // Invoke the handler
-                var task = (Task)handleMethod.Invoke(handlerInstance, new object[] { evt, ct })!;
-                await task;
-
-                _logger.LogDebug("[EVENT] Handled | Handler={Handler} | EventType={EventType} | EventId={EventId}",
-                    handlerType.Name, record.EventType, record.Id);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[EVENT] HandlerException | Handler={Handler} | EventType={EventType} | EventId={EventId}",
-                    handlerType.Name, record.EventType, record.Id);
-                success = false;
-            }
-        }
-
-        // Update status based on dispatch result
-        if (success)
-        {
-            record.Status = EventStatus.Acknowledged;
-            record.AckedAt = DateTime.UtcNow;
-        }
-        else
-        {
-            record.Status = EventStatus.Failed;
-            record.Error = "One or more handlers failed";
-        }
-
-        await context.SaveChangesAsync(ct);
-
-        return success;
+        // MassTransit consumers handle dispatch — no reflection needed
+        return true;
     }
 
     public override async Task StopAsync(CancellationToken ct)
