@@ -17,6 +17,10 @@ public partial class GameHub
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var result = await _combatService.StartShortRestAsync(combatId);
+
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatRestStarted(combat.GameId, combatId, "Short"));
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatRestStarted", new
         {
             combatId,
@@ -31,6 +35,10 @@ public partial class GameHub
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var result = await _combatService.StartLongRestAsync(combatId);
+
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatRestStarted(combat.GameId, combatId, "Long"));
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatRestStarted", new
         {
             combatId,
@@ -45,6 +53,10 @@ public partial class GameHub
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var result = await _combatService.EndRestAsync(combatId);
+
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatRestEnded(combat.GameId, combatId));
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatRestEnded", new { combatId });
         return BuildCombatLog(result);
     }

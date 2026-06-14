@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Models;
+using Adnd.Server.Events;
 
 namespace Adnd.Server.Hubs;
 
@@ -63,6 +64,13 @@ public partial class GameHub
         {
             // Remove from player connection tracking
             _playerConnections.TryRemove(uid.ToString(), out _);
+
+            // Publish event for game agent processing
+            var player = await _context.Players.FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == uid);
+            if (player != null)
+            {
+                await _eventBus.PublishAsync(new PlayerLeft(gameId, player.Id));
+            }
 
             await Clients.Group(gameId.ToString()).SendAsync("PlayerLeft", new
             {

@@ -17,6 +17,10 @@ public partial class GameHub
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var result = await _combatService.AddXPAsync(combatId, participantId, xpAmount, reason);
+
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatXPGranted(combat.GameId, combatId, participantId, xpAmount, reason));
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatXP", new
         {
             participantId,
@@ -32,6 +36,9 @@ public partial class GameHub
             ?? throw new KeyNotFoundException($"Combat {combatId} not found.");
 
         var result = await _combatService.LevelUpAsync(combatId, participantId, newLevel, systemId);
+
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatLevelUp(combat.GameId, combatId, participantId, newLevel, systemId));
 
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatLevelUp", new
         {

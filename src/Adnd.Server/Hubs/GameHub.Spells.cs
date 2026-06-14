@@ -22,6 +22,11 @@ public partial class GameHub
             combatId, casterName, spellName, targetId, saveFormula, saveDC,
             damageFormula, damageBonus, description);
 
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatSpellCast(
+            combat.GameId, combatId, result.Caster, result.SpellName, targetId,
+            result.SaveDC, result.DamageTotal > 0 ? result.DamageInfo : null));
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatSpellCast", new
         {
             result.Caster,
@@ -70,6 +75,11 @@ public partial class GameHub
         var result = await _combatService.CastAreaSpellAsync(
             combatId, casterName, spellName, saveFormula, saveDC,
             damageFormula, damageBonus, description, targetGuids);
+
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatSpellCast(
+            combat.GameId, combatId, result.Caster, result.SpellName, Guid.Empty,
+            result.SaveDC, result.DamageTotal > 0 ? result.DamageInfo : null));
 
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatSpellCast", new
         {

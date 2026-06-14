@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Adnd.Server.Models;
+using Adnd.Server.Events;
 using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Controllers;
@@ -103,6 +104,9 @@ public partial class AdminController
         character.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+
+        await _eventBus.PublishAsync(new CharacterUpdated(character.Player!.GameId, character.Id));
+
         return Ok(new { character.Id, character.Name, character.Class, character.Level });
     }
 

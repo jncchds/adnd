@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Adnd.Server.Models;
+using Adnd.Server.Events;
 
 namespace Adnd.Server.Controllers;
 
@@ -53,6 +54,8 @@ public partial class AdminController
         _context.PlotThreads.Add(thread);
         await _context.SaveChangesAsync();
 
+        await _eventBus.PublishAsync(new PlotThreadCreated(gameId, thread.Id, thread.Title));
+
         return Ok(new { thread.Id, thread.Title, thread.Description, thread.Status });
     }
 
@@ -72,6 +75,9 @@ public partial class AdminController
         thread.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+
+        await _eventBus.PublishAsync(new PlotThreadUpdated(thread.GameId, thread.Id));
+
         return Ok(new { thread.Id, thread.Title, thread.Description, thread.Status });
     }
 
@@ -86,6 +92,8 @@ public partial class AdminController
             thread.KeyEventMessageIds.Add(request.MessageId);
             thread.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            await _eventBus.PublishAsync(new PlotThreadUpdated(thread.GameId, thread.Id));
         }
 
         return Ok(new { message = "Event added to plot thread." });

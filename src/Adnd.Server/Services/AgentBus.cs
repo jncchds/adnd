@@ -1227,9 +1227,6 @@ public class AgentBus : IAgentBus
                 _logger.LogInformation("[PLOTWEAVER] GeneratedInitialThreads | GameId={GameId} | Count={Count} | Duration={Duration}ms",
                     game.Id, newThreads.Count, sw.ElapsedMilliseconds);
 
-                // Publish event for PlotWeaverHandler to react
-                await _eventBus.PublishAsync(new InitialThreadsGenerated(game.Id, newThreads.Count));
-
                 return JsonSerializer.Serialize(new { threadCount = newThreads.Count, threads = newThreads.Select(t => new { t.Id, t.Title, t.Category }) });
             }
         }
@@ -1265,8 +1262,6 @@ public class AgentBus : IAgentBus
             var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             scopedContext.PlotThreads.AddRange(fallbackThreads);
             await scopedContext.SaveChangesAsync();
-
-            await _eventBus.PublishAsync(new InitialThreadsGenerated(game.Id, fallbackThreads.Count));
 
             return JsonSerializer.Serialize(new { threadCount = fallbackThreads.Count, threads = fallbackThreads.Select(t => new { t.Id, t.Title, t.Category }), fallback = true });
         }
@@ -1324,8 +1319,6 @@ public class AgentBus : IAgentBus
                 scopedContext.PlotThreads.AddRange(newThreads);
                 await scopedContext.SaveChangesAsync();
 
-                await _eventBus.PublishAsync(new InitialThreadsGenerated(game.Id, newThreads.Count));
-
                 return JsonSerializer.Serialize(new { threadCount = newThreads.Count, threads = newThreads.Select(t => new { t.Id, t.Title, t.Category }), fallback = true });
             }
         }
@@ -1350,8 +1343,6 @@ public class AgentBus : IAgentBus
         var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         scopedContext.PlotThreads.AddRange(fallbackThreads);
         await scopedContext.SaveChangesAsync();
-
-        await _eventBus.PublishAsync(new InitialThreadsGenerated(game.Id, fallbackThreads.Count));
 
         return JsonSerializer.Serialize(new { threadCount = fallbackThreads.Count, threads = fallbackThreads.Select(t => new { t.Id, t.Title, t.Category }), fallback = true });
     }

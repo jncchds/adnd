@@ -285,6 +285,7 @@ public class GamesController : ControllerBase
         try
         {
             var (session, response) = await _sessionService.CreateSessionAsync(id, creatorId, request);
+            await _eventBus.PublishAsync(new SessionCreated(id, session.Id, request.Title));
             return Ok(response);
         }
         catch (KeyNotFoundException ex)
@@ -312,6 +313,7 @@ public class GamesController : ControllerBase
         try
         {
             await _sessionService.CloseSessionAsync(id, sessionId);
+            await _eventBus.PublishAsync(new SessionClosed(id, sessionId));
             return Ok(new { sessionId, EndedAt = DateTime.UtcNow });
         }
         catch (KeyNotFoundException ex)
@@ -351,6 +353,7 @@ public class GamesController : ControllerBase
         try
         {
             await _playerService.PromotePlayerAsync(id, game.CreatorId, playerId, role);
+            await _eventBus.PublishAsync(new PlayerRoleChanged(id, playerId, role));
             return Ok(new { playerId, Role = role });
         }
         catch (KeyNotFoundException ex)

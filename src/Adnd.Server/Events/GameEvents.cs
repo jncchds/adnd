@@ -20,8 +20,6 @@ public record GMStatusChanged(Guid GameId, Models.GMStatus NewStatus, string? La
 
 public record GameStatusChanged(Guid GameId, Models.GameStatus NewStatus) : IGameEvent;
 
-public record InitialThreadsGenerated(Guid GameId, int ThreadCount) : IGameEvent;
-
 // ==================== Player Events ====================
 
 public record PlayerJoined(Guid GameId, Guid PlayerId, Guid UserId, string CharacterName) : IGameEvent;
@@ -171,7 +169,9 @@ public record NarrativeReady(
 
 public record AgentCallFailed(Guid SagaId, Guid GameId, string Error) : IGameEvent;
 
-// ==================== Helper Enums (inline to avoid duplicate definitions) ====================
+public record ToolCallWaitingConfirmation(Guid SagaId, Guid GameId, string ToolName, string ToolCallId) : IGameEvent;
+
+// ==================== Helper Enums (inline to avoid duplicate definitions) ===
 
 public enum MessageType
 {

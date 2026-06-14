@@ -53,10 +53,14 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
                 await context.SaveChangesAsync(ct);
             }
 
-            var failEvent = new AgentCallFailed(evt.SagaId, evt.GameId, $"Waiting user input for {evt.ToolName}");
-            var failPayload = JsonSerializer.Serialize(failEvent);
-            var failHeaders = new Dictionary<string, object> { ["x-event-type"] = failEvent.GetType().FullName! };
-            _rabbitMq.PublishToAgent(evt.GameId, failPayload, Guid.NewGuid().ToString(), failHeaders);
+            var waitingEvent = new ToolCallWaitingConfirmation(
+                evt.SagaId,
+                evt.GameId,
+                evt.ToolName,
+                call.Id.ToString());
+            var waitingPayload = JsonSerializer.Serialize(waitingEvent);
+            var waitingHeaders = new Dictionary<string, object> { ["x-event-type"] = waitingEvent.GetType().FullName! };
+            _rabbitMq.PublishToAgent(evt.GameId, waitingPayload, Guid.NewGuid().ToString(), waitingHeaders);
             return;
         }
 

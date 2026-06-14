@@ -306,6 +306,11 @@ public partial class GameHub
             Adnd.Server.Models.MessageType.Attack,
             JsonDocument.Parse($"{{\"attacker\":\"{result.Attacker}\",\"weapon\":\"{result.Weapon}\",\"target\":\"{result.Target}\",\"hit\":{result.Hit.ToString().ToLower()},\"attackRoll\":{result.AttackRoll},\"ac\":{result.AC},\"damageTotal\":{result.DamageTotal},\"isCritical\":{result.IsCritical.ToString().ToLower()},\"isFumble\":{result.IsFumble.ToString().ToLower()}}}").RootElement);
 
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatAttackExecuted(
+            combat.GameId, combatId, result.Attacker, result.Weapon, targetId,
+            $"d20({result.AttackDice})", result.DamageDice));
+
         // Update target HP on the character sheet if it's a player
         if (result.TargetHP != result.TargetMaxHP)
         {
@@ -377,6 +382,11 @@ public partial class GameHub
             Adnd.Server.Models.MessageType.SkillCheck,
             JsonDocument.Parse($"{{\"participant\":\"{result.Participant}\",\"saveType\":\"{result.SaveType}\",\"dc\":{result.DC},\"diceRoll\":{result.DiceRoll},\"success\":{result.Success.ToString().ToLower()}}}").RootElement);
 
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatSaveThrowExecuted(
+            combat.GameId, combatId, result.Participant, participantId,
+            result.SaveType, result.DiceRoll > 0 ? $"d20({result.DiceRoll})" : "d20", result.DC));
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("CombatSaveThrow", new
         {
             result.Participant,
@@ -413,6 +423,10 @@ public partial class GameHub
             $"🔴 **Condition Applied**: {conditionName}{(duration.HasValue ? $" (duration: {duration})" : "")}",
             Adnd.Server.Models.MessageType.ConditionApplied);
 
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatConditionApplied(
+            combat.GameId, combatId, participantId, conditionName, duration));
+
         await Clients.Group(combat.GameId.ToString()).SendAsync("ConditionApplied", new
         {
             participantId,
@@ -436,6 +450,10 @@ public partial class GameHub
             "System",
             $"🟢 **Condition Removed**: {conditionName}",
             Adnd.Server.Models.MessageType.ConditionRemoved);
+
+        // Publish event for game agent processing (async — queues GM narrative)
+        PublishAsync(new CombatConditionRemoved(
+            combat.GameId, combatId, participantId, conditionName));
 
         await Clients.Group(combat.GameId.ToString()).SendAsync("ConditionRemoved", new
         {

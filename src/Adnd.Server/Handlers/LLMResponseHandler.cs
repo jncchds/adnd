@@ -47,9 +47,8 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
                 await context.SaveChangesAsync(ct);
 
                 var threads = await ParseAndSaveInitialThreads(evt.SagaId, evt.GameId, evt.Response, context);
-                await _eventBus.PublishAsync(new InitialThreadsGenerated(evt.GameId, threads));
 
-                _logger.LogInformation("[SAGA] InitialThreadsGenerated | SagaId={SagaId} | ThreadCount={Count}", evt.SagaId, threads);
+                _logger.LogInformation("[SAGA] InitialThreadsSaved | SagaId={SagaId} | ThreadCount={Count}", evt.SagaId, threads);
                 return;
             }
 

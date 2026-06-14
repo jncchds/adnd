@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Adnd.Server.Models;
+using Adnd.Server.Events;
 using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Controllers;
@@ -58,6 +59,8 @@ public partial class AdminController
         _context.NPCs.Add(npc);
         await _context.SaveChangesAsync();
 
+        await _eventBus.PublishAsync(new NPCCreated(gameId, npc.Id, npc.Name));
+
         return Ok(new { npc.Id, npc.Name, npc.Description });
     }
 
@@ -79,6 +82,9 @@ public partial class AdminController
         if (request.PlotThreadId != null) npc.PlotThreadId = request.PlotThreadId;
 
         await _context.SaveChangesAsync();
+
+        await _eventBus.PublishAsync(new NPCUpdated(npc.GameId, npc.Id));
+
         return Ok(new { npc.Id, npc.Name, npc.Description });
     }
 
@@ -93,6 +99,8 @@ public partial class AdminController
 
         _context.NPCs.Remove(npc);
         await _context.SaveChangesAsync();
+
+        await _eventBus.PublishAsync(new NPCDeleted(npc.GameId, npc.Id));
 
         return Ok(new { message = "NPC deleted." });
     }
