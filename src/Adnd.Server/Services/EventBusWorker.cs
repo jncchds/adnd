@@ -5,9 +5,7 @@ using Adnd.Server.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
-using RabbitMQ.Client.Framing;
+using MassTransit;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Text.Json;
@@ -26,23 +24,21 @@ public class EventBusWorker : BackgroundService, IEventBus
     private readonly ILogger<EventBusWorker> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
+    private readonly IPublishEndpoint _publishEndpoint;
     private readonly Dictionary<string, List<(string handlerId, Type eventType, Type handlerType)>> _handlerMap;
-    private IConnection? _rabbitMqConnection;
-    private IModel? _channel;
-    private readonly object _lock = new();
-    private readonly ConcurrentDictionary<string, IModel> _channelsByGame = new();
-    private readonly ConcurrentDictionary<string, IModel> _channelsByAgent = new();
     private bool _handlersRegistered = false;
     private readonly object _registerLock = new();
 
     public EventBusWorker(
         ILogger<EventBusWorker> logger,
         IServiceProvider serviceProvider,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IPublishEndpoint publishEndpoint)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _configuration = configuration;
+        _publishEndpoint = publishEndpoint;
         _handlerMap = new();
     }
 
@@ -70,6 +66,7 @@ public class EventBusWorker : BackgroundService, IEventBus
         _logger.LogInformation("[EVENT] Queued | GameId={GameId} | EventType={EventType} | EventId={EventId}",
             evt.GameId, typeof(TEvent).Name, record.Id);
 
+        // Publish via MassTransit (parallel run — also published by MassTransit consumers)
         var publishSuccess = await PublishWithRetry(record, ct);
 
         if (publishSuccess)
@@ -88,6 +85,7 @@ public class EventBusWorker : BackgroundService, IEventBus
 
     /// <summary>
     /// Publish an event to RabbitMQ with bounded retry (3 attempts, 500ms between each).
+    /// Uses MassTransit IPublishEndpoint — no manual RabbitMQ.Client code.
     /// Returns true if successful, false if all retries failed.
     /// </summary>
     private async Task<bool> PublishWithRetry(EventRecord record, CancellationToken ct)
@@ -95,32 +93,32 @@ public class EventBusWorker : BackgroundService, IEventBus
         const int maxRetries = 3;
         const int retryDelayMs = 500;
 
+        // Deserialize the payload back to the event type
+        IGameEvent? evt;
+        try
+        {
+            evt = (IGameEvent?)JsonSerializer.Deserialize(record.Payload, Type.GetType(record.EventType)!);
+        }
+        catch
+        {
+            _logger.LogError("[EVENT] FailedToDeserializeForPublish | EventType={EventType} | EventId={EventId}",
+                record.EventType, record.Id);
+            return false;
+        }
+
+        if (evt == null)
+        {
+            _logger.LogError("[EVENT] NullDeserializedEventForPublish | EventType={EventType} | EventId={EventId}",
+                record.EventType, record.Id);
+            return false;
+        }
+
         // Retry loop: only handle RabbitMQ publish, NOT dispatch
         for (int attempt = 0; attempt < maxRetries; attempt++)
         {
             try
             {
-                // Ensure RabbitMQ connection is alive
-                lock (_lock)
-                {
-                    if (_channel == null || !_rabbitMqConnection?.IsOpen == true)
-                    {
-                        ConnectToRabbitMq();
-                    }
-                }
-
-                var body = System.Text.Encoding.UTF8.GetBytes(record.Payload);
-                var properties = _channel!.CreateBasicProperties();
-                properties.Persistent = true;
-                properties.CorrelationId = record.CorrelationId;
-                properties.DeliveryMode = 2; // persistent
-
-                _channel.BasicPublish(
-                    exchange: "adnd.events",
-                    routingKey: $"game.{record.GameId}",
-                    mandatory: false,
-                    basicProperties: properties,
-                    body: body);
+                await _publishEndpoint.Publish(evt, ct);
 
                 // Update status in DB
                 using var dbScope = _serviceProvider.CreateScope();
@@ -232,14 +230,10 @@ public class EventBusWorker : BackgroundService, IEventBus
     {
         await base.StartAsync(ct);
 
-        // Connect to RabbitMQ (with retry — RabbitMQ may not be ready yet)
-        ConnectToRabbitMq();
-
         // Replay pending events from previous run
         await ReplayPendingEvents(ct);
 
-        // Recover active game agents — must happen AFTER RabbitMQ is connected
-        // (agents need RabbitMQ to start their consumers)
+        // Recover active game agents
         try
         {
             await RecoverGameAgentsAsync(ct);
@@ -346,58 +340,6 @@ public class EventBusWorker : BackgroundService, IEventBus
         }
     }
 
-    private void ConnectToRabbitMq()
-    {
-        const int maxRetries = 10;
-        const int baseDelayMs = 1000;
-        Exception? lastException = null;
-
-        var host = _configuration["RabbitMq:Host"] ?? "localhost";
-        var port = _configuration.GetValue<int>("RabbitMq:Port", 5672);
-        var username = _configuration["RabbitMq:Username"] ?? "adnd";
-        var password = _configuration["RabbitMq:Password"] ?? "adnd";
-        var virtualHost = _configuration["RabbitMq:VirtualHost"] ?? "/adnd";
-
-        for (int attempt = 0; attempt < maxRetries; attempt++)
-        {
-            try
-            {
-                var factory = new ConnectionFactory
-                {
-                    HostName = host,
-                    Port = port,
-                    UserName = username,
-                    Password = password,
-                    VirtualHost = virtualHost
-                };
-
-                _rabbitMqConnection = factory.CreateConnection();
-                _channel = _rabbitMqConnection.CreateModel();
-
-                // Declare exchange
-                _channel.ExchangeDeclare("adnd.events", ExchangeType.Direct, durable: true);
-
-                _logger.LogInformation("Connected to RabbitMQ at {Host}:{Port} (attempt {Attempt}/{MaxAttempts})", host, port, attempt + 1, maxRetries);
-                return;
-            }
-            catch (Exception ex)
-            {
-                lastException = ex;
-                _logger.LogWarning(ex, "RabbitMQ connection attempt {Attempt}/{MaxAttempts} failed", attempt + 1, maxRetries);
-
-                if (attempt < maxRetries - 1)
-                {
-                    var delay = baseDelayMs * (int)Math.Pow(2, attempt);
-                    _logger.LogDebug("Retrying in {Delay}ms", delay);
-                    Task.Delay(delay).Wait();
-                }
-            }
-        }
-
-        throw new RabbitMQ.Client.Exceptions.BrokerUnreachableException(
-            new Exception($"Failed to connect to RabbitMQ at {host}:{port} after {maxRetries} attempts", lastException));
-    }
-
     private async Task ReplayPendingEvents(CancellationToken ct)
     {
         using var scope = _serviceProvider.CreateScope();
@@ -423,9 +365,8 @@ public class EventBusWorker : BackgroundService, IEventBus
     }
 
     /// <summary>
-    /// Dispatch a single event record to RabbitMQ and then to handlers.
-    /// Used by startup replay and admin push-pending. Not used for runtime publishing
-    /// (that goes through PublishAsync with bounded retry).
+    /// Dispatch a single event record to RabbitMQ (via MassTransit) and then to handlers.
+    /// Used by startup replay and admin push-pending. Not used for runtime publishing.
     /// Returns true if the event was successfully dispatched to all handlers.
     /// </summary>
     public async Task<bool> DispatchEvent(EventRecord record, CancellationToken ct)
@@ -434,29 +375,29 @@ public class EventBusWorker : BackgroundService, IEventBus
         using var dbScope = _serviceProvider.CreateScope();
         var context = dbScope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        lock (_lock)
+        // Publish via MassTransit
+        IGameEvent? evt;
+        try
         {
-            if (_channel == null || !_rabbitMqConnection?.IsOpen == true)
-            {
-                ConnectToRabbitMq();
-            }
+            evt = (IGameEvent?)JsonSerializer.Deserialize(record.Payload, Type.GetType(record.EventType)!);
+        }
+        catch
+        {
+            _logger.LogError("[EVENT] FailedToDeserializeForDispatch | EventType={EventType} | EventId={EventId}",
+                record.EventType, record.Id);
+            return false;
         }
 
-        // Publish to RabbitMQ
-        var body = System.Text.Encoding.UTF8.GetBytes(record.Payload);
-        var properties = _channel!.CreateBasicProperties();
-        properties.Persistent = true;
-        properties.CorrelationId = record.CorrelationId;
-        properties.DeliveryMode = 2; // persistent
+        if (evt == null)
+        {
+            _logger.LogError("[EVENT] NullDeserializedEventForDispatch | EventType={EventType} | EventId={EventId}",
+                record.EventType, record.Id);
+            return false;
+        }
 
         try
         {
-            _channel.BasicPublish(
-                exchange: "adnd.events",
-                routingKey: $"game.{record.GameId}",
-                mandatory: false,
-                basicProperties: properties,
-                body: body);
+            await _publishEndpoint.Publish(evt, ct);
 
             record.Status = EventStatus.Published;
             record.PublishedAt = DateTime.UtcNow;
@@ -497,7 +438,7 @@ public class EventBusWorker : BackgroundService, IEventBus
         IGameEvent? evt;
         try
         {
-            evt = JsonSerializer.Deserialize(record.Payload, handlers[0].eventType) as IGameEvent;
+            evt = (IGameEvent?)JsonSerializer.Deserialize(record.Payload, handlers[0].eventType);
         }
         catch (JsonException ex)
         {
@@ -573,64 +514,9 @@ public class EventBusWorker : BackgroundService, IEventBus
         return success;
     }
 
-    /// <summary>
-    /// Get or create a RabbitMQ channel for a specific game queue.
-    /// Used by RabbitMqEventBus for publishing.
-    /// </summary>
-    public IModel GetOrCreateGameChannel(Guid gameId)
-    {
-        return _channelsByGame.GetOrAdd(gameId.ToString(), _ =>
-        {
-            var host = _configuration["RabbitMq:Host"] ?? "localhost";
-            var port = _configuration.GetValue<int>("RabbitMq:Port", 5672);
-            var username = _configuration["RabbitMq:Username"] ?? "adnd";
-            var password = _configuration["RabbitMq:Password"] ?? "adnd";
-            var virtualHost = _configuration["RabbitMq:VirtualHost"] ?? "/adnd";
-
-            var factory = new ConnectionFactory
-            {
-                HostName = host,
-                Port = port,
-                UserName = username,
-                Password = password,
-                VirtualHost = virtualHost
-            };
-
-            var connection = factory.CreateConnection();
-            var channel = connection.CreateModel();
-
-            // Declare game queue
-            var queueName = $"game.{gameId}";
-            channel.QueueDeclare(queueName, durable: true, exclusive: false, autoDelete: false, null);
-
-            // Declare DLQ
-            var dlqName = $"dlq.game.{gameId}";
-            channel.QueueDeclare(dlqName, durable: true, exclusive: false, autoDelete: false, null);
-
-            // Bind DLQ to exchange
-            channel.QueueBind(dlqName, "adnd.events", $"dlq.game.{gameId}");
-
-            // Bind game queue to exchange
-            channel.QueueBind(queueName, "adnd.events", $"game.{gameId}");
-
-            // Set dead-letter exchange on main queue
-            var args = new Dictionary<string, object>
-            {
-                ["x-dead-letter-exchange"] = "adnd.events",
-                ["x-dead-letter-routing-key"] = $"dlq.game.{gameId}"
-            };
-            channel.QueueDeclare(queueName, durable: true, exclusive: false, autoDelete: false, args);
-
-            _logger.LogInformation("[RABBITMQ] DeclaredQueue | Queue={Queue} | DLQ={DLQ}", queueName, dlqName);
-
-            return channel;
-        });
-    }
-
     public override async Task StopAsync(CancellationToken ct)
     {
-        _channel?.Dispose();
-        _rabbitMqConnection?.Close();
+        // MassTransit handles connection lifecycle — no manual cleanup needed
         await base.StopAsync(ct);
     }
 }

@@ -18,8 +18,11 @@ using Adnd.Server.Hubs;
 using Adnd.Server.Services;
 using Adnd.Server.Agent;
 using Adnd.Server.Handlers;
+using Adnd.Server.Events;
+using Adnd.Server.Consumers;
 using Npgsql.EntityFrameworkCore.PostgreSQL;
 using Pgvector;
+using MassTransit;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -188,6 +191,61 @@ builder.Services.AddSingleton<RabbitMqEventBus>();
 builder.Services.AddSingleton<EventBusWorker>();
 builder.Services.AddSingleton<IEventBus>(sp => sp.GetRequiredService<EventBusWorker>());
 builder.Services.AddHostedService<EventBusWorker>();
+
+// MassTransit — in-process messaging framework (parallel run with EventBusWorker)
+builder.Services.AddMassTransit(cfg =>
+{
+    // Consumers
+    cfg.AddConsumer<GameLifecycleConsumer>();
+    cfg.AddConsumer<GameActionConsumer>();
+    cfg.AddConsumer<ChatConsumer>();
+    cfg.AddConsumer<PlayerConsumer>();
+    cfg.AddConsumer<PlayerDisconnectConsumer>();
+    cfg.AddConsumer<SessionConsumer>();
+    cfg.AddConsumer<PlotWeaverConsumer>();
+
+    // Saga — Phase 2e: added after consumers are migrated
+    // cfg.AddSagaDbContext<SagaDbContext>();
+    // cfg.AddSaga<AgentSaga, SagaDbContext>();
+
+    // RabbitMQ
+    cfg.UsingRabbitMq((context, cfg2) =>
+    {
+        var hostUrl = new Uri($"rabbitmq://{builder.Configuration["RabbitMq:Host"] ?? "rabbitmq"}:{builder.Configuration.GetValue<int>("RabbitMq:Port", 5672)}/{builder.Configuration["RabbitMq:VirtualHost"] ?? "adnd"}");
+        cfg2.Host(hostUrl, host =>
+        {
+            host.Username(builder.Configuration["RabbitMq:Username"] ?? "adnd");
+            host.Password(builder.Configuration["RabbitMq:Password"] ?? "adnd");
+        });
+
+        // Exchange declaration
+        cfg2.Publish<IGameEvent>(x => { x.ExchangeType = "direct"; });
+
+        // Game events queue
+        cfg2.ReceiveEndpoint("game.events", ep =>
+        {
+            ep.Consumer<GameLifecycleConsumer>(context);
+            ep.Consumer<GameActionConsumer>(context);
+            ep.Consumer<ChatConsumer>(context);
+            ep.Consumer<PlayerConsumer>(context);
+            ep.Consumer<PlayerDisconnectConsumer>(context);
+            ep.Consumer<SessionConsumer>(context);
+            ep.Consumer<PlotWeaverConsumer>(context);
+            ep.PrefetchCount = 10;
+            ep.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromMilliseconds(500)));
+            // ep.UseCircuitBreaker(cb => cb.ActiveTimeThreshold(TimeSpan.FromMinutes(1)));
+        });
+
+        // Saga queue — Phase 2e
+        // cfg2.ReceiveEndpoint("saga.agent", ep => { /* ep.Saga<AgentSaga>(context); */ });
+
+        cfg2.ConfigureEndpoints(context);
+    });
+});
+
+// Health check — RabbitMQ connectivity (Phase 3)
+// builder.Services.AddHealthChecks()
+//     .AddRabbitMQ($"rabbitmq://{builder.Configuration["RabbitMq:Host"] ?? "rabbitmq"}:{builder.Configuration.GetValue<int>("RabbitMq:Port", 5672)}{builder.Configuration["RabbitMq:VirtualHost"] ?? "/adnd"}");
 
 // Handler Registry — scans Adnd.Server.Handlers for IEventHandler<T>
 builder.Services.AddSingleton<IHandlerRegistry, HandlerRegistry>();
