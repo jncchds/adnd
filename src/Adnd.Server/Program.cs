@@ -325,13 +325,6 @@ var app = builder.Build();
 // Apply migrations on startup
 app.UseDatabaseMigrations();
 
-// Recover active game agents from database (survives restarts)
-using (var scope = app.Services.CreateScope())
-{
-    var agentManager = scope.ServiceProvider.GetRequiredService<IGameAgentManager>();
-    await agentManager.StartAllActiveGamesAsync();
-}
-
 // Configure the HTTP request pipeline
 // Swagger is enabled in all environments for API documentation
 app.UseSwagger();

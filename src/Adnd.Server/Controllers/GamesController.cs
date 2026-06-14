@@ -95,10 +95,8 @@ public class GamesController : ControllerBase
 
         var response = await _gameService.CreateGameAsync(userId, request);
 
-        // Publish game created event
+        // Publish game created event (game is in Draft status; caller should invoke StartGame to activate)
         await _eventBus.PublishAsync(new GameCreated(response.Id, userId, request.SystemId, request.LLMPresetId));
-        // Start the game (activates agent and plot weaver)
-        await _eventBus.PublishAsync(new GameStarted(response.Id, userId));
 
         return Ok(response);
     }

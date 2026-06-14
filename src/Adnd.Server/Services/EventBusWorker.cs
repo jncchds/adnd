@@ -137,8 +137,9 @@ public class EventBusWorker : BackgroundService, IEventBus
                 _logger.LogInformation("[EVENT] PublishedToRabbitMQ | GameId={GameId} | EventType={EventType} | EventId={EventId}",
                     record.GameId, record.EventType, record.Id);
 
-                // Publish succeeded — break out of retry loop
-                break;
+                // Publish succeeded — dispatch to handlers and exit retry loop
+                var dispatched = await DispatchToHandlers(record, ct);
+                return dispatched;
             }
             catch (Exception ex)
             {
@@ -152,13 +153,7 @@ public class EventBusWorker : BackgroundService, IEventBus
             }
         }
 
-        // Dispatch outside retry loop — only dispatch once, after publish succeeds
-        // (dispatching inside the loop would cause duplicate events on retry)
-        if (record.Status == EventStatus.Published)
-        {
-            return await DispatchToHandlers(record, ct);
-        }
-
+        // Publish never succeeded
         return false;
     }
 
@@ -237,13 +232,57 @@ public class EventBusWorker : BackgroundService, IEventBus
     {
         await base.StartAsync(ct);
 
-        // Connect to RabbitMQ
+        // Connect to RabbitMQ (with retry — RabbitMQ may not be ready yet)
         ConnectToRabbitMq();
 
         // Replay pending events from previous run
         await ReplayPendingEvents(ct);
 
+        // Recover active game agents — must happen AFTER RabbitMQ is connected
+        // (agents need RabbitMQ to start their consumers)
+        try
+        {
+            await RecoverGameAgentsAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to recover game agents during startup");
+        }
+
         _logger.LogInformation("EventBusWorker started with {HandlerCount} registered handlers", _handlerMap.Count);
+    }
+
+    /// <summary>
+    /// Recover active game agents from the database.
+    /// Called after RabbitMQ is connected to ensure agents can establish their consumers.
+    /// </summary>
+    private async Task RecoverGameAgentsAsync(CancellationToken ct)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var agentManager = scope.ServiceProvider.GetRequiredService<IGameAgentManager>();
+        var logger = _serviceProvider.GetRequiredService<ILogger<EventBusWorker>>();
+
+        var activeGames = await context.Games
+            .Where(g => g.Status == Models.GameStatus.Active && g.GMStatus == Models.GMStatus.Running)
+            .Select(g => g.Id)
+            .ToListAsync(ct);
+
+        logger.LogInformation("Recovering {Count} active game agents", activeGames.Count);
+
+        foreach (var gameId in activeGames)
+        {
+            try
+            {
+                var agent = agentManager.GetOrCreate(gameId);
+                await agent.StartAsync(gameId, Guid.Empty);
+                logger.LogInformation("Recovered game agent for game {GameId}", gameId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to recover game agent for game {GameId}", gameId);
+            }
+        }
     }
 
     /// <summary>
@@ -309,28 +348,54 @@ public class EventBusWorker : BackgroundService, IEventBus
 
     private void ConnectToRabbitMq()
     {
+        const int maxRetries = 10;
+        const int baseDelayMs = 1000;
+        Exception? lastException = null;
+
         var host = _configuration["RabbitMq:Host"] ?? "localhost";
         var port = _configuration.GetValue<int>("RabbitMq:Port", 5672);
         var username = _configuration["RabbitMq:Username"] ?? "adnd";
         var password = _configuration["RabbitMq:Password"] ?? "adnd";
         var virtualHost = _configuration["RabbitMq:VirtualHost"] ?? "/adnd";
 
-        var factory = new ConnectionFactory
+        for (int attempt = 0; attempt < maxRetries; attempt++)
         {
-            HostName = host,
-            Port = port,
-            UserName = username,
-            Password = password,
-            VirtualHost = virtualHost
-        };
+            try
+            {
+                var factory = new ConnectionFactory
+                {
+                    HostName = host,
+                    Port = port,
+                    UserName = username,
+                    Password = password,
+                    VirtualHost = virtualHost
+                };
 
-        _rabbitMqConnection = factory.CreateConnection();
-        _channel = _rabbitMqConnection.CreateModel();
+                _rabbitMqConnection = factory.CreateConnection();
+                _channel = _rabbitMqConnection.CreateModel();
 
-        // Declare exchange
-        _channel.ExchangeDeclare("adnd.events", ExchangeType.Direct, durable: true);
+                // Declare exchange
+                _channel.ExchangeDeclare("adnd.events", ExchangeType.Direct, durable: true);
 
-        _logger.LogInformation("Connected to RabbitMQ at {Host}:{Port}", host, port);
+                _logger.LogInformation("Connected to RabbitMQ at {Host}:{Port} (attempt {Attempt}/{MaxAttempts})", host, port, attempt + 1, maxRetries);
+                return;
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                _logger.LogWarning(ex, "RabbitMQ connection attempt {Attempt}/{MaxAttempts} failed", attempt + 1, maxRetries);
+
+                if (attempt < maxRetries - 1)
+                {
+                    var delay = baseDelayMs * (int)Math.Pow(2, attempt);
+                    _logger.LogDebug("Retrying in {Delay}ms", delay);
+                    Task.Delay(delay).Wait();
+                }
+            }
+        }
+
+        throw new RabbitMQ.Client.Exceptions.BrokerUnreachableException(
+            new Exception($"Failed to connect to RabbitMQ at {host}:{port} after {maxRetries} attempts", lastException));
     }
 
     private async Task ReplayPendingEvents(CancellationToken ct)

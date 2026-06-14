@@ -86,26 +86,50 @@ public class GameAgent : IGameAgent
 
     private void ConnectToRabbitMq()
     {
+        const int maxRetries = 5;
+        const int baseDelayMs = 1000;
+
         var host = _configuration["RabbitMq:Host"] ?? "localhost";
         var port = _configuration.GetValue<int>("RabbitMq:Port", 5672);
         var username = _configuration["RabbitMq:Username"] ?? "adnd";
         var password = _configuration["RabbitMq:Password"] ?? "adnd";
         var virtualHost = _configuration["RabbitMq:VirtualHost"] ?? "/adnd";
 
-        var factory = new ConnectionFactory
+        for (int attempt = 0; attempt < maxRetries; attempt++)
         {
-            HostName = host,
-            Port = port,
-            UserName = username,
-            Password = password,
-            VirtualHost = virtualHost
-        };
+            try
+            {
+                var factory = new ConnectionFactory
+                {
+                    HostName = host,
+                    Port = port,
+                    UserName = username,
+                    Password = password,
+                    VirtualHost = virtualHost
+                };
 
-        _rabbitMqConnection = factory.CreateConnection();
-        _channel = _rabbitMqConnection.CreateModel();
-        _channel.ExchangeDeclare("adnd.events", ExchangeType.Direct, durable: true);
+                _rabbitMqConnection = factory.CreateConnection();
+                _channel = _rabbitMqConnection.CreateModel();
+                _channel.ExchangeDeclare("adnd.events", ExchangeType.Direct, durable: true);
 
-        _logger.LogInformation("RabbitMQ connected for game {GameId}", _gameId);
+                _logger.LogInformation("RabbitMQ connected for game {GameId} (attempt {Attempt}/{MaxAttempts})", _gameId, attempt + 1, maxRetries);
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "RabbitMQ connection attempt {Attempt}/{MaxAttempts} failed for game {GameId}", attempt + 1, maxRetries, _gameId);
+
+                if (attempt < maxRetries - 1)
+                {
+                    var delay = baseDelayMs * (int)Math.Pow(2, attempt); // exponential backoff
+                    _logger.LogDebug("Retrying in {Delay}ms for game {GameId}", delay, _gameId);
+                    Task.Delay(delay).Wait();
+                }
+            }
+        }
+
+        throw new RabbitMQ.Client.Exceptions.BrokerUnreachableException(
+            new Exception($"Failed to connect to RabbitMQ after {maxRetries} attempts for game {_gameId}"));
     }
 
     private void DeclareAgentQueue()
@@ -141,7 +165,7 @@ public class GameAgent : IGameAgent
                 IGameEvent? evt = null;
                 if (!string.IsNullOrEmpty(eventTypeFullName))
                 {
-                    var eventType = Type.GetType(eventTypeFullName);
+                    var eventType = typeof(IGameEvent).Assembly.GetType(eventTypeFullName);
                     if (eventType != null)
                     {
                         evt = JsonSerializer.Deserialize(payload, eventType) as IGameEvent;
@@ -150,14 +174,6 @@ public class GameAgent : IGameAgent
 
                 if (evt != null)
                 {
-                    // Skip trigger events — they should only be handled by EventBusWorker
-                    if (evt is AgentCallQueued)
-                    {
-                        _logger.LogDebug("[CONSUMER] Skipping trigger event | EventType={EventType}", eventTypeFullName);
-                        _channel!.BasicAck(ea.DeliveryTag, multiple: false);
-                        return;
-                    }
-
                     // Direct dispatch — do NOT call PublishAsync (that would re-publish to RabbitMQ)
                     await DispatchToHandlers(evt, payload, scope.ServiceProvider, CancellationToken.None);
                 }
@@ -203,6 +219,9 @@ public class GameAgent : IGameAgent
         context.EventRecords.Add(record);
         await context.SaveChangesAsync(ct);
 
+        _logger.LogInformation("[CONSUMER] DispatchToHandlers | GameId={GameId} | EventType={EventType} | EventId={EventId}",
+            evt.GameId, evt.GetType().Name, record.Id);
+
         // Dispatch to handlers
         var registry = scope.ServiceProvider.GetRequiredService<IHandlerRegistry>();
         var key = evt.GetType().FullName!;
@@ -217,11 +236,17 @@ public class GameAgent : IGameAgent
             return;
         }
 
+        _logger.LogInformation("[EVENT] Found {Count} handlers for {EventType} | EventId={EventId}",
+            handlers.Count, key, record.Id);
+
         var success = true;
         foreach (var handlerType in handlers)
         {
             try
             {
+                _logger.LogInformation("[EVENT] Creating handler {Handler} for {EventType} | EventId={EventId}",
+                    handlerType.Name, key, record.Id);
+
                 using var handlerScope = sp.CreateScope();
                 var handlerInstance = ActivatorUtilities.CreateInstance(handlerScope.ServiceProvider, handlerType);
 
@@ -238,8 +263,14 @@ public class GameAgent : IGameAgent
                     continue;
                 }
 
+                _logger.LogInformation("[EVENT] Invoking handler {Handler} | EventId={EventId}",
+                    handlerType.Name, record.Id);
+
                 var task = (Task)handleMethod.Invoke(handlerInstance, new object[] { evt, ct })!;
                 await task;
+
+                _logger.LogInformation("[EVENT] Handler {Handler} completed | EventId={EventId}",
+                    handlerType.Name, record.Id);
             }
             catch (Exception ex)
             {
@@ -252,6 +283,9 @@ public class GameAgent : IGameAgent
         record.Status = success ? EventStatus.Acknowledged : EventStatus.Failed;
         record.AckedAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
+
+        _logger.LogInformation("[EVENT] Dispatch complete | EventId={EventId} | Success={Success}",
+            record.Id, success);
     }
 
     private async Task RecoverPendingSagas()

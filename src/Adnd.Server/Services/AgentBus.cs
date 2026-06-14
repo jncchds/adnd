@@ -97,6 +97,7 @@ public class AgentBus : IAgentBus
     private readonly ILogger<AgentBus> _logger;
     private readonly IHubContext<GameHub> _hubContext;
     private readonly IEventBus _eventBus;
+    private readonly RabbitMqEventBus _rabbitMq;
     private readonly IDeadLetterQueue _dlq;
     private readonly IConfiguration _configuration;
     private readonly int _toolCallingMaxDepth;
@@ -117,6 +118,7 @@ public class AgentBus : IAgentBus
         ILogger<AgentBus> logger,
         IHubContext<GameHub> hubContext,
         IEventBus mediator,
+        RabbitMqEventBus rabbitMq,
         IDeadLetterQueue dlq,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
@@ -136,6 +138,7 @@ public class AgentBus : IAgentBus
         _hubContext = hubContext;
         _gameAgentManager = gameAgentManager;
         _eventBus = mediator;
+        _rabbitMq = rabbitMq;
         _dlq = dlq;
         _configuration = configuration;
         _toolCallingMaxDepth = _configuration.GetValue<int>("ToolCallingMaxDepth", 5);
@@ -180,8 +183,12 @@ public class AgentBus : IAgentBus
         _logger.LogInformation("[AGENT_CALL] Queued | GameId={GameId} | CallId={CallId} | From={FromAgent} -> To={ToAgent} [{Action}] | SessionId={SessionId}",
             call.GameId, call.Id, call.FromAgent, call.ToAgent, call.Action, call.SessionId);
 
-        // Publish AgentCallQueued event — routed via RabbitMQ to GameAgent consumer
-        await _eventBus.PublishAsync(new AgentCallQueued(call.Id, call.GameId));
+        // Publish AgentCallQueued event — must go to agent queue (not game queue)
+        // to trigger the saga system
+        var agentCallQueued = new AgentCallQueued(call.Id, call.GameId);
+        var payload = System.Text.Json.JsonSerializer.Serialize(agentCallQueued);
+        var headers = new Dictionary<string, object> { ["x-event-type"] = agentCallQueued.GetType().FullName! };
+        _rabbitMq.PublishToAgent(call.GameId, payload, Guid.NewGuid().ToString(), headers);
 
         return call;
     }
