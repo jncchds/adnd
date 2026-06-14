@@ -244,9 +244,7 @@ builder.Services.AddMassTransit(cfg =>
     });
 });
 
-// Health check — RabbitMQ connectivity (Phase 3)
-// builder.Services.AddHealthChecks()
-//     .AddRabbitMQ($"rabbitmq://{builder.Configuration["RabbitMq:Host"] ?? "rabbitmq"}:{builder.Configuration.GetValue<int>("RabbitMq:Port", 5672)}{builder.Configuration["RabbitMq:VirtualHost"] ?? "/adnd"}");
+// Health check — RabbitMQ connectivity (Phase 3: deferred — .NET 10 health check package not available)
 
 // Handler Registry — scans Adnd.Server.Handlers for IEventHandler<T>
 builder.Services.AddSingleton<IHandlerRegistry, HandlerRegistry>();
