@@ -43,10 +43,31 @@ public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
         call.CurrentStep = SagaStep.Init;
         await context.SaveChangesAsync(ct);
 
+        // Extract system/user prompts from call.Input if it's a GMDispatchOptions JSON
+        string? systemPrompt = null;
+        string? userPrompt = null;
+        if (!string.IsNullOrWhiteSpace(call.Input))
+        {
+            try
+            {
+                var options = JsonSerializer.Deserialize<GMDispatchOptions>(call.Input);
+                systemPrompt = options?.SystemPrompt;
+                userPrompt = options?.UserPrompt;
+            }
+            catch
+            {
+                // Input is not GMDispatchOptions — ignore
+            }
+        }
+
         IGameEvent? nextEvent = call.Action switch
         {
             AgentAction.Narrate or AgentAction.Generate or AgentAction.OpenNarrative
                 => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are the Game Master for a TTRPG session.", call.Input ?? "Continue the narrative.", null),
+            AgentAction.GenerateInitialThreads
+                => new LLMDispatchRequested(evt.SagaId, evt.GameId,
+                    systemPrompt ?? "You are the Game Master for a TTRPG session. Generate initial plot threads.",
+                    userPrompt ?? "Generate initial plot threads.", null),
             AgentAction.Nudge => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are the Game Master for a TTRPG session. The creator has sent a narrative nudge.", call.Input ?? "Incorporate the direction.", null),
             AgentAction.Query => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are a helpful TTRPG assistant.", call.Input ?? "Answer the question.", null),
             AgentAction.Suggest => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are a creative TTRPG Game Master assistant.", call.Input ?? "Suggest plot continuations.", null),

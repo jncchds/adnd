@@ -13,12 +13,14 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<LLMResponseHandler> _logger;
     private readonly RabbitMqEventBus _rabbitMq;
+    private readonly IEventBus _eventBus;
 
-    public LLMResponseHandler(IServiceProvider serviceProvider, ILogger<LLMResponseHandler> logger, RabbitMqEventBus rabbitMq)
+    public LLMResponseHandler(IServiceProvider serviceProvider, ILogger<LLMResponseHandler> logger, RabbitMqEventBus rabbitMq, IEventBus eventBus)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
         _rabbitMq = rabbitMq;
+        _eventBus = eventBus;
     }
 
     public async Task HandleAsync(LLMResponseReceived evt, CancellationToken ct)
@@ -37,6 +39,20 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
 
         if (!evt.HasToolCalls)
         {
+            // Special handling for GenerateInitialThreads — parse JSON and create PlotThread entities
+            if (call.Action == AgentAction.GenerateInitialThreads)
+            {
+                call.CurrentStep = SagaStep.NarrativeReady;
+                call.Output = evt.Response;
+                await context.SaveChangesAsync(ct);
+
+                var threads = await ParseAndSaveInitialThreads(evt.SagaId, evt.GameId, evt.Response, context);
+                await _eventBus.PublishAsync(new InitialThreadsGenerated(evt.GameId, threads));
+
+                _logger.LogInformation("[SAGA] InitialThreadsGenerated | SagaId={SagaId} | ThreadCount={Count}", evt.SagaId, threads);
+                return;
+            }
+
             call.CurrentStep = SagaStep.NarrativeReady;
             await context.SaveChangesAsync(ct);
 
@@ -102,6 +118,59 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
             tools = ExtractToolCallsRegex(response);
         }
         return tools;
+    }
+
+    /// <summary>
+    /// Parse LLM response for GenerateInitialThreads and save PlotThread entities.
+    /// </summary>
+    private async Task<int> ParseAndSaveInitialThreads(Guid sagaId, Guid gameId, string response, AppDbContext context)
+    {
+        try
+        {
+            var extractedJson = JsonExtract.Extract(response);
+            if (extractedJson == null)
+            {
+                _logger.LogWarning("[SAGA] FailedToExtractJsonForInitialThreads | SagaId={SagaId}", sagaId);
+                return 0;
+            }
+
+            var threads = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(extractedJson);
+            if (threads == null || !threads.Any())
+            {
+                _logger.LogWarning("[SAGA] NoThreadsParsed | SagaId={SagaId}", sagaId);
+                return 0;
+            }
+
+            var newThreads = new List<PlotThread>();
+            foreach (var threadData in threads)
+            {
+                var thread = new PlotThread
+                {
+                    GameId = gameId,
+                    Title = threadData.GetValueOrDefault("title")?.ToString() ?? "Untitled Thread",
+                    Category = Enum.TryParse<PlotThreadCategory>(threadData.GetValueOrDefault("category")?.ToString(), true, out var cat)
+                        ? cat : PlotThreadCategory.Personal,
+                    Description = threadData.GetValueOrDefault("description")?.ToString() ?? "",
+                    NextMilestone = threadData.GetValueOrDefault("nextMilestone")?.ToString(),
+                    Foreshadowing = threadData.GetValueOrDefault("foreshadowing")?.ToString(),
+                    Momentum = 0f,
+                    RelevanceScore = 0.5f,
+                    Status = PlotThreadStatus.Active
+                };
+                newThreads.Add(thread);
+            }
+
+            context.PlotThreads.AddRange(newThreads);
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation("[SAGA] SavedInitialThreads | SagaId={SagaId} | Count={Count}", sagaId, newThreads.Count);
+            return newThreads.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[SAGA] FailedToParseInitialThreads | SagaId={SagaId}", sagaId);
+            return 0;
+        }
     }
 
     private List<ToolCallInfo> ExtractToolCallsRegex(string response)
