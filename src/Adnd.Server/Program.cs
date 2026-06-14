@@ -204,9 +204,9 @@ builder.Services.AddMassTransit(cfg =>
     cfg.AddConsumer<SessionConsumer>();
     cfg.AddConsumer<PlotWeaverConsumer>();
 
-    // Saga — agent call lifecycle state machine (deferred: ISagaStateMachineInstance is internal in MassTransit 8.x)
-    // cfg.AddSagaDbContext<SagaDbContext>();
-    // cfg.AddSaga<AgentSaga, SagaDbContext>();
+    // Saga — agent call lifecycle state machine
+    cfg.AddSagaDbContext<SagaDbContext>();
+    cfg.AddSaga<AgentSaga, SagaDbContext>();
 
     // RabbitMQ
     cfg.UsingRabbitMq((context, cfg2) =>
@@ -236,8 +236,11 @@ builder.Services.AddMassTransit(cfg =>
             // ep.UseCircuitBreaker(cb => cb.ActiveTimeThreshold(TimeSpan.FromMinutes(1)));
         });
 
-        // Saga queue — deferred until saga data model is fixed
-        // cfg2.ReceiveEndpoint("saga.agent", ep => { ep.Saga<AgentSaga>(context); });
+        // Saga queue
+        cfg2.ReceiveEndpoint("saga.agent", ep =>
+        {
+            ep.Saga<AgentSaga>(context);
+        });
 
         cfg2.ConfigureEndpoints(context);
     });

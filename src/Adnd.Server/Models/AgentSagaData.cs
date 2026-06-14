@@ -1,13 +1,13 @@
+using MassTransit;
+
 namespace Adnd.Server.Models;
 
 /// <summary>
 /// Persisted state for the Agent saga (MassTransit EF Core repository).
 /// Survives container restarts — the saga resumes from this state.
 /// Phase 2e: saga registration added after consumers are migrated.
-/// NOTE: ISagaStateMachineInstance is internal in MassTransit 8.x — saga data class
-/// just needs Guid CorrelationId property; MassTransit runtime handles the rest.
 /// </summary>
-public class AgentSagaData
+public class AgentSagaData : SagaStateMachineInstance
 {
     public Guid Id { get; set; }
 
