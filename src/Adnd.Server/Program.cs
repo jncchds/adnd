@@ -186,8 +186,7 @@ builder.Services.AddScoped<IGMToolCallService, GMToolCallService>();
 // Game Agent (per-game, singleton manager)
 builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
 
-// Event Bus — RabbitMQ-backed durable pub/sub
-builder.Services.AddSingleton<RabbitMqEventBus>();
+// Event Bus — MassTransit-backed durable pub/sub
 builder.Services.AddSingleton<EventBusWorker>();
 builder.Services.AddSingleton<IEventBus>(sp => sp.GetRequiredService<EventBusWorker>());
 builder.Services.AddHostedService<EventBusWorker>();

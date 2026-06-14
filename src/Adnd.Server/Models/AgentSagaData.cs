@@ -3,19 +3,11 @@ using MassTransit;
 namespace Adnd.Server.Models;
 
 /// <summary>
-/// Persisted state for the Agent saga (MassTransit EF Core repository).
+/// Persisted state for the Agent saga (MassTransit EF Core repository via SagaStateMachineInstance).
 /// Survives container restarts — the saga resumes from this state.
-/// Phase 2e: saga registration added after consumers are migrated.
 /// </summary>
-public class AgentSagaData : ISaga
+public class AgentSagaData : SagaStateMachineInstance
 {
-    public Guid Id { get; set; }
-
-    /// <summary>
-    /// Current state name (MassTransit state machine state).
-    /// </summary>
-    public string CurrentState { get; set; } = string.Empty;
-
     /// <summary>
     /// The AgentCall entity ID this saga is processing.
     /// </summary>
@@ -45,9 +37,4 @@ public class AgentSagaData : ISaga
     /// Timestamp when the saga was created.
     /// </summary>
     public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
-
-    /// <summary>
-    /// Concurrency stamp for EF Core saga persistence.
-    /// </summary>
-    public int Version { get; set; }
 }

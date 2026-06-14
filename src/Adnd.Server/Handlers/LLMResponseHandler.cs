@@ -2,6 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -12,14 +13,14 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<LLMResponseHandler> _logger;
-    private readonly RabbitMqEventBus _rabbitMq;
+    private readonly IPublishEndpoint _publishEndpoint;
     private readonly IEventBus _eventBus;
 
-    public LLMResponseHandler(IServiceProvider serviceProvider, ILogger<LLMResponseHandler> logger, RabbitMqEventBus rabbitMq, IEventBus eventBus)
+    public LLMResponseHandler(IServiceProvider serviceProvider, ILogger<LLMResponseHandler> logger, IPublishEndpoint publishEndpoint, IEventBus eventBus)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
-        _rabbitMq = rabbitMq;
+        _publishEndpoint = publishEndpoint;
         _eventBus = eventBus;
     }
 
@@ -56,9 +57,7 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
             await context.SaveChangesAsync(ct);
 
             var narrativeEvent = new NarrativeReady(evt.SagaId, evt.GameId, evt.Response);
-            var narrativePayload = JsonSerializer.Serialize(narrativeEvent);
-            var narrativeHeaders = new Dictionary<string, object> { ["x-event-type"] = narrativeEvent.GetType().FullName! };
-            _rabbitMq.PublishToAgent(evt.GameId, narrativePayload, Guid.NewGuid().ToString(), narrativeHeaders);
+            await _publishEndpoint.Publish(narrativeEvent, ct);
             return;
         }
 
@@ -89,9 +88,7 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
         await context.SaveChangesAsync(ct);
 
         var nextEvent = new ToolCallRequested(evt.SagaId, evt.GameId, 0, firstTool?.Name ?? "unknown", firstTool?.Arguments ?? "{}");
-        var payload = JsonSerializer.Serialize(nextEvent);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
-        _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
+        await _publishEndpoint.Publish(nextEvent, ct);
     }
 
     private List<ToolCallInfo> ExtractToolCalls(string response)

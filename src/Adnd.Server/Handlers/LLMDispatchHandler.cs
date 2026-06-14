@@ -2,6 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -12,13 +13,13 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<LLMDispatchHandler> _logger;
-    private readonly RabbitMqEventBus _rabbitMq;
+    private readonly IPublishEndpoint _publishEndpoint;
 
-    public LLMDispatchHandler(IServiceProvider serviceProvider, ILogger<LLMDispatchHandler> logger, RabbitMqEventBus rabbitMq)
+    public LLMDispatchHandler(IServiceProvider serviceProvider, ILogger<LLMDispatchHandler> logger, IPublishEndpoint publishEndpoint)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
-        _rabbitMq = rabbitMq;
+        _publishEndpoint = publishEndpoint;
     }
 
     public async Task HandleAsync(LLMDispatchRequested evt, CancellationToken ct)
@@ -78,9 +79,7 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
         var toolCallCount = hasToolCalls ? CountToolCalls(result) : 0;
 
         var nextEvent = new LLMResponseReceived(evt.SagaId, evt.GameId, result, hasToolCalls, toolCallCount);
-        var payload = JsonSerializer.Serialize(nextEvent);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
-        _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
+        await _publishEndpoint.Publish(nextEvent, ct);
 
         call.CurrentStep = SagaStep.LLMResponseReceived;
         await context.SaveChangesAsync(ct);
@@ -120,8 +119,6 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
         }
 
         var nextEvent = new AgentCallFailed(sagaId, gameId, error);
-        var payload = JsonSerializer.Serialize(nextEvent);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
-        _rabbitMq.PublishToAgent(gameId, payload, Guid.NewGuid().ToString(), headers);
+        await _publishEndpoint.Publish(nextEvent, ct);
     }
 }

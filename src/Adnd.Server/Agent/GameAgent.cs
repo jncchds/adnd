@@ -5,17 +5,14 @@ using Adnd.Server.Handlers;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Microsoft.Extensions.Logging;
-using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
-using RabbitMQ.Client.Framing;
+using MassTransit;
 using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace Adnd.Server.Agent;
 
 /// <summary>
-/// Per-game game agent that processes events reactively via RabbitMQ.
-/// No polling loops — the agent lives and dies by the RabbitMQ consumer lifecycle.
+/// Per-game game agent that processes events reactively via MassTransit.
 /// Saga state is persisted in AgentCall.CurrentStep and ToolCallCoordinator for crash recovery.
 /// </summary>
 public class GameAgent : IGameAgent
@@ -24,10 +21,8 @@ public class GameAgent : IGameAgent
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
     private readonly ILogger<GameAgent> _logger;
+    private readonly IPublishEndpoint _publishEndpoint;
     private readonly CancellationTokenSource _cts = new();
-    private IConnection? _rabbitMqConnection;
-    private IModel? _channel;
-    private AsyncEventingBasicConsumer? _consumer;
     private volatile bool _isPaused = false;
     private volatile bool _isConnected = false;
 
@@ -35,12 +30,14 @@ public class GameAgent : IGameAgent
         Guid gameId,
         IServiceProvider serviceProvider,
         IConfiguration configuration,
-        ILogger<GameAgent> logger)
+        ILogger<GameAgent> logger,
+        IPublishEndpoint publishEndpoint)
     {
         _gameId = gameId;
         _serviceProvider = serviceProvider;
         _configuration = configuration;
         _logger = logger;
+        _publishEndpoint = publishEndpoint;
     }
 
     public async Task StartAsync(Guid gameId, Guid creatorId)
@@ -69,130 +66,10 @@ public class GameAgent : IGameAgent
 
         _logger.LogInformation("Starting game agent for game {GameId}", gameId);
 
-        // Connect to RabbitMQ
-        ConnectToRabbitMq();
-
-        // Declare agent queue
-        DeclareAgentQueue();
-
         // Recover pending sagas
         await RecoverPendingSagas();
 
-        // Start consuming
-        StartConsuming();
-
         _isConnected = true;
-    }
-
-    private void ConnectToRabbitMq()
-    {
-        const int maxRetries = 5;
-        const int baseDelayMs = 1000;
-
-        var host = _configuration["RabbitMq:Host"] ?? "localhost";
-        var port = _configuration.GetValue<int>("RabbitMq:Port", 5672);
-        var username = _configuration["RabbitMq:Username"] ?? "adnd";
-        var password = _configuration["RabbitMq:Password"] ?? "adnd";
-        var virtualHost = _configuration["RabbitMq:VirtualHost"] ?? "/adnd";
-
-        for (int attempt = 0; attempt < maxRetries; attempt++)
-        {
-            try
-            {
-                var factory = new ConnectionFactory
-                {
-                    HostName = host,
-                    Port = port,
-                    UserName = username,
-                    Password = password,
-                    VirtualHost = virtualHost
-                };
-
-                _rabbitMqConnection = factory.CreateConnection();
-                _channel = _rabbitMqConnection.CreateModel();
-                _channel.ExchangeDeclare("adnd.events", ExchangeType.Direct, durable: true);
-
-                _logger.LogInformation("RabbitMQ connected for game {GameId} (attempt {Attempt}/{MaxAttempts})", _gameId, attempt + 1, maxRetries);
-                return;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "RabbitMQ connection attempt {Attempt}/{MaxAttempts} failed for game {GameId}", attempt + 1, maxRetries, _gameId);
-
-                if (attempt < maxRetries - 1)
-                {
-                    var delay = baseDelayMs * (int)Math.Pow(2, attempt); // exponential backoff
-                    _logger.LogDebug("Retrying in {Delay}ms for game {GameId}", delay, _gameId);
-                    Task.Delay(delay).Wait();
-                }
-            }
-        }
-
-        throw new RabbitMQ.Client.Exceptions.BrokerUnreachableException(
-            new Exception($"Failed to connect to RabbitMQ after {maxRetries} attempts for game {_gameId}"));
-    }
-
-    private void DeclareAgentQueue()
-    {
-        var queueName = $"agent.{_gameId}";
-
-        _channel!.QueueDeclare(queueName, durable: true, exclusive: false, autoDelete: false, null);
-        _channel.QueueBind(queueName, "adnd.events", $"agent.{_gameId}");
-
-        _logger.LogInformation("Declared agent queue {Queue} for game {GameId}", queueName, _gameId);
-    }
-
-    private void StartConsuming()
-    {
-        _consumer = new AsyncEventingBasicConsumer(_channel!);
-
-        _consumer.Received += async (model, ea) =>
-        {
-            try
-            {
-                var body = ea.Body.ToArray();
-                var payload = System.Text.Encoding.UTF8.GetString(body);
-
-                var eventTypeFullName = ea.BasicProperties?.Headers?.TryGetValue("x-event-type", out var eventTypeObj) == true
-                    ? eventTypeObj?.ToString()
-                    : null;
-
-                _logger.LogInformation("[CONSUMER] MessageReceived | GameId={GameId} | EventType={EventType} | PayloadLen={Len}",
-                    _gameId, eventTypeFullName ?? "unknown", payload.Length);
-
-                using var scope = _serviceProvider.CreateScope();
-
-                IGameEvent? evt = null;
-                if (!string.IsNullOrEmpty(eventTypeFullName))
-                {
-                    var eventType = typeof(IGameEvent).Assembly.GetType(eventTypeFullName);
-                    if (eventType != null)
-                    {
-                        evt = JsonSerializer.Deserialize(payload, eventType) as IGameEvent;
-                    }
-                }
-
-                if (evt != null)
-                {
-                    // Direct dispatch — do NOT call PublishAsync (that would re-publish to RabbitMQ)
-                    await DispatchToHandlers(evt, payload, scope.ServiceProvider, CancellationToken.None);
-                }
-
-                _channel!.BasicAck(ea.DeliveryTag, multiple: false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing message for game {GameId}", _gameId);
-                _channel!.BasicNack(ea.DeliveryTag, multiple: false, requeue: true);
-            }
-        };
-
-        _channel!.BasicConsume(
-            queue: $"agent.{_gameId}",
-            autoAck: false,
-            consumer: _consumer!);
-
-        _logger.LogInformation("Started consuming agent queue for game {GameId}", _gameId);
     }
 
     /// <summary>
@@ -460,9 +337,9 @@ public class GameAgentManager : IGameAgentManager, IDisposable
             }
 
             var agentLogger = _loggerFactory.CreateLogger<GameAgent>();
-            var agentLogger2 = _loggerFactory.CreateLogger<GameAgent>();
             var config = _serviceProvider.GetRequiredService<IConfiguration>();
-            var agent = new GameAgent(gameId, _serviceProvider, config, agentLogger2);
+            var publishEndpoint = _serviceProvider.GetRequiredService<IPublishEndpoint>();
+            var agent = new GameAgent(gameId, _serviceProvider, config, agentLogger, publishEndpoint);
 
             if (_agents.TryAdd(gameId, agent))
             {

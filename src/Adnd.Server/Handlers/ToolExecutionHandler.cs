@@ -2,6 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -12,13 +13,13 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ToolExecutionHandler> _logger;
-    private readonly RabbitMqEventBus _rabbitMq;
+    private readonly IPublishEndpoint _publishEndpoint;
 
-    public ToolExecutionHandler(IServiceProvider serviceProvider, ILogger<ToolExecutionHandler> logger, RabbitMqEventBus rabbitMq)
+    public ToolExecutionHandler(IServiceProvider serviceProvider, ILogger<ToolExecutionHandler> logger, IPublishEndpoint publishEndpoint)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
-        _rabbitMq = rabbitMq;
+        _publishEndpoint = publishEndpoint;
     }
 
     public async Task HandleAsync(ToolCallRequested evt, CancellationToken ct)
@@ -58,9 +59,7 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
                 evt.GameId,
                 evt.ToolName,
                 call.Id.ToString());
-            var waitingPayload = JsonSerializer.Serialize(waitingEvent);
-            var waitingHeaders = new Dictionary<string, object> { ["x-event-type"] = waitingEvent.GetType().FullName! };
-            _rabbitMq.PublishToAgent(evt.GameId, waitingPayload, Guid.NewGuid().ToString(), waitingHeaders);
+            await _publishEndpoint.Publish(waitingEvent, ct);
             return;
         }
 
@@ -89,9 +88,7 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
         }
 
         var nextEvent = new ToolCallCompleted(evt.SagaId, evt.GameId, evt.ToolIndex, result.Output ?? "", result.Error);
-        var payload = JsonSerializer.Serialize(nextEvent);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
-        _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
+        await _publishEndpoint.Publish(nextEvent, ct);
 
         _logger.LogInformation("[TOOL] Executed | SagaId={SagaId} | Index={Index} | Success={Success}",
             evt.SagaId, evt.ToolIndex, result.Success);

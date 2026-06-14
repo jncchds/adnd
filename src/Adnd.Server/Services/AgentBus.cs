@@ -4,6 +4,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Hubs;
 using Adnd.Server.Models;
+using MassTransit;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -97,7 +98,7 @@ public class AgentBus : IAgentBus
     private readonly ILogger<AgentBus> _logger;
     private readonly IHubContext<GameHub> _hubContext;
     private readonly IEventBus _eventBus;
-    private readonly RabbitMqEventBus _rabbitMq;
+    private readonly IPublishEndpoint _publishEndpoint;
     private readonly IDeadLetterQueue _dlq;
     private readonly IConfiguration _configuration;
     private readonly int _toolCallingMaxDepth;
@@ -118,7 +119,7 @@ public class AgentBus : IAgentBus
         ILogger<AgentBus> logger,
         IHubContext<GameHub> hubContext,
         IEventBus mediator,
-        RabbitMqEventBus rabbitMq,
+        IPublishEndpoint publishEndpoint,
         IDeadLetterQueue dlq,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
@@ -138,7 +139,7 @@ public class AgentBus : IAgentBus
         _hubContext = hubContext;
         _gameAgentManager = gameAgentManager;
         _eventBus = mediator;
-        _rabbitMq = rabbitMq;
+        _publishEndpoint = publishEndpoint;
         _dlq = dlq;
         _configuration = configuration;
         _toolCallingMaxDepth = _configuration.GetValue<int>("ToolCallingMaxDepth", 5);
@@ -186,9 +187,7 @@ public class AgentBus : IAgentBus
         // Publish AgentCallQueued event — must go to agent queue (not game queue)
         // to trigger the saga system
         var agentCallQueued = new AgentCallQueued(call.Id, call.GameId);
-        var payload = System.Text.Json.JsonSerializer.Serialize(agentCallQueued);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = agentCallQueued.GetType().FullName! };
-        _rabbitMq.PublishToAgent(call.GameId, payload, Guid.NewGuid().ToString(), headers);
+        await _publishEndpoint.Publish(agentCallQueued, CancellationToken.None);
 
         return call;
     }

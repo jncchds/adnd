@@ -2,6 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -12,13 +13,13 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<LLMFollowUpHandler> _logger;
-    private readonly RabbitMqEventBus _rabbitMq;
+    private readonly IPublishEndpoint _publishEndpoint;
 
-    public LLMFollowUpHandler(IServiceProvider serviceProvider, ILogger<LLMFollowUpHandler> logger, RabbitMqEventBus rabbitMq)
+    public LLMFollowUpHandler(IServiceProvider serviceProvider, ILogger<LLMFollowUpHandler> logger, IPublishEndpoint publishEndpoint)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
-        _rabbitMq = rabbitMq;
+        _publishEndpoint = publishEndpoint;
     }
 
     public async Task HandleAsync(LLMFollowUpRequested evt, CancellationToken ct)
@@ -81,9 +82,7 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
         }
 
         var nextEvent = new NarrativeReady(evt.SagaId, evt.GameId, result);
-        var payload = JsonSerializer.Serialize(nextEvent);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
-        _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
+        await _publishEndpoint.Publish(nextEvent, ct);
 
         call.CurrentStep = SagaStep.NarrativeReady;
         await context.SaveChangesAsync(ct);
@@ -110,8 +109,6 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
         }
 
         var nextEvent = new AgentCallFailed(sagaId, gameId, error);
-        var payload = JsonSerializer.Serialize(nextEvent);
-        var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
-        _rabbitMq.PublishToAgent(gameId, payload, Guid.NewGuid().ToString(), headers);
+        await _publishEndpoint.Publish(nextEvent, ct);
     }
 }

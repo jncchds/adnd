@@ -2,6 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -12,16 +13,16 @@ public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SagaOrchestratorHandler> _logger;
-    private readonly RabbitMqEventBus _rabbitMq;
+    private readonly IPublishEndpoint _publishEndpoint;
 
     public SagaOrchestratorHandler(
         IServiceProvider serviceProvider,
         ILogger<SagaOrchestratorHandler> logger,
-        RabbitMqEventBus rabbitMq)
+        IPublishEndpoint publishEndpoint)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
-        _rabbitMq = rabbitMq;
+        _publishEndpoint = publishEndpoint;
     }
 
     public async Task HandleAsync(AgentCallQueued evt, CancellationToken ct)
@@ -77,9 +78,7 @@ public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
 
         if (nextEvent != null)
         {
-            var payload = JsonSerializer.Serialize(nextEvent);
-            var headers = new Dictionary<string, object> { ["x-event-type"] = nextEvent.GetType().FullName! };
-            _rabbitMq.PublishToAgent(evt.GameId, payload, Guid.NewGuid().ToString(), headers);
+            await _publishEndpoint.Publish(nextEvent, ct);
         }
 
         call.CurrentStep = nextEvent == null ? SagaStep.Completed : SagaStep.LLMDispatchRequested;

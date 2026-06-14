@@ -1,5 +1,6 @@
-using Microsoft.EntityFrameworkCore;
 using Adnd.Server.Models;
+using MassTransit;
+using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Services;
 
@@ -17,11 +18,13 @@ public class SagaDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        // MassTransit EF Core saga repository requires specific schema
         modelBuilder.Entity<AgentSagaData>(b =>
         {
             b.HasKey(s => s.Id);
+            b.Property(s => s.Id).ValueGeneratedOnAdd();
+            b.Property(s => s.CorrelationId).ValueGeneratedNever();
             b.Property(s => s.CurrentState).HasMaxLength(128);
-            b.Property(s => s.CorrelationId).HasMaxLength(128);
         });
     }
 }
