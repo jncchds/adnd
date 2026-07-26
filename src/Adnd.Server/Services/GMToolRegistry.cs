@@ -3,6 +3,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services.Llm;
 using Microsoft.EntityFrameworkCore;
+using CombatEntity = Adnd.Server.Models.Combat;
 
 namespace Adnd.Server.Services;
 
@@ -126,7 +127,7 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine) : IGMToolRe
             case "startCombat":
             {
                 var name = arguments.GetProperty("name").GetString() ?? "Combat";
-                var combat = new Combat
+                var combat = new CombatEntity
                 {
                     GameId = gameId,
                     SessionId = sessionId,

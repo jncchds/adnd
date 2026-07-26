@@ -2,6 +2,22 @@
 
 ## v0.1.0 — 2026-07-26
 
+### Phase 6 — Combat System + Phase 5 Gap-Fill
+
+**feat:**
+- Combat system: 12 domain services + ICombatService facade (lifecycle, participants, initiative, turns, state, spells, inventory, progression, grid, AI suggestions, queries, CoC 7e sanity)
+- D&D 5e death save logic (nat 20 revive, nat 1 double failure, 3 success/failure thresholds)
+- AgentSaga: Wolverine durable saga keyed on AgentCall.Id with 5-minute timeout via IMessageContext.ScheduleAsync
+- LLM strategy layer: IAdndLlmStrategy + 4 provider strategies (Ollama, OpenAI, OpenAI-Compatible, Google AI Studio)
+- 12 missing REST controllers: Admin, CombatLog, DiceHistory, GMTool, LLM, LLMTrigger, PlotWeaver, QuickWins, SpellManagement, Sway, LLMLogsController, AgentFramework
+- CombatEventLogger: shared scoped helper for writing CombatEvent records with round/turn metadata
+- CombatGridService: grid/position state stored in Combat.Notes jsonb under "grid" sub-key
+- CombatAIService: builds context string, calls game's LLMPreset provider, parses JSON suggestions array
+
+**infra:**
+- Program.cs: 14 new combat service registrations under ── Combat System ── comment block
+- GMToolRegistry.cs: added CombatEntity alias to resolve namespace collision with new Services.Combat namespace
+
 ### Phase 0 — Repo Scaffold
 
 - infra: ASP.NET Core 10 server project with all NuGet package references, minimal `Program.cs` with health check at `/health`, `MapFallbackToFile("index.html")` for SPA serving
