@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Serialization;
+using Adnd.Server.Agent;
 using Adnd.Server.Data;
 using Adnd.Server.Services;
 using Adnd.Server.Services.HealthChecks;
@@ -8,6 +9,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Wolverine;
+using Wolverine.Postgresql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -111,6 +114,23 @@ builder.Services.AddSingleton<ILLMProviderFactory, LLMProviderFactory>();
 builder.Services.AddScoped<IEmbeddingService, EmbeddingService>();
 builder.Services.AddScoped<ILLMInteractionLogger, LLMInteractionLogger>();
 builder.Services.AddSingleton<IResiliencePolicies, ResiliencePolicies>();
+
+// ── Event / Agent System ──────────────────────────────────────────────────────
+builder.Services.AddScoped<IEventBus, EventBusWorker>();
+builder.Services.AddScoped<IAgentBus, AgentBus>();
+builder.Services.AddSingleton<IDeadLetterQueue, DeadLetterQueue>();
+builder.Services.AddScoped<IGMToolRegistry, GMToolRegistry>();
+builder.Services.AddScoped<IGMToolCallService, GMToolCallService>();
+builder.Services.AddSingleton<IHandlerRegistry, HandlerRegistry>();
+builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
+builder.Services.AddHostedService(sp => (GameAgentManager)sp.GetRequiredService<IGameAgentManager>());
+
+// ── Wolverine ─────────────────────────────────────────────────────────────────
+builder.Host.UseWolverine(opts =>
+{
+    opts.PersistMessagesWithPostgresql(connStr, "public");
+    opts.Discovery.IncludeAssembly(typeof(Program).Assembly);
+});
 
 // ── SignalR ───────────────────────────────────────────────────────────────────
 builder.Services.AddSignalR();
