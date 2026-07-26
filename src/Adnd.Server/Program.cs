@@ -2,6 +2,8 @@ using System.Text;
 using System.Text.Json.Serialization;
 using Adnd.Server.Data;
 using Adnd.Server.Services;
+using Adnd.Server.Services.HealthChecks;
+using Adnd.Server.Services.Llm;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -103,12 +105,21 @@ builder.Services.AddSingleton<ISystemRegistry, SystemRegistry>();
 builder.Services.AddScoped<IGameEngine, GameEngine>();
 builder.Services.AddScoped<IPlayerManagementService, PlayerManagementService>();
 
+// ── LLM Provider System ───────────────────────────────────────────────────────
+builder.Services.AddHttpClient("LLMProvider").ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(120));
+builder.Services.AddSingleton<ILLMProviderFactory, LLMProviderFactory>();
+builder.Services.AddScoped<IEmbeddingService, EmbeddingService>();
+builder.Services.AddScoped<ILLMInteractionLogger, LLMInteractionLogger>();
+builder.Services.AddSingleton<IResiliencePolicies, ResiliencePolicies>();
+
 // ── SignalR ───────────────────────────────────────────────────────────────────
 builder.Services.AddSignalR();
 
 // ── Health Checks ─────────────────────────────────────────────────────────────
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<AppDbContext>("database");
+    .AddDbContextCheck<AppDbContext>("database")
+    .AddCheck<LlmProvidersHealthCheck>("llm", tags: ["ready"])
+    .AddCheck<PgVectorHealthCheck>("pgvector", tags: ["ready"]);
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 builder.Services.AddCors(opts =>
