@@ -1,23 +1,25 @@
 :root {
+  --adnd-accent: #7c3aed;
+  --adnd-bg: #0c0a0e;
+  --adnd-surface: #141019;
   --color-accent: #7c3aed;
-  --color-accent-hover: #6d28d9;
   --color-bg: #0c0a0e;
   --color-surface: #141019;
-  --color-surface-2: #1c1823;
-  --color-border: #2d2438;
   --color-text: #e8e3f0;
   --color-text-muted: #9585b4;
 }
 
-*, *::before, *::after {
-  box-sizing: border-box;
-}
+*, *::before, *::after { box-sizing: border-box; }
 
 html, body, #root {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(124, 58, 237, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(124, 58, 237, 0.5); }

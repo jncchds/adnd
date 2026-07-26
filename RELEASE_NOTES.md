@@ -2,6 +2,38 @@
 
 ## v0.1.0 — 2026-07-26
 
+### Phase 8 — Frontend Core (React SPA)
+
+**feat:**
+- `main.tsx`: `ColorModeContext` + `useColorMode()` hook, `ThemeProvider` with DnD Arcane Dark palette (`#7c3aed` / `#0c0a0e` / `#141019`), light/dark mode persisted to `localStorage('adnd-theme')`
+- `App.tsx`: full router with `BrowserRouter`, `AuthProvider`, `RequireAuth` guard, all 18 routes
+- `SidePanel.tsx`: MUI-based collapsible sidebar — hamburger toggle, version pill, user name, main nav (Games/Presets/Systems/Settings), context-sensitive in-game sub-nav (Chat/Admin/Plot Board/NPCs/Characters/Consistency/LLM Logs/Agent Calls), theme toggle + logout; collapse state persisted to `localStorage('adnd-sidebar')`
+- `AppShell.tsx`: layout wrapper using `<Outlet>` from react-router-dom; detects current game/admin context from URL
+- `AuthPage.tsx`: login + register tabs, BCrypt-safe form, redirects to dashboard on success
+- `DashboardPage.tsx`: game grid, create-game dialog (LLM preset/system/language/plot-seed selectors), join-by-invite-code input, start/archive quick actions
+- `GameChatPage.tsx`: Zone A = `CombatPanel` (initiative list, HP bars, AC, action economy chips, death-save tracking); Zone B = `ChatPanel` (infinite scroll, SignalR dedup by ID, type-aware message rendering, react-markdown for GM narration); Zone C = `ChatInput` (in-game/OOC toggle, receiver dropdown, whisper routing); GM thinking indicator, `ToolCallBanner`, GM error alert; all SignalR event subscriptions
+- `AdminDashboardPage.tsx`: stat cards, game controls (start/archive/pause-resume GM), invite code generator, game details panel, quick-nav to all admin sub-pages
+- `AdminPlotBoardPage.tsx`: plot thread cards with momentum bars, category/status chips, PlotWeaver review trigger, add/delete threads
+- `AdminNPCsPage.tsx`: NPC cards with attitude chip (color-coded), faction, create/edit/delete dialog
+- `AdminCharactersPage.tsx`: player grid showing character name/class/level/HP with link to character sheet
+- `AdminConsistencyPage.tsx`: on-demand consistency check + story continuation suggestions via PlotWeaver
+- `AdminLLMLogsPage.tsx`: filterable table, collapsible rows with full prompt/response text, token/duration stats, bulk delete
+- `AdminAgentCallsPage.tsx`: agent call table with status chips, expandable error details
+- `CharacterSheetPage.tsx`: 6-tab sheet — Stats (attribute cards with modifiers), Skills, Inventory, Spells (per-level), Background (editable traits/bonds/flaws), Custom (JSON editor); save to API
+- `CharacterCreateWizard.tsx`: 4-step stepper — 8 backgrounds (Acolyte, Criminal, Soldier, Sage, Gladiator, Folk Hero, Urchin, Noble), name/class, attribute assignment, backstory
+- `LLMPresetsPage.tsx`: preset list, full create/edit dialog (provider type, model, endpoint, API key masked, temperature slider, max tokens, top-p, reasoning effort, embedding config, stream toggle), test-connection button
+- `GameSettingsPage.tsx`, `SystemsPage.tsx`, `UserSettingsPage.tsx`: settings, system list, profile/password pages
+- Full TypeScript type system: `auth.types.ts`, `game.types.ts`, `message.types.ts`, `combat.types.ts`, `agent.types.ts`, `gm.types.ts`, `llm.types.ts`, `plot.types.ts`, `template.types.ts`
+- `api/client.ts`: `APIClient` singleton — JWT from localStorage, 401 auto-refresh, 429 handling, full API surface coverage (auth, games, NPCs, LLM presets, logs, agent calls, tool calls, plots, combat, characters, templates, triggers, systems, dice, whispers)
+- `api/hooks/useHub.ts`: `useGameHub()` — SignalR connection, JWT via `accessTokenFactory`, `withAutomaticReconnect`, game group join on connect
+- `api/hooks/`: `useGame`, `useGames`, `usePlayers`, `usePlotThreads`, `useNPCs`, `useCharacter`, `useToolCalls`, `useMessagesInfiniteScroll` — cursor-based pagination, live append with dedup by ID
+- `context/AuthContext.tsx`: `AuthProvider` + `useAuth()` — login, register, logout, auto-refresh on mount
+
+**ui:**
+- DnD Arcane Dark theme: accent `#7c3aed`, bg `#0c0a0e`, surface `#141019`; MUI `createTheme` wired to CSS variables
+- Custom scrollbar styling matching accent palette
+- All pages responsive with MUI Grid2 (`size` prop) and flexbox layouts
+
 ### Phase 7 — Plot Intelligence (RAG + PlotWeaver) + README + LICENSE
 
 **feat:**
@@ -21,6 +53,74 @@
 - `LICENSE`: MIT
 
 
+
+### Phase 5 — SignalR GameHub, remaining controllers, WhisperService
+
+**feat:**
+- `GameHub` partial class (18 files): base hub with `ConcurrentDictionary` connection tracking, `PersistGameEventAsync`, `BroadcastToGameAsync`
+- `GameHub.JoinLeave`: `JoinGameGroup`/`LeaveGameGroup` with group membership + player `IsConnected` tracking
+- `GameHub.ChatMethods`: `SendMessage`, `SendWhisper`, `SendOOC*`
+- `GameHub.Dice`: `RollDice` (with secret flag), `RollSkillCheck`, `RollAttack`
+- `GameHub.Combat`: 12 methods — `StartCombat` through `RecordDeathSave`, `BuildCombatDto` helper
+- `GameHub.AgentMethods`: `TriggerNarrate`/`Suggest`, `GetGMStatus`, `PauseGM`/`ResumeGM`
+- `GameHub.ToolCalls`: `Confirm`/`Decline` roll + `ConfirmToolCall`
+- `GameHub.Whispers`: `GetWhisperHistory`, `SendGMWhisper`
+- 10 stub partial files for Phase 6/7 (AICombat, CharacterCreation, FlavorText, Grid, HelperMethods, Inventory, Progression, RestSystem, SAN, Spells, SystemSpecific)
+- Response DTOs: `MessageDto`, `GameStatusDto`, `GMStatusDto`, `PlayerDto`, `CombatDto`, `ParticipantDto`, `DamageDto`, `ConditionDto`, `RollRequestDto`, `DiceResultDto`
+- `WhisperService`
+- Controllers: `CharactersController`, `NPCsController`, `PlotsController`, `GMStatusController`, `GameStateController`, `WhispersController`
+
+**infra:**
+- `GameHub` mapped at `/gamehub` in `Program.cs`
+
+---
+
+### Phase 4 — Event System, Wolverine Saga, Agent Framework
+
+**feat:**
+- 58+ `IGameEvent` records covering game lifecycle, player, session, chat, combat, character/NPC/plot, story, and saga-internal events
+- `IEventBus` / `EventBusWorker` wrapping Wolverine `IMessageBus`
+- `IHandlerRegistry` with `ConcurrentDictionary` cache
+- `IAgentBus` / `AgentBus`: saves `AgentCall` + publishes `AgentCallQueued`
+- `IDeadLetterQueue`: 3-retry max per call ID
+- `IGMToolRegistry` with 12 GM tools: `narrate`, `rollDice`, `skillCheck`, `requestPlayerRoll`, `queryCharacter`, `queryNPCs`, `searchPlotContext`, `updateGameState`, `sendWhisper`, `startCombat`, `addCombatParticipant`, `generateLoot`
+- `IGMToolCallService`
+- `GameAgent` + `GameAgentManager` (`IHostedService`, recovers active games on startup)
+- 8 Wolverine saga handlers: `SagaOrchestratorHandler` → `LLMDispatchHandler` → `LLMResponseHandler` → `ToolExecutionHandler` → `CoordinatorHandler` → `LLMFollowUpHandler` → `NarrativeHandler` → `GameLifecycle`
+- Event handlers: `ChatHandler`, `PlotWeaverHandler`, `AgentCallFailedHandler`, `ToolCallWaitingConfirmationHandler`
+
+**infra:**
+- Wolverine configured with PostgreSQL persistence on `public` schema
+
+---
+
+### Phase 3 — LLM Provider System, Embeddings, Resilience
+
+**feat:**
+- `ILLMProvider` interface + `BaseLLMProvider` (template method, fallback text-based tool calling via `JsonExtract` 3-pass extraction)
+- Four concrete providers: `OllamaLLMProvider` (OllamaSharp), `OpenAICompatibleLLMProvider` (raw HttpClient, any OpenAI-compatible endpoint), `OpenAILLMProvider` (OpenAI SDK 2.12.0 with native tool calling), `GoogleAIStudioLLMProvider` (raw HttpClient, reasoning budget mapping)
+- `LLMProviderFactory`: routes on `ProviderType`
+- `EmbeddingService`: game-scoped, falls back to empty vector
+- `LLMInteractionLogger`: persists every LLM call to DB
+- `ResiliencePolicies`: config-backed Polly retry/circuit-breaker
+- `LlmProvidersHealthCheck` and `PgVectorHealthCheck` (both tagged `"ready"`)
+
+---
+
+### Phase 2 — Game Management, LLM Presets, Dice Engine
+
+**feat:**
+- `LLMPresetService`: encrypt/decrypt API keys, set-default, test-connection
+- `GameAuthorizationService`: Creator/Player role enforcement
+- `GameManagementService`: full lifecycle — create, join by invite code, start, archive, promote/kick
+- `SessionManagementService`: get-or-create current session
+- `DiceEngine`: full formula parser — NdM, kh/kl/dh/dl keep/drop modifiers, flat bonuses, `Random.Shared`
+- `SystemRegistry` singleton: built-in D&D 5e, PF2e, CoC 7e system definitions
+- `GameEngine`, `PlayerManagementService`
+- `GamesController` (12 routes), `LLMPresetsController` (7 routes), `SystemsController` (2 routes)
+- DTOs: `GameDtos`, `LLMPresetDtos`
+
+---
 
 ### Phase 6 — Combat System + Phase 5 Gap-Fill
 
