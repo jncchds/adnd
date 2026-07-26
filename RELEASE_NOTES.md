@@ -2,6 +2,26 @@
 
 ## v0.1.0 — 2026-07-26
 
+### Phase 7 — Plot Intelligence (RAG + PlotWeaver) + README + LICENSE
+
+**feat:**
+- `RAGService` / `IRAGService`: context assembly (recent messages + NPCs + active plot threads + character backstories), pgvector cosine similarity search via `FindSimilarPlotThreadsAsync`, LLM-driven session summary generation, consistency check, continuation suggestions, batch/single message embedding with 60-minute in-memory cache
+- `PlotWeaver` / `IPlotWeaver`: orchestrates four strategy implementations — `PlotThreadGenerationStrategy` (generates 2-4 initial threads from plot seed + LLM), `PlotThreadAdaptationStrategy` (adapts existing threads + momentum based on recent events), `PlotMilestoneSpawningStrategy` (spawns milestone events for threads with momentum ≥ 5), `PlotOpportunityDetectionStrategy` (detects 1-2 new story opportunities per review cycle)
+- `CharacterCreationFactory` / `ICharacterCreationFactory`: 8 D&D-style backgrounds (Acolyte, Criminal, Soldier, Sage, Gladiator, Folk Hero, Urchin, Noble) with pre-filled skill proficiencies, tool proficiencies, features, default traits/bonds/flaws, and proper attribute/inventory initialization
+- `NarrativeGenerationFactory` / `INarrativeGenerationFactory`: LLM-powered opening narration (game system–aware system prompt), session recap generation (delegates to RAGService), and general narrative generation; auto-loads game's `PromptTemplate` if one exists
+- `GameStartService` / `IGameStartService`: full game startup orchestration — creates/gets session, seeds default prompt templates on first run (S3: D&D 5e, PF2e, CoC 7e, Generic), generates prior-session recap if prior sessions exist (S4), generates initial plot threads via PlotWeaver, queues opening narration via AgentBus
+- Updated `PlotWeaverHandler`: now injects `IPlotWeaver` and calls `ReviewAndAdaptAsync` every 10 messages; adds S9 event-based triggers — `CombatEnded`, `SessionCreated`, `StorySwayed` all trigger a PlotWeaver review
+- Updated `PlotWeaverController`: replaced stub with real endpoints — `GET context/{gameId}`, `GET consistency/{gameId}`, `GET continuation/{gameId}`, `POST embed/{gameId}`, `POST session-summary/{gameId}/{sessionId}`, `POST review/{gameId}`
+- Updated `GamesController.Start`: calls `IGameStartService.StartGameAsync` after setting game status to Starting
+
+**infra:**
+- Hangfire wired up: `AddHangfire()` with `UsePostgreSqlStorage`, `AddHangfireServer()` (2 workers), `UseHangfireDashboard("/hangfire")` in middleware pipeline
+- All 5 new Phase 7 services registered in `Program.cs` as scoped
+- `README.md`: project overview, quick start, LLM provider setup table, architecture diagram, endpoints table, tech stack
+- `LICENSE`: MIT
+
+
+
 ### Phase 6 — Combat System + Phase 5 Gap-Fill
 
 **feat:**

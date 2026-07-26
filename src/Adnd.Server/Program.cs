@@ -5,6 +5,8 @@ using Adnd.Server.Data;
 using Adnd.Server.Services;
 using Adnd.Server.Services.HealthChecks;
 using Adnd.Server.Services.Llm;
+using Hangfire;
+using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -126,6 +128,21 @@ builder.Services.AddSingleton<IHandlerRegistry, HandlerRegistry>();
 builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
 builder.Services.AddHostedService(sp => (GameAgentManager)sp.GetRequiredService<IGameAgentManager>());
 
+// ── Plot Intelligence (Phase 7) ───────────────────────────────────────────────
+builder.Services.AddScoped<IRAGService, RAGService>();
+builder.Services.AddScoped<IPlotWeaver, PlotWeaver>();
+builder.Services.AddScoped<ICharacterCreationFactory, CharacterCreationFactory>();
+builder.Services.AddScoped<INarrativeGenerationFactory, NarrativeGenerationFactory>();
+builder.Services.AddScoped<IGameStartService, GameStartService>();
+
+// ── Hangfire (background jobs, PostgreSQL-backed) ─────────────────────────────
+builder.Services.AddHangfire(config =>
+    config.SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+          .UseSimpleAssemblyNameTypeSerializer()
+          .UseRecommendedSerializerSettings()
+          .UsePostgreSqlStorage(o => o.UseNpgsqlConnection(connStr)));
+builder.Services.AddHangfireServer(opts => opts.WorkerCount = 2);
+
 // ── Combat System ─────────────────────────────────────────────────────────────
 builder.Services.AddScoped<Adnd.Server.Services.Combat.CombatEventLogger>();
 builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatLifecycleService, Adnd.Server.Services.Combat.CombatLifecycleService>();
@@ -170,6 +187,9 @@ await app.UseDatabaseMigrationsAsync();
 // ── Swagger ────────────────────────────────────────────────────────────────────
 app.UseSwagger();
 app.UseSwaggerUI();
+
+// ── Hangfire ──────────────────────────────────────────────────────────────────
+app.UseHangfireDashboard("/hangfire");
 
 // ── Health endpoints ──────────────────────────────────────────────────────────
 app.MapHealthChecks("/health");

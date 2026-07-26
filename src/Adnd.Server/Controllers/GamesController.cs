@@ -136,12 +136,13 @@ public class GamesController(
     }
 
     [HttpPost("{id:guid}/start")]
-    public async Task<IActionResult> Start(Guid id)
+    public async Task<IActionResult> Start(Guid id, [FromServices] IGameStartService gameStartService)
     {
         try
         {
             var userId = userIdProvider.GetUserId();
             await games.StartAsync(id, userId);
+            await gameStartService.StartGameAsync(id);
             return NoContent();
         }
         catch (KeyNotFoundException ex)

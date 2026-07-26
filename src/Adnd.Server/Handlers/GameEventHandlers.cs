@@ -29,15 +29,54 @@ public class ChatHandler(ILogger<ChatHandler> logger)
     }
 }
 
-public class PlotWeaverHandler
+// Tracks per-game message counts and triggers PlotWeaver every N messages
+// Also handles S9 event-based triggers
+public class PlotWeaverHandler(IPlotWeaver plotWeaver, ILogger<PlotWeaverHandler> logger)
 {
     private static readonly ConcurrentDictionary<Guid, int> _counters = new();
     private const int TriggerEvery = 10;
 
-    public Task HandleAsync(MessageSent msg)
+    public async Task HandleAsync(MessageSent msg)
     {
-        _counters.AddOrUpdate(msg.GameId, 1, (_, c) => c + 1);
-        return Task.CompletedTask;
+        var count = _counters.AddOrUpdate(msg.GameId, 1, (_, c) => c + 1);
+        if (count % TriggerEvery == 0)
+        {
+            logger.LogInformation("PlotWeaver triggered by message count ({Count}) for game {GameId}", count, msg.GameId);
+            await SafeReviewAsync(msg.GameId);
+        }
+    }
+
+    // S9 — trigger PlotWeaver on CombatEnded
+    public async Task HandleAsync(CombatEnded msg)
+    {
+        logger.LogInformation("PlotWeaver triggered by CombatEnded for game {GameId}", msg.GameId);
+        await SafeReviewAsync(msg.GameId);
+    }
+
+    // S9 — trigger PlotWeaver when a new session is created
+    public async Task HandleAsync(SessionCreated msg)
+    {
+        logger.LogInformation("PlotWeaver triggered by SessionCreated for game {GameId}", msg.GameId);
+        await SafeReviewAsync(msg.GameId);
+    }
+
+    // S9 — trigger PlotWeaver on story sway
+    public async Task HandleAsync(StorySwayed msg)
+    {
+        logger.LogInformation("PlotWeaver triggered by StorySwayed for game {GameId}", msg.GameId);
+        await SafeReviewAsync(msg.GameId);
+    }
+
+    private async Task SafeReviewAsync(Guid gameId)
+    {
+        try
+        {
+            await plotWeaver.ReviewAndAdaptAsync(gameId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "PlotWeaver review failed for game {GameId}", gameId);
+        }
     }
 }
 
