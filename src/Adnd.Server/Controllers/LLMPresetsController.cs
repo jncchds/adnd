@@ -3,12 +3,14 @@ using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Adnd.Server.Controllers;
 
 [ApiController]
 [Route("api/llmpresets")]
 [Authorize]
+[EnableRateLimiting("llm")]
 public class LLMPresetsController(
     ILLMPresetService presets,
     IUserIdProvider userIdProvider) : ControllerBase

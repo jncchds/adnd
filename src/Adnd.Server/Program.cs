@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Adnd.Server.Agent;
 using Adnd.Server.Data;
 using Adnd.Server.Services;
@@ -8,6 +9,8 @@ using Adnd.Server.Services.Llm;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc.ApplicationModels;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -17,7 +20,10 @@ using Wolverine.Postgresql;
 var builder = WebApplication.CreateBuilder(args);
 
 // ── MVC / API ──────────────────────────────────────────────────────────────
-builder.Services.AddControllers()
+builder.Services.AddControllers(opts =>
+    {
+        opts.Conventions.Add(new RouteTokenTransformerConvention(new LowerCaseParameterTransformer()));
+    })
     .AddJsonOptions(o =>
     {
         o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
@@ -179,6 +185,27 @@ builder.Services.AddHealthChecks()
 builder.Services.AddCors(opts =>
     opts.AddPolicy("AllowAll", p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 
+// ── Rate Limiting ─────────────────────────────────────────────────────────────
+var globalPermit = int.TryParse(builder.Configuration["RateLimiting:GlobalPermitLimit"], out var gp) ? gp : 300;
+var authPermit   = int.TryParse(builder.Configuration["RateLimiting:AuthPermitLimit"],   out var ap) ? ap : 20;
+var llmPermit    = int.TryParse(builder.Configuration["RateLimiting:LLMPresetPermitLimit"], out var lp) ? lp : 10;
+
+builder.Services.AddRateLimiter(opts =>
+{
+    opts.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ctx.Connection.RemoteIpAddress?.ToString() ?? "anon",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = globalPermit, Window = TimeSpan.FromMinutes(1) }));
+
+    opts.AddFixedWindowLimiter("auth", o => { o.PermitLimit = authPermit; o.Window = TimeSpan.FromMinutes(1); });
+    opts.AddFixedWindowLimiter("llm",  o => { o.PermitLimit = llmPermit;  o.Window = TimeSpan.FromMinutes(1); });
+    opts.OnRejected = async (ctx, _) =>
+    {
+        ctx.HttpContext.Response.StatusCode = 429;
+        await ctx.HttpContext.Response.WriteAsync("Rate limit exceeded.");
+    };
+});
+
 var app = builder.Build();
 
 // ── Migrations ────────────────────────────────────────────────────────────────
@@ -210,10 +237,12 @@ app.Use(async (ctx, next) =>
     ctx.Response.Headers["X-Frame-Options"] = "DENY";
     ctx.Response.Headers["X-XSS-Protection"] = "1; mode=block";
     ctx.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    ctx.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
     await next();
 });
 
 app.UseForwardedHeaders();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -223,3 +252,10 @@ app.MapHub<Adnd.Server.Hubs.GameHub>("/gamehub");
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+// Transforms route tokens to lowercase: GamesController → /api/games
+public class LowerCaseParameterTransformer : IOutboundParameterTransformer
+{
+    public string? TransformOutbound(object? value) =>
+        value?.ToString()?.ToLowerInvariant();
+}

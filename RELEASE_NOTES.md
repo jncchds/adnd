@@ -2,6 +2,16 @@
 
 ## v0.1.0 — 2026-07-26
 
+### Phase 9 — Polish + Production Hardening
+
+**feat:**
+- `LowerCaseParameterTransformer` + `RouteTokenTransformerConvention`: all controller routes now lowercase (e.g. `/api/games`, `/api/llmpresets`, `/api/auth`)
+- Rate limiting: global fixed-window limiter (default 300 req/min per IP) + named `auth` (20/min) + `llm` (10/min) policies via `AddRateLimiter`; `[EnableRateLimiting("auth")]` on `AuthController`, `[EnableRateLimiting("llm")]` on `LLMPresetsController`; `UseRateLimiter()` in middleware pipeline; 429 response on rejection
+- `Permissions-Policy: camera=(), microphone=(), geolocation=()` added to security headers middleware
+
+**infra:**
+- `.env.example` finalized with all required + optional variables: `POSTGRES_PASSWORD`, `APP_PORT`, `JWT_*`, `ENCRYPTION_MASTER_KEY`, `RESILIENCE__*`, `RATE_LIMITING__*`, `LOGGING__*` with sensible defaults documented
+
 ### Phase 8 — Frontend Core (React SPA)
 
 **feat:**

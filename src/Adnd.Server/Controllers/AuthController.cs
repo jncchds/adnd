@@ -1,11 +1,13 @@
 using Adnd.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Adnd.Server.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting("auth")]
 public class AuthController(IAuthService authService, IUserIdProvider userIdProvider) : ControllerBase
 {
     [HttpPost("register")]
