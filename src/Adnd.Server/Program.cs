@@ -107,6 +107,7 @@ builder.Services.AddSingleton<IDiceEngine, DiceEngine>();
 builder.Services.AddSingleton<ISystemRegistry, SystemRegistry>();
 builder.Services.AddScoped<IGameEngine, GameEngine>();
 builder.Services.AddScoped<IPlayerManagementService, PlayerManagementService>();
+builder.Services.AddScoped<IWhisperService, WhisperService>();
 
 // ── LLM Provider System ───────────────────────────────────────────────────────
 builder.Services.AddHttpClient("LLMProvider").ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(120));
@@ -182,6 +183,7 @@ app.UseAuthorization();
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
 app.MapControllers();
+app.MapHub<Adnd.Server.Hubs.GameHub>("/gamehub");
 app.MapFallbackToFile("index.html");
 
 app.Run();
