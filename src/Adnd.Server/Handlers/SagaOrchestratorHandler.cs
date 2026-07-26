@@ -2,7 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
-using MassTransit;
+using Wolverine;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -11,25 +11,25 @@ namespace Adnd.Server.Handlers;
 
 public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<SagaOrchestratorHandler> _logger;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IEventBus _eventBus;
 
     public SagaOrchestratorHandler(
-        IServiceProvider serviceProvider,
+        IServiceScopeFactory scopeFactory,
         ILogger<SagaOrchestratorHandler> logger,
-        IPublishEndpoint publishEndpoint)
+        IEventBus eventBus)
     {
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
         _logger = logger;
-        _publishEndpoint = publishEndpoint;
+        _eventBus = eventBus;
     }
 
     public async Task HandleAsync(AgentCallQueued evt, CancellationToken ct)
     {
         _logger.LogInformation("[SAGA] Orchestrating | SagaId={SagaId}", evt.SagaId);
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var call = await context.AgentCalls
@@ -61,10 +61,32 @@ public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
             }
         }
 
+        // Build party context for subsequent narrations (not for OpenNarrative — that fires before characters exist)
+        string? characterContext = null;
+        if (call.Action is AgentAction.Narrate or AgentAction.Generate)
+        {
+            var characters = await context.Characters
+                .Include(c => c.Player)
+                .Where(c => c.Player!.GameId == call.GameId && !c.IsDeleted)
+                .ToListAsync(ct);
+            if (characters.Count > 0)
+            {
+                var lines = characters.Select(c =>
+                    $"- {c.Name} ({c.Class}, Level {c.Level}{(c.Background != null ? $", {c.Background}" : "")})");
+                characterContext = "\n\nCurrent party members:\n" + string.Join("\n", lines);
+            }
+        }
+
         IGameEvent? nextEvent = call.Action switch
         {
-            AgentAction.Narrate or AgentAction.Generate or AgentAction.OpenNarrative
-                => new LLMDispatchRequested(evt.SagaId, evt.GameId, "You are the Game Master for a TTRPG session.", call.Input ?? "Continue the narrative.", null),
+            AgentAction.OpenNarrative
+                => new LLMDispatchRequested(evt.SagaId, evt.GameId,
+                    systemPrompt ?? "You are the Game Master for a TTRPG session.",
+                    userPrompt ?? "Generate the opening narrative for this game session.", null),
+            AgentAction.Narrate or AgentAction.Generate
+                => new LLMDispatchRequested(evt.SagaId, evt.GameId,
+                    "You are the Game Master for a TTRPG session." + (characterContext ?? ""),
+                    call.Input ?? "Continue the narrative.", null),
             AgentAction.GenerateInitialThreads
                 => new LLMDispatchRequested(evt.SagaId, evt.GameId,
                     systemPrompt ?? "You are the Game Master for a TTRPG session. Generate initial plot threads.",
@@ -78,7 +100,7 @@ public class SagaOrchestratorHandler : IEventHandler<AgentCallQueued>
 
         if (nextEvent != null)
         {
-            await _publishEndpoint.Publish(nextEvent, ct);
+            await _eventBus.PublishAsync(nextEvent, ct);
         }
 
         call.CurrentStep = nextEvent == null ? SagaStep.Completed : SagaStep.LLMDispatchRequested;

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useGames } from '../api/hooks/useGame';
 import { useLLMPresets } from '../api/hooks/useLLM';
 import { useGameTemplates } from '../api/hooks/useTemplates';
@@ -12,6 +12,7 @@ import JoinGamePanel from '../components/dashboard/JoinGamePanel';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { games, isLoading, refetch, createGame, deleteGame, leaveGame, generateInvite, archiveGame, joinByCode } = useGames();
@@ -20,6 +21,13 @@ export default function DashboardPage() {
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if ((location.state as any)?.openCreate) {
+      setShowCreateDialog(true);
+      window.history.replaceState({}, '');
+    }
+  }, [location.state]);
   const [errorState, setErrorState] = useState<string | null>(null);
   const [successState, setSuccessState] = useState<string | null>(null);
 

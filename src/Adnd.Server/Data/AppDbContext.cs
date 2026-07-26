@@ -11,8 +11,6 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
-    public AppDbContext() { }
-
     public DbSet<User> Users => Set<User>();
     public DbSet<Game> Games => Set<Game>();
     public DbSet<Player> Players => Set<Player>();

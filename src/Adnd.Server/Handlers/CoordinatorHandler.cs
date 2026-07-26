@@ -2,7 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
-using MassTransit;
+using Wolverine;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -11,20 +11,20 @@ namespace Adnd.Server.Handlers;
 
 public class CoordinatorHandler : IEventHandler<ToolCallCompleted>
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<CoordinatorHandler> _logger;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IEventBus _eventBus;
 
-    public CoordinatorHandler(IServiceProvider serviceProvider, ILogger<CoordinatorHandler> logger, IPublishEndpoint publishEndpoint)
+    public CoordinatorHandler(IServiceScopeFactory scopeFactory, ILogger<CoordinatorHandler> logger, IEventBus eventBus)
     {
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
         _logger = logger;
-        _publishEndpoint = publishEndpoint;
+        _eventBus = eventBus;
     }
 
     public async Task HandleAsync(ToolCallCompleted evt, CancellationToken ct)
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var coordinator = await context.ToolCallCoordinators
@@ -44,7 +44,7 @@ public class CoordinatorHandler : IEventHandler<ToolCallCompleted>
                 .ToList();
 
             var followUpEvent = new LLMFollowUpRequested(evt.SagaId, evt.GameId, toolResults);
-            await _publishEndpoint.Publish(followUpEvent, ct);
+            await _eventBus.PublishAsync(followUpEvent, ct);
 
             _logger.LogInformation("[COORD] AllToolsDone | SagaId={SagaId} | Tools={Count}", evt.SagaId, toolResults.Count);
             return;
@@ -66,13 +66,13 @@ public class CoordinatorHandler : IEventHandler<ToolCallCompleted>
                 .ToList();
 
             var followUpEvent = new LLMFollowUpRequested(evt.SagaId, evt.GameId, toolResults);
-            await _publishEndpoint.Publish(followUpEvent, ct);
+            await _eventBus.PublishAsync(followUpEvent, ct);
             return;
         }
         var nextTool = tools[coordinator.CurrentIndex];
 
         var nextEvent = new ToolCallRequested(evt.SagaId, evt.GameId, coordinator.CurrentIndex, nextTool.Name, nextTool.Arguments);
-        await _publishEndpoint.Publish(nextEvent, ct);
+        await _eventBus.PublishAsync(nextEvent, ct);
 
         _logger.LogInformation("[COORD] NextTool | SagaId={SagaId} | Index={Index}/{Total}",
             evt.SagaId, coordinator.CurrentIndex, coordinator.TotalTools);

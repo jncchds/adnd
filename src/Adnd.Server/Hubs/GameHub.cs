@@ -108,10 +108,15 @@ public partial class GameHub : Hub
     {
         _logger.LogInformation("Client disconnected: {ConnectionId}", Context.ConnectionId);
 
-        // Find the player connected via this connection
-        var playerIdStr = Context.ConnectionId;
-        var player = await _context.Players
-            .FirstOrDefaultAsync(p => _playerConnections.GetValueOrDefault(p.Id.ToString()) == Context.ConnectionId);
+        // Reverse lookup: find the player ID from the in-memory map first,
+        // then query the DB by ID — avoids EF Core translating the dictionary call.
+        var playerEntry = _playerConnections.FirstOrDefault(kv => kv.Value == Context.ConnectionId);
+        if (playerEntry.Key == null || !Guid.TryParse(playerEntry.Key, out var playerGuid))
+        {
+            await base.OnDisconnectedAsync(exception);
+            return;
+        }
+        var player = await _context.Players.FindAsync(playerGuid);
 
         if (player != null)
         {

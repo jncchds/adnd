@@ -11,14 +11,16 @@ namespace Adnd.Server.Handlers;
 
 public class NarrativeHandler : IEventHandler<NarrativeReady>
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly IHubContext<GameHub> _hubContext;
+    private readonly IEventBus _eventBus;
     private readonly ILogger<NarrativeHandler> _logger;
 
-    public NarrativeHandler(IServiceProvider serviceProvider, IHubContext<GameHub> hubContext, ILogger<NarrativeHandler> logger)
+    public NarrativeHandler(IServiceScopeFactory scopeFactory, IHubContext<GameHub> hubContext, IEventBus eventBus, ILogger<NarrativeHandler> logger)
     {
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
         _hubContext = hubContext;
+        _eventBus = eventBus;
         _logger = logger;
     }
 
@@ -26,7 +28,7 @@ public class NarrativeHandler : IEventHandler<NarrativeReady>
     {
         _logger.LogInformation("[NARRATIVE] Ready | SagaId={SagaId}", evt.SagaId);
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var call = await context.AgentCalls.FirstOrDefaultAsync(c => c.Id == evt.SagaId, ct);
@@ -41,9 +43,13 @@ public class NarrativeHandler : IEventHandler<NarrativeReady>
 
         await context.SaveChangesAsync(ct);
 
+        // Trigger Starting → Active game status transition
+        await _eventBus.PublishAsync(new GameNarrationStarted(call.GameId, call.Id), ct);
+
         // Broadcast to game
         await _hubContext.Clients.Group(call.GameId.ToString()).SendAsync("GameNarration", new
         {
+            Id = call.Id,
             call.GameId,
             call.SessionId,
             Content = evt.Narrative,

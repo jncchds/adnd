@@ -148,6 +148,7 @@ src/
 - **SignalR** hub is `GameHub`. Use `Clients.Group($"game:{gameId}")` for game-scoped broadcasts.
 - **LLM providers** are created per-game from `LLMPreset` DB records via `ILLMProviderFactory`. Each game has its own preset (provider type, model, endpoint, API key). There is no global provider registry.
 - **RAG** uses pgvector for embeddings. `RAGService` handles similarity search and consistency checks.
+- **Wolverine** is the messaging framework. Handles durable pub/sub, saga persistence, retry, and DLQ via PostgreSQL.
 - **AgentBus** is the agentic framework. Agents register handlers and call each other via `CallAgent`.
 - **DiceEngine** parses formulas like `4d6kh3+2d4-1`. System-aware resolution.
 - **MediatR** event bus decouples GameHub from services. Events are published for all game actions.
@@ -155,6 +156,8 @@ src/
 - **GameAgentManager** is a singleton that manages per-game agents and recovers them on startup.
 - **Hangfire + PostgreSQL** provides persistent job queue (survives restarts, future external broker replacement).
 - **Creator/GM split**: Creator defines plot seed/tone/LLM preset; AI-GM runs the game autonomously.
+- **Saga persistence**: `AgentSaga` (Wolverine saga) persists agent call state in PostgreSQL via `SagaDbContext`. Survives container restarts.
+- **No external broker**: Wolverine uses PostgreSQL for all message persistence — no RabbitMQ needed.
 - **PlotWeaver** handles dynamic plot generation with `PlotWeaver.cs` service and `PlotWeaverHandler.cs` event handler.
 - **PlayerDisconnectDetector** runs as a background service, checking for stale connections every 30s.
 - **Action economy** tracks actions/bonus actions/reactions/movements per combat participant.

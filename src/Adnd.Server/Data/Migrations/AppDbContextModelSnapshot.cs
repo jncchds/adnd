@@ -460,7 +460,7 @@ namespace Adnd.Server.Data.Migrations
                     b.Property<string>("Error")
                         .HasColumnType("text");
 
-                    b.Property<TimeSpan?>("ExpirationTime")
+                    b.Property<TimeSpan>("ExpirationTime")
                         .HasColumnType("interval");
 
                     b.Property<Guid>("GameId")
@@ -833,11 +833,17 @@ namespace Adnd.Server.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("ReasoningEffort")
+                        .HasColumnType("text");
+
                     b.Property<bool>("Stream")
                         .HasColumnType("boolean");
 
                     b.Property<float>("Temperature")
                         .HasColumnType("real");
+
+                    b.Property<int?>("TimeoutMs")
+                        .HasColumnType("integer");
 
                     b.Property<float>("TopP")
                         .HasColumnType("real");
@@ -1264,12 +1270,6 @@ namespace Adnd.Server.Data.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
-
-                    b.Property<string>("ToolArgs")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ToolName")
-                        .HasColumnType("text");
 
                     b.Property<string>("ToolsJson")
                         .HasColumnType("text");

@@ -1,67 +1,92 @@
 using Adnd.Server.Events;
-using Adnd.Server.Models;
-using MassTransit;
+using Wolverine;
 
 namespace Adnd.Server.Services;
 
 /// <summary>
-/// Saga state machine for agent call orchestration.
+/// Wolverine saga for agent call orchestration.
 /// Manages the lifecycle: Orchestrate → (ExecuteTools | FollowUpLLM) → Complete.
-/// Persists state in AgentSagaData table — survives container restarts.
+/// State is persisted in the AgentSaga table via Wolverine's RDBMS transport — survives container restarts.
 /// </summary>
-public class AgentSaga : MassTransitStateMachine<AgentSagaData>
+public class AgentSaga : Saga
 {
-    public State Orchestrate { get; private set; } = null!;
-    public State ExecuteTools { get; private set; } = null!;
-    public State FollowUpLLM { get; private set; } = null!;
-    public State Complete { get; private set; } = null!;
+    // ── State properties (persisted by Wolverine via EF Core) ──
+    public Guid Id { get; set; }
+    public Guid? AgentCallId { get; set; }
+    public Guid? GameId { get; set; }
+    public int ToolsRemaining { get; set; }
+    public string? CurrentToolId { get; set; }
+    public string? CurrentState { get; set; }
+    public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
 
-    public Event<AgentCallQueued> AgentCallQueued { get; private set; } = null!;
-    public Event<LLMResponseReceived> LLMResponseReceived { get; private set; } = null!;
-    public Event<ToolCallCompleted> ToolCallCompleted { get; private set; } = null!;
-
-    public AgentSaga()
+    // ── Start: triggered by AgentCallQueued ──
+    public static async Task<AgentSaga> Start(
+        AgentCallQueued message,
+        IMessageBus bus,
+        ILogger<AgentSaga> logger)
     {
-        InstanceState(x => x.CurrentState);
+        logger.LogInformation("[SAGA] Starting | SagaId={SagaId} | GameId={GameId}",
+            message.SagaId, message.GameId);
 
-        Event(() => AgentCallQueued, cfg =>
+        var saga = new AgentSaga
         {
-            cfg.CorrelateById(ctx => ctx.Message.SagaId);
-            cfg.ConfigureConsumeTopology = false;
-        });
-        Event(() => LLMResponseReceived, cfg =>
+            Id = message.SagaId,
+            AgentCallId = message.SagaId,
+            GameId = message.GameId,
+            CurrentState = "Orchestrate",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        // Schedule timeout 5 minutes from now
+        await bus.ScheduleAsync(
+            new ToolCallTimeout(message.SagaId, message.GameId),
+            TimeSpan.FromMinutes(5));
+
+        return saga;
+    }
+
+    // ── Orchestrate → ExecuteTools or FollowUpLLM ──
+    public void Handle(LLMResponseReceived message, ILogger<AgentSaga> logger)
+    {
+        logger.LogInformation("[SAGA] LLMResponse | SagaId={SagaId} | HasToolCalls={HasToolCalls}",
+            Id, message.HasToolCalls);
+
+        if (message.HasToolCalls)
         {
-            cfg.CorrelateById(ctx => ctx.Message.SagaId);
-            cfg.ConfigureConsumeTopology = false;
-        });
-        Event(() => ToolCallCompleted, cfg =>
+            CurrentState = "ExecuteTools";
+            ToolsRemaining = message.ToolCallCount;
+        }
+        else
         {
-            cfg.CorrelateById(ctx => ctx.Message.SagaId);
-            cfg.ConfigureConsumeTopology = false;
-        });
+            CurrentState = "FollowUpLLM";
+        }
+    }
 
-        Initially()
-            .When(AgentCallQueued, x => x.TransitionTo(Orchestrate));
+    // ── ExecuteTools loop ──
+    public void Handle(ToolCallCompleted message, ILogger<AgentSaga> logger)
+    {
+        ToolsRemaining--;
+        CurrentState = ToolsRemaining > 0 ? "ExecuteTools" : "FollowUpLLM";
+        logger.LogInformation("[SAGA] ToolCompleted | SagaId={SagaId} | Remaining={Remaining}",
+            Id, ToolsRemaining);
+    }
 
-        During(Orchestrate,
-            When(LLMResponseReceived)
-                .If(ctx => ctx.Message.HasToolCalls,
-                    then: ctx => ctx.TransitionTo(ExecuteTools))
-                .Else(ctx => ctx.TransitionTo(FollowUpLLM))
-        );
+    // ── Timeout handler ──
+    public void Handle(ToolCallTimeout message, ILogger<AgentSaga> logger)
+    {
+        logger.LogInformation("[SAGA] Timeout | SagaId={SagaId}", Id);
+        MarkCompleted();
+    }
 
-        During(ExecuteTools,
-            When(ToolCallCompleted)
-                .If(ctx => ctx.Instance.ToolsRemaining > 1,
-                    then: ctx => ctx.TransitionTo(ExecuteTools))
-                .Else(ctx => ctx.TransitionTo(FollowUpLLM))
-        );
-
-        During(FollowUpLLM,
-            When(LLMResponseReceived)
-                .TransitionTo(Complete)
-        );
-
-        SetCompletedWhenFinalized();
+    // ── "Saga not found" callback ──
+    public static void NotFound(ToolCallCompleted message, ILogger<AgentSaga> logger)
+    {
+        logger.LogWarning("[SAGA] NotFound | ToolCallCompleted for unknown saga {CallId}",
+            message.SagaId);
     }
 }
+
+/// <summary>
+/// Timeout message for saga expiry (e.g., waiting for player confirmation).
+/// </summary>
+public record ToolCallTimeout(Guid SagaId, Guid GameId);

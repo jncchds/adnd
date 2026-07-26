@@ -11,7 +11,7 @@ export function useGameHub() {
   const connect = useCallback(async (gameId: string, token: string) => {
     if (!hubRef.current) {
       hubRef.current = new HubConnectionBuilder()
-        .withUrl(`/api/games/${gameId}/gamehub`, {
+        .withUrl(`/gamehub`, {
           accessTokenFactory: () => Promise.resolve(token),
         })
         .withAutomaticReconnect()

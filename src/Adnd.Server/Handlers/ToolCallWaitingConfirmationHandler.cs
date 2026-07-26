@@ -10,14 +10,14 @@ namespace Adnd.Server.Handlers;
 public class ToolCallWaitingConfirmationHandler :
     IEventHandler<ToolCallWaitingConfirmation>
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ToolCallWaitingConfirmationHandler> _logger;
 
     public ToolCallWaitingConfirmationHandler(
-        IServiceProvider serviceProvider,
+        IServiceScopeFactory scopeFactory,
         ILogger<ToolCallWaitingConfirmationHandler> logger)
     {
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -26,7 +26,7 @@ public class ToolCallWaitingConfirmationHandler :
         _logger.LogInformation("[TOOL] WaitingConfirmation | SagaId={SagaId} | Tool={Tool} | CallId={CallId}",
             evt.SagaId, evt.ToolName, evt.ToolCallId);
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var call = await context.AgentCalls.FirstOrDefaultAsync(c => c.Id == evt.SagaId, ct);

@@ -5,14 +5,14 @@ using Adnd.Server.Handlers;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Microsoft.Extensions.Logging;
-using MassTransit;
+using Wolverine;
 using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace Adnd.Server.Agent;
 
 /// <summary>
-/// Per-game game agent that processes events reactively via MassTransit.
+/// Per-game game agent that processes events reactively via Wolverine.
 /// Saga state is persisted in AgentCall.CurrentStep and ToolCallCoordinator for crash recovery.
 /// </summary>
 public class GameAgent : IGameAgent
@@ -21,7 +21,7 @@ public class GameAgent : IGameAgent
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
     private readonly ILogger<GameAgent> _logger;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IMessageContext _messageContext;
     private readonly CancellationTokenSource _cts = new();
     private volatile bool _isPaused = false;
     private volatile bool _isConnected = false;
@@ -31,13 +31,13 @@ public class GameAgent : IGameAgent
         IServiceProvider serviceProvider,
         IConfiguration configuration,
         ILogger<GameAgent> logger,
-        IPublishEndpoint publishEndpoint)
+        IMessageContext messageContext)
     {
         _gameId = gameId;
         _serviceProvider = serviceProvider;
         _configuration = configuration;
         _logger = logger;
-        _publishEndpoint = publishEndpoint;
+        _messageContext = messageContext;
     }
 
     public async Task StartAsync(Guid gameId, Guid creatorId)
@@ -338,8 +338,8 @@ public class GameAgentManager : IGameAgentManager, IDisposable
 
             var agentLogger = _loggerFactory.CreateLogger<GameAgent>();
             var config = _serviceProvider.GetRequiredService<IConfiguration>();
-            var publishEndpoint = _serviceProvider.GetRequiredService<IPublishEndpoint>();
-            var agent = new GameAgent(gameId, _serviceProvider, config, agentLogger, publishEndpoint);
+            var messageContext = _serviceProvider.GetRequiredService<IMessageContext>();
+            var agent = new GameAgent(gameId, _serviceProvider, config, agentLogger, messageContext);
 
             if (_agents.TryAdd(gameId, agent))
             {

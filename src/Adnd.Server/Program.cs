@@ -19,10 +19,15 @@ using Adnd.Server.Services;
 using Adnd.Server.Agent;
 using Adnd.Server.Handlers;
 using Adnd.Server.Events;
-using Adnd.Server.Consumers;
+using Adnd.Server.Models;
 using Npgsql.EntityFrameworkCore.PostgreSQL;
 using Pgvector;
-using MassTransit;
+using Wolverine;
+using Wolverine.Runtime;
+using Wolverine.RDBMS;
+using Wolverine.Persistence.Durability;
+using Wolverine.Postgresql;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -186,64 +191,28 @@ builder.Services.AddScoped<IGMToolCallService, GMToolCallService>();
 // Game Agent (per-game, singleton manager)
 builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
 
-// Event Bus — MassTransit-backed durable pub/sub
+// Event Bus — Wolverine-backed durable pub/sub
 builder.Services.AddSingleton<EventBusWorker>();
 builder.Services.AddSingleton<IEventBus>(sp => sp.GetRequiredService<EventBusWorker>());
 builder.Services.AddHostedService<EventBusWorker>();
 
-// MassTransit — in-process messaging framework (parallel run with EventBusWorker)
-builder.Services.AddMassTransit(cfg =>
+// Wolverine — in-process messaging framework with PostgreSQL persistence
+builder.Services.AddWolverine(opts =>
 {
-    // Consumers
-    cfg.AddConsumer<GameLifecycleConsumer>();
-    cfg.AddConsumer<GameActionConsumer>();
-    cfg.AddConsumer<ChatConsumer>();
-    cfg.AddConsumer<PlayerConsumer>();
-    cfg.AddConsumer<PlayerDisconnectConsumer>();
-    cfg.AddConsumer<SessionConsumer>();
-    cfg.AddConsumer<PlotWeaverConsumer>();
+    // PostgreSQL transport (no external broker needed)
+    opts.PersistMessagesWithPostgresql(
+        builder.Configuration.GetConnectionString("Default"),
+        "public",
+        MessageStoreRole.Main);
 
-    // Saga — deferred: MassTransit saga data class requires internal ISagaStateMachineInstance interface
-    // Existing CoordinatorHandler pattern handles agent orchestration instead
-    // cfg.AddSagaDbContext<SagaDbContext>();
-    // cfg.AddSaga<AgentSaga, SagaDbContext>();
-
-    // RabbitMQ
-    cfg.UsingRabbitMq((context, cfg2) =>
-    {
-        var hostUrl = new Uri($"rabbitmq://{builder.Configuration["RabbitMq:Host"] ?? "rabbitmq"}:{builder.Configuration.GetValue<int>("RabbitMq:Port", 5672)}/{builder.Configuration["RabbitMq:VirtualHost"] ?? "adnd"}");
-        cfg2.Host(hostUrl, host =>
-        {
-            host.Username(builder.Configuration["RabbitMq:Username"] ?? "adnd");
-            host.Password(builder.Configuration["RabbitMq:Password"] ?? "adnd");
-        });
-
-        // Exchange declaration
-        cfg2.Publish<IGameEvent>(x => { x.ExchangeType = "direct"; });
-
-        // Game events queue
-        cfg2.ReceiveEndpoint("game.events", ep =>
-        {
-            ep.Consumer<GameLifecycleConsumer>(context);
-            ep.Consumer<GameActionConsumer>(context);
-            ep.Consumer<ChatConsumer>(context);
-            ep.Consumer<PlayerConsumer>(context);
-            ep.Consumer<PlayerDisconnectConsumer>(context);
-            ep.Consumer<SessionConsumer>(context);
-            ep.Consumer<PlotWeaverConsumer>(context);
-            ep.PrefetchCount = 10;
-            ep.UseMessageRetry(retry => retry.Interval(3, TimeSpan.FromMilliseconds(500)));
-            // ep.UseCircuitBreaker(cb => cb.ActiveTimeThreshold(TimeSpan.FromMinutes(1)));
-        });
-
-        // Saga queue — deferred
-        // cfg2.ReceiveEndpoint("saga.agent", ep => { ep.Saga<AgentSaga>(context); });
-
-        cfg2.ConfigureEndpoints(context);
-    });
+    // Register saga
+    opts.AddSagaType<AgentSaga>("public");
+    // AppDbContext is intentionally NOT re-registered here — Wolverine's Lamar child
+    // container inherits the host's fully-configured registration (with Npgsql + pgvector).
+    // A duplicate opts.Services.AddDbContext would override it with an incomplete instance
+    // (no UseVector, no warnings config), causing "No database provider configured" errors
+    // in every Wolverine message handler scope.
 });
-
-// Health check — RabbitMQ connectivity (Phase 3: deferred — .NET 10 health check package not available)
 
 // Handler Registry — scans Adnd.Server.Handlers for IEventHandler<T>
 builder.Services.AddSingleton<IHandlerRegistry, HandlerRegistry>();
@@ -401,6 +370,7 @@ else
     app.UseHsts();
 }
 
+app.UseDefaultFiles();
 app.UseStaticFiles();
 
 // CORS — always enabled (needed for SPA dev server proxy)

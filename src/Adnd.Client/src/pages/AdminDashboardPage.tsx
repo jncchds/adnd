@@ -19,6 +19,10 @@ import {
   Chat as ChatIcon,
   SportsEsports as CombatIcon,
   Settings as SettingsIcon,
+  PlayArrow as StartIcon,
+  Archive as ArchiveIcon,
+  Pause as PauseIcon,
+  PlayCircle as ResumeIcon,
 } from '@mui/icons-material';
 
 interface QuickStatCardProps {
@@ -76,6 +80,8 @@ export default function AdminDashboardPage() {
   const [pushingEvents, setPushingEvents] = useState(false);
   const [pushResult, setPushResult] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [stateActionBusy, setStateActionBusy] = useState(false);
+  const [stateActionMsg, setStateActionMsg] = useState<{ text: string; severity: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -106,6 +112,20 @@ export default function AdminDashboardPage() {
       setTimeout(() => setPushResult(null), 3000);
     }
     setPushingEvents(false);
+  };
+
+  const runStateAction = async (label: string, fn: () => Promise<any>) => {
+    setStateActionBusy(true);
+    setStateActionMsg(null);
+    try {
+      await fn();
+      setStateActionMsg({ text: `${label} succeeded`, severity: 'success' });
+    } catch (e: any) {
+      setStateActionMsg({ text: e.message || `${label} failed`, severity: 'error' });
+    } finally {
+      setStateActionBusy(false);
+      setTimeout(() => setStateActionMsg(null), 4000);
+    }
   };
 
   if (gameLoading) return <Box sx={{ textAlign: 'center', mt: 8 }}><Typography>Loading...</Typography></Box>;
@@ -237,6 +257,53 @@ export default function AdminDashboardPage() {
             {pushingEvents ? 'Pushing...' : pushResult !== null ? `Pushed ${pushResult}!` : `Push Pending Events (${pendingEventsCount})`}
           </Button>
         )}
+      </Box>
+
+      {/* State Controls */}
+      <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.08)' }} />
+      <Typography variant="subtitle2" sx={{ mb: 1.5, color: 'text.secondary', textTransform: 'uppercase', fontWeight: 600 }}>
+        State Controls
+      </Typography>
+      {stateActionMsg && (
+        <Box sx={{ mb: 1.5 }}>
+          <Typography variant="body2" color={stateActionMsg.severity === 'success' ? 'success.main' : 'error.main'}>
+            {stateActionMsg.text}
+          </Typography>
+        </Box>
+      )}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
+        {(game.status === 'Draft' || game.status === 'Starting') && (
+          <Button variant="contained" color="success" startIcon={<StartIcon />} disabled={stateActionBusy}
+            onClick={() => runStateAction('Start game', () => api.startGame(id!))}>
+            Start Game
+          </Button>
+        )}
+        {game.status === 'Active' && (
+          <Button variant="outlined" color="warning" startIcon={<ArchiveIcon />} disabled={stateActionBusy}
+            onClick={() => runStateAction('Archive game', () => api.archiveGame(id!))}>
+            Archive Game
+          </Button>
+        )}
+        {game.gmStatus !== 'paused' && (
+          <Button variant="outlined" startIcon={<PauseIcon />} disabled={stateActionBusy}
+            onClick={() => runStateAction('Pause GM', () => api.pauseGM(id!))}>
+            Pause GM
+          </Button>
+        )}
+        {game.gmStatus === 'paused' && (
+          <Button variant="outlined" color="success" startIcon={<ResumeIcon />} disabled={stateActionBusy}
+            onClick={() => runStateAction('Resume GM', () => api.resumeGM(id!))}>
+            Resume GM
+          </Button>
+        )}
+        <Button variant="outlined" size="small" startIcon={<PauseIcon />} disabled={stateActionBusy}
+          onClick={() => runStateAction('Pause game event', () => api.pauseGame(id!))}>
+          Send Pause Event
+        </Button>
+        <Button variant="outlined" size="small" startIcon={<ResumeIcon />} disabled={stateActionBusy}
+          onClick={() => runStateAction('Resume game event', () => api.resumeGame(id!))}>
+          Send Resume Event
+        </Button>
       </Box>
 
       {/* Game Details */}

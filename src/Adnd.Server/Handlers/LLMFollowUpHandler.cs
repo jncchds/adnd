@@ -2,7 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
-using MassTransit;
+using Wolverine;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -11,22 +11,24 @@ namespace Adnd.Server.Handlers;
 
 public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILLMProviderFactory _providerFactory;
     private readonly ILogger<LLMFollowUpHandler> _logger;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IEventBus _eventBus;
 
-    public LLMFollowUpHandler(IServiceProvider serviceProvider, ILogger<LLMFollowUpHandler> logger, IPublishEndpoint publishEndpoint)
+    public LLMFollowUpHandler(IServiceScopeFactory scopeFactory, ILLMProviderFactory providerFactory, ILogger<LLMFollowUpHandler> logger, IEventBus eventBus)
     {
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
+        _providerFactory = providerFactory;
         _logger = logger;
-        _publishEndpoint = publishEndpoint;
+        _eventBus = eventBus;
     }
 
     public async Task HandleAsync(LLMFollowUpRequested evt, CancellationToken ct)
     {
         _logger.LogInformation("[LLM] FollowUp | SagaId={SagaId} | ToolResults={Count}", evt.SagaId, evt.ToolResults.Count);
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var call = await context.AgentCalls
@@ -82,7 +84,7 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
         }
 
         var nextEvent = new NarrativeReady(evt.SagaId, evt.GameId, result);
-        await _publishEndpoint.Publish(nextEvent, ct);
+        await _eventBus.PublishAsync(nextEvent, ct);
 
         call.CurrentStep = SagaStep.NarrativeReady;
         await context.SaveChangesAsync(ct);
@@ -90,11 +92,7 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
         _logger.LogInformation("[LLM] FollowUpDone | SagaId={SagaId}", evt.SagaId);
     }
 
-    private ILLMProvider? GetProvider(LLMPreset preset)
-    {
-        var factory = _serviceProvider.GetRequiredService<ILLMProviderFactory>();
-        return factory.CreateFromPreset(preset);
-    }
+    private ILLMProvider? GetProvider(LLMPreset preset) => _providerFactory.CreateFromPreset(preset);
 
     private async Task PublishFailure(IServiceScope scope, Guid sagaId, Guid gameId, string error, AppDbContext context, CancellationToken ct)
     {
@@ -109,6 +107,6 @@ public class LLMFollowUpHandler : IEventHandler<LLMFollowUpRequested>
         }
 
         var nextEvent = new AgentCallFailed(sagaId, gameId, error);
-        await _publishEndpoint.Publish(nextEvent, ct);
+        await _eventBus.PublishAsync(nextEvent, ct);
     }
 }

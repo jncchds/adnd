@@ -15,24 +15,6 @@ services:
       timeout: 5s
       retries: 5
 
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: adnd-rabbitmq
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-adnd}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-adnd}
-      RABBITMQ_DEFAULT_VHOST: /adnd
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    ports:
-      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
-      - "${RABBITMQ_PORT:-5672}:5672"
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-
   app:
     build:
       context: .
@@ -57,12 +39,6 @@ services:
       - Resilience__HalfOpenAfterSec=${RESILIENCE_HALF_OPEN_AFTER_SEC:-30}
       # EF Core log level — set to "Debug" to see EF logs (default: Warning to reduce noise)
       - Logging__LogLevel__Microsoft.EntityFrameworkCore=${LOG_LEVEL_ENTITYFRAMEWORK:-Warning}
-      # RabbitMQ Settings
-      - RabbitMq__Host=rabbitmq
-      - RabbitMq__Port=5672
-      - RabbitMq__Username=${RABBITMQ_USER:-adnd}
-      - RabbitMq__Password=${RABBITMQ_PASS:-adnd}
-      - RabbitMq__VirtualHost=/adnd
       # Rate limiting settings
       - RateLimiting__UseForwardedHeaders=${RATE_LIMITING_USE_FORWARDED_HEADERS:-true}
       - RateLimiting__TrustAllProxies=${RATE_LIMITING_TRUST_ALL_PROXIES:-true}
@@ -74,9 +50,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
-        condition: service_started
 
 volumes:
   adnd-data:
-  rabbitmq_data:
+

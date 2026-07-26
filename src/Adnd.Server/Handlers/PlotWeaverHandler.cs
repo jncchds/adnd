@@ -27,38 +27,34 @@ public class PlotWeaverHandler :
     IEventHandler<PlotThreadCreated>,
     IEventHandler<PlotThreadUpdated>
 {
-    private readonly IPlotWeaver _plotWeaver;
-    private readonly IAgentBus _agentBus;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PlotWeaverHandler> _logger;
-    private readonly AppDbContext _context;
-    // Per-game message counter — prevents cross-game review threshold pollution (singleton handler)
+    // Per-game message counter — prevents cross-game review threshold pollution
     private readonly ConcurrentDictionary<Guid, int> _messageCountsByGame = new();
-    private const int ReviewThreshold = 15; // Review every N in-game messages
+    private const int ReviewThreshold = 15;
 
-    public PlotWeaverHandler(
-        IPlotWeaver plotWeaver,
-        IAgentBus agentBus,
-        ILogger<PlotWeaverHandler> logger,
-        AppDbContext context)
+    public PlotWeaverHandler(IServiceScopeFactory scopeFactory, ILogger<PlotWeaverHandler> logger)
     {
-        _plotWeaver = plotWeaver;
-        _agentBus = agentBus;
+        _scopeFactory = scopeFactory;
         _logger = logger;
-        _context = context;
     }
 
     // ==================== Game Lifecycle ====================
 
     public async Task HandleAsync(GameStarted notification, CancellationToken ct = default)
     {
-        var game = await _context.Games.FindAsync(notification.GameId);
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var plotWeaver = scope.ServiceProvider.GetRequiredService<IPlotWeaver>();
+        var agentBus = scope.ServiceProvider.GetRequiredService<IAgentBus>();
+
+        var game = await context.Games.FindAsync(notification.GameId);
         if (game == null) return;
 
         _logger.LogInformation("[PLOTWEAVER] GameStarted | GameId={GameId} | System={SystemId} | PlotSeed={PlotSeed}",
             notification.GameId, game.SystemId, game.PlotSeed ?? "(none)");
 
-        // Queue initial plot thread generation via GameAgent (async, non-blocking)
-        if (!await _plotWeaver.HasInitialThreadsAsync(notification.GameId))
+        if (!await plotWeaver.HasInitialThreadsAsync(notification.GameId))
         {
             try
             {
@@ -85,7 +81,7 @@ public class PlotWeaverHandler :
                     CreatedAt = DateTime.UtcNow
                 };
 
-                var queuedCall = await _agentBus.SendCallAsync(call);
+                var queuedCall = await agentBus.SendCallAsync(call);
 
                 _logger.LogInformation("[PLOTWEAVER] QueuedInitialThreadGeneration | GameId={GameId} | CallId={CallId}",
                     notification.GameId, queuedCall.Id);
@@ -110,8 +106,11 @@ public class PlotWeaverHandler :
         _logger.LogInformation("[PLOTWEAVER] CombatStarted | GameId={GameId} | CombatId={CombatId}",
             notification.GameId, notification.GameId);
 
-        // Escalate threat-related threads
-        var threads = await _context.PlotThreads
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var plotWeaver = scope.ServiceProvider.GetRequiredService<IPlotWeaver>();
+
+        var threads = await context.PlotThreads
             .Where(t => t.GameId == notification.GameId &&
                         t.Category == PlotThreadCategory.Threat &&
                         t.Status == PlotThreadStatus.Active)
@@ -119,7 +118,7 @@ public class PlotWeaverHandler :
 
         foreach (var thread in threads)
         {
-            await _plotWeaver.UpdateMomentumAsync(
+            await plotWeaver.UpdateMomentumAsync(
                 notification.GameId, thread.Id, 2f, "Combat started — threat escalation");
         }
 
@@ -132,14 +131,16 @@ public class PlotWeaverHandler :
         _logger.LogInformation("[PLOTWEAVER] CombatEnded | GameId={GameId} | Result={Result}",
             notification.GameId, notification.Result ?? "(none)");
 
-        var game = await _context.Games.FindAsync(notification.GameId);
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var plotWeaver = scope.ServiceProvider.GetRequiredService<IPlotWeaver>();
+
+        var game = await context.Games.FindAsync(notification.GameId);
         if (game == null) return;
 
-        // Check if the combat had a clear winner/loser
         if (notification.Result != null)
         {
-            // Resolve threat threads that were the cause of combat
-            var threatThreads = await _context.PlotThreads
+            var threatThreads = await context.PlotThreads
                 .Where(t => t.GameId == notification.GameId &&
                             t.Category == PlotThreadCategory.Threat &&
                             t.Status == PlotThreadStatus.Active)
@@ -147,11 +148,10 @@ public class PlotWeaverHandler :
 
             foreach (var thread in threatThreads)
             {
-                // If combat resolved the threat, mark thread as resolved
                 if (notification.Result.Contains("victory", StringComparison.OrdinalIgnoreCase) ||
                     notification.Result.Contains("defeat", StringComparison.OrdinalIgnoreCase))
                 {
-                    await _plotWeaver.UpdateMomentumAsync(
+                    await plotWeaver.UpdateMomentumAsync(
                         notification.GameId, thread.Id, 5f, "Combat resolved — threat impact");
                     _logger.LogInformation("[PLOTWEAVER] ThreatResolved | GameId={GameId} | ThreadId={ThreadId} | MomentumBump=+5",
                         notification.GameId, thread.Id);
@@ -164,14 +164,17 @@ public class PlotWeaverHandler :
 
     public async Task HandleAsync(NPCDeleted notification, CancellationToken ct = default)
     {
-        var npc = await _context.NPCs.FindAsync(notification.NPCId);
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var plotWeaver = scope.ServiceProvider.GetRequiredService<IPlotWeaver>();
+
+        var npc = await context.NPCs.FindAsync(notification.NPCId);
         if (npc == null) return;
 
         _logger.LogInformation("[PLOTWEAVER] NPCDeleted | GameId={GameId} | NPCId={NPCId} | Name={Name}",
             notification.GameId, notification.NPCId, npc.Name);
 
-        // Find plot threads associated with this NPC
-        var threads = await _context.PlotThreads
+        var threads = await context.PlotThreads
             .Where(t => t.GameId == notification.GameId &&
                         t.Status == PlotThreadStatus.Active)
             .ToListAsync(ct);
@@ -182,7 +185,7 @@ public class PlotWeaverHandler :
             if (thread.Description.Contains(npc.Name, StringComparison.OrdinalIgnoreCase) ||
                 thread.NextMilestone?.Contains(npc.Name, StringComparison.OrdinalIgnoreCase) == true)
             {
-                await _plotWeaver.UpdateMomentumAsync(
+                await plotWeaver.UpdateMomentumAsync(
                     notification.GameId, thread.Id, -2f, $"NPC '{npc.Name}' deleted");
                 affectedCount++;
             }
@@ -191,10 +194,9 @@ public class PlotWeaverHandler :
         _logger.LogInformation("[PLOTWEAVER] NPCDeletedMomentum | GameId={GameId} | NPC={Name} | ThreadsAffected={Count}",
             notification.GameId, npc.Name, affectedCount);
 
-        // Trigger a full review since NPC death can ripple through the story
         try
         {
-            await _plotWeaver.ReviewAndAdaptAsync(
+            await plotWeaver.ReviewAndAdaptAsync(
                 notification.GameId,
                 $"NPC '{npc.Name}' was deleted. This may affect multiple plot threads.",
                 "NPCDeleted");
@@ -208,13 +210,17 @@ public class PlotWeaverHandler :
 
     public async Task HandleAsync(NPCUpdated notification, CancellationToken ct = default)
     {
-        var npc = await _context.NPCs.FindAsync(notification.NPCId);
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var plotWeaver = scope.ServiceProvider.GetRequiredService<IPlotWeaver>();
+
+        var npc = await context.NPCs.FindAsync(notification.NPCId);
         if (npc == null) return;
 
         _logger.LogInformation("[PLOTWEAVER] NPCUpdated | GameId={GameId} | NPCId={NPCId} | Name={Name}",
             notification.GameId, notification.NPCId, npc.Name);
 
-        var threads = await _context.PlotThreads
+        var threads = await context.PlotThreads
             .Where(t => t.GameId == notification.GameId &&
                         t.Status == PlotThreadStatus.Active)
             .ToListAsync(ct);
@@ -224,7 +230,7 @@ public class PlotWeaverHandler :
             t.Description.Contains(npc.Name, StringComparison.OrdinalIgnoreCase) ||
             t.NextMilestone?.Contains(npc.Name, StringComparison.OrdinalIgnoreCase) == true))
         {
-            await _plotWeaver.UpdateMomentumAsync(
+            await plotWeaver.UpdateMomentumAsync(
                 notification.GameId, thread.Id, 1f, $"NPC '{npc.Name}' updated");
             affectedCount++;
         }
@@ -237,14 +243,17 @@ public class PlotWeaverHandler :
 
     public async Task HandleAsync(CharacterUpdated notification, CancellationToken ct = default)
     {
-        var character = await _context.Characters.FindAsync(notification.CharacterId);
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var plotWeaver = scope.ServiceProvider.GetRequiredService<IPlotWeaver>();
+
+        var character = await context.Characters.FindAsync(notification.CharacterId);
         if (character == null) return;
 
         _logger.LogInformation("[PLOTWEAVER] CharacterUpdated | GameId={GameId} | CharacterId={CharacterId} | Name={Name}",
             notification.GameId, notification.CharacterId, character.Name);
 
-        // Check if HP changed significantly
-        var threads = await _context.PlotThreads
+        var threads = await context.PlotThreads
             .Where(t => t.GameId == notification.GameId &&
                         t.Status == PlotThreadStatus.Active)
             .ToListAsync(ct);
@@ -254,7 +263,7 @@ public class PlotWeaverHandler :
         {
             if (thread.Description.Contains(character.Name, StringComparison.OrdinalIgnoreCase))
             {
-                await _plotWeaver.UpdateMomentumAsync(
+                await plotWeaver.UpdateMomentumAsync(
                     notification.GameId, thread.Id, 1f, $"Character '{character.Name}' updated");
                 affectedCount++;
             }
@@ -271,10 +280,12 @@ public class PlotWeaverHandler :
         _logger.LogInformation("[PLOTWEAVER] StorySwayed | GameId={GameId} | CreatorId={CreatorId} | Direction={Direction}",
             notification.GameId, notification.CreatorId, notification.Direction);
 
-        // Trigger a full review to adapt threads to the new direction
+        using var scope = _scopeFactory.CreateScope();
+        var plotWeaver = scope.ServiceProvider.GetRequiredService<IPlotWeaver>();
+
         try
         {
-            await _plotWeaver.ReviewAndAdaptAsync(
+            await plotWeaver.ReviewAndAdaptAsync(
                 notification.GameId,
                 $"Creator swayed the story: {notification.Direction}",
                 "StorySwayed");
@@ -293,24 +304,26 @@ public class PlotWeaverHandler :
         _logger.LogInformation("[PLOTWEAVER] PlayerJoined | GameId={GameId} | PlayerId={PlayerId} | Character={Character}",
             notification.GameId, notification.PlayerId, notification.CharacterName);
 
-        var game = await _context.Games.FindAsync(notification.GameId);
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var plotWeaver = scope.ServiceProvider.GetRequiredService<IPlotWeaver>();
+
+        var game = await context.Games.FindAsync(notification.GameId);
         if (game == null) return;
 
-        // Check if any personal storyline threads exist
-        var personalThreads = await _context.PlotThreads
+        var personalThreads = await context.PlotThreads
             .Where(t => t.GameId == notification.GameId &&
                         t.Category == PlotThreadCategory.Personal &&
                         t.Status == PlotThreadStatus.Active)
             .CountAsync(ct);
 
-        // If no personal threads, trigger a review to potentially add one
         if (personalThreads == 0)
         {
             _logger.LogInformation("[PLOTWEAVER] PlayerJoinedNoPersonal | GameId={GameId} | Character={Character} — triggering review",
                 notification.GameId, notification.CharacterName);
             try
             {
-                await _plotWeaver.ReviewAndAdaptAsync(
+                await plotWeaver.ReviewAndAdaptAsync(
                     notification.GameId,
                     $"New player '{notification.CharacterName}' joined. Consider creating personal storyline threads.",
                     "PlayerJoined");
@@ -357,110 +370,102 @@ public class PlotWeaverHandler :
 
     public async Task HandleAsync(MessageSent notification, CancellationToken ct = default)
     {
-        // Only process in-game messages (not OOC or system)
         if (notification.Type != Adnd.Server.Events.MessageType.InGamePublic &&
             notification.Type != Adnd.Server.Events.MessageType.InGameWhisper)
             return;
 
-        // Per-game counter to avoid cross-game review threshold pollution
         var count = _messageCountsByGame.AddOrUpdate(
             notification.GameId,
             _ => 1,
             (_, existing) => existing + 1);
 
-        // Periodic review every N messages
-        if (count >= ReviewThreshold)
+        if (count < ReviewThreshold) return;
+
+        _messageCountsByGame[notification.GameId] = 0;
+
+        _logger.LogInformation("[PLOTWEAVER] PeriodicReview | GameId={GameId} | Trigger=MessageCount ({Count}/{Threshold}) | MessageLen={MessageLen}",
+            notification.GameId, count, ReviewThreshold, notification.Content?.Length ?? 0);
+
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var plotWeaver = scope.ServiceProvider.GetRequiredService<IPlotWeaver>();
+
+        try
         {
-            _messageCountsByGame[notification.GameId] = 0;
+            var recentMessages = await context.Messages
+                .Where(m => m.Session!.GameId == notification.GameId &&
+                            (m.Type == Adnd.Server.Models.MessageType.InGamePublic || m.Type == Adnd.Server.Models.MessageType.InGameWhisper))
+                .OrderByDescending(m => m.CreatedAt)
+                .Take(20)
+                .ToListAsync(ct);
 
-            _logger.LogInformation("[PLOTWEAVER] PeriodicReview | GameId={GameId} | Trigger=MessageCount ({Count}/{Threshold}) | MessageLen={MessageLen}",
-                notification.GameId, count, ReviewThreshold, notification.Content?.Length ?? 0);
+            var messageContext = string.Join("\n", recentMessages.Select(m =>
+                $"[{m.CreatedAt:HH:mm}] {m.Player?.CharacterName ?? "System"}: {m.Content}"));
 
-            try
+            var opportunities = await plotWeaver.DetectOpportunitiesAsync(notification.GameId, messageContext);
+
+            _logger.LogInformation("[PLOTWEAVER] OpportunitiesDetected | GameId={GameId} | Count={Count}",
+                notification.GameId, opportunities.Count);
+
+            foreach (var opportunity in opportunities)
             {
-                // Get recent context for the review
-                var recentMessages = await _context.Messages
-                    .Where(m => m.Session!.GameId == notification.GameId &&
-                                (m.Type == Adnd.Server.Models.MessageType.InGamePublic || m.Type == Adnd.Server.Models.MessageType.InGameWhisper))
-                    .OrderByDescending(m => m.CreatedAt)
-                    .Take(20)
-                    .ToListAsync(ct);
-
-                var context = string.Join("\n", recentMessages.Select(m =>
-                    $"[{m.CreatedAt:HH:mm}] {m.Player?.CharacterName ?? "System"}: {m.Content}"));
-
-                // Step 1: Detect story opportunities (new threads, milestones, etc.)
-                var opportunities = await _plotWeaver.DetectOpportunitiesAsync(
-                    notification.GameId, context);
-
-                _logger.LogInformation("[PLOTWEAVER] OpportunitiesDetected | GameId={GameId} | Count={Count}",
-                    notification.GameId, opportunities.Count);
-
-                // Step 2: Act on opportunities
-                foreach (var opportunity in opportunities)
+                try
                 {
-                    try
+                    switch (opportunity.Type)
                     {
-                        switch (opportunity.Type)
-                        {
-                            case OpportunityType.NewThread:
-                                await _plotWeaver.GenerateNewThreadsAsync(
-                                    notification.GameId, context, "OpportunityDetection");
-                                _logger.LogInformation("[PLOTWEAVER] OpportunityNewThread | GameId={GameId} | Title={Title} | Category={Category}",
-                                    notification.GameId, opportunity.NewThreadTitle, opportunity.NewThreadCategory);
-                                break;
+                        case OpportunityType.NewThread:
+                            await plotWeaver.GenerateNewThreadsAsync(notification.GameId, messageContext, "OpportunityDetection");
+                            _logger.LogInformation("[PLOTWEAVER] OpportunityNewThread | GameId={GameId} | Title={Title} | Category={Category}",
+                                notification.GameId, opportunity.NewThreadTitle, opportunity.NewThreadCategory);
+                            break;
 
-                            case OpportunityType.SpawnMilestone:
-                                var milestones = await _plotWeaver.SpawnMilestonesAsync(
-                                    notification.GameId);
-                                if (milestones.Any())
+                        case OpportunityType.SpawnMilestone:
+                            var milestones = await plotWeaver.SpawnMilestonesAsync(notification.GameId);
+                            if (milestones.Any())
+                            {
+                                foreach (var m in milestones)
                                 {
-                                    foreach (var m in milestones)
-                                    {
-                                        _logger.LogInformation("[PLOTWEAVER] MilestoneSpawned | GameId={GameId} | Title={Title} | Description={Description}",
-                                            notification.GameId, m.Title, m.Description);
-                                    }
+                                    _logger.LogInformation("[PLOTWEAVER] MilestoneSpawned | GameId={GameId} | Title={Title} | Description={Description}",
+                                        notification.GameId, m.Title, m.Description);
                                 }
-                                break;
+                            }
+                            break;
 
-                            case OpportunityType.EscalateThreat:
-                                if (opportunity.MomentumDelta.HasValue && opportunity.ThreadId != null)
-                                {
-                                    await _plotWeaver.UpdateMomentumAsync(
-                                        notification.GameId, Guid.Parse(opportunity.ThreadId),
-                                        opportunity.MomentumDelta.Value, opportunity.Title);
-                                    _logger.LogInformation("[PLOTWEAVER] OpportunityEscalateThreat | GameId={GameId} | ThreadId={ThreadId} | Delta={Delta:F1}",
-                                        notification.GameId, opportunity.ThreadId, opportunity.MomentumDelta.Value);
-                                }
-                                break;
+                        case OpportunityType.EscalateThreat:
+                            if (opportunity.MomentumDelta.HasValue && opportunity.ThreadId != null)
+                            {
+                                await plotWeaver.UpdateMomentumAsync(
+                                    notification.GameId, Guid.Parse(opportunity.ThreadId),
+                                    opportunity.MomentumDelta.Value, opportunity.Title);
+                                _logger.LogInformation("[PLOTWEAVER] OpportunityEscalateThreat | GameId={GameId} | ThreadId={ThreadId} | Delta={Delta:F1}",
+                                    notification.GameId, opportunity.ThreadId, opportunity.MomentumDelta.Value);
+                            }
+                            break;
 
-                            case OpportunityType.AdaptThread:
-                                _logger.LogInformation("[PLOTWEAVER] OpportunityAdaptThread | GameId={GameId} | Title={Title}",
-                                    notification.GameId, opportunity.Title);
-                                break;
+                        case OpportunityType.AdaptThread:
+                            _logger.LogInformation("[PLOTWEAVER] OpportunityAdaptThread | GameId={GameId} | Title={Title}",
+                                notification.GameId, opportunity.Title);
+                            break;
 
-                            case OpportunityType.MergeThreads:
-                                _logger.LogInformation("[PLOTWEAVER] OpportunityMergeThreads | GameId={GameId} | Title={Title}",
-                                    notification.GameId, opportunity.Title);
-                                break;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "[PLOTWEAVER] FailedToActOnOpportunity | GameId={GameId} | Opportunity={Opportunity} | Error={Error}",
-                            notification.GameId, opportunity.Type, ex.Message);
+                        case OpportunityType.MergeThreads:
+                            _logger.LogInformation("[PLOTWEAVER] OpportunityMergeThreads | GameId={GameId} | Title={Title}",
+                                notification.GameId, opportunity.Title);
+                            break;
                     }
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[PLOTWEAVER] FailedToActOnOpportunity | GameId={GameId} | Opportunity={Opportunity} | Error={Error}",
+                        notification.GameId, opportunity.Type, ex.Message);
+                }
+            }
 
-                // Step 3: Full review to adapt all threads
-                await _plotWeaver.ReviewAndAdaptAsync(
-                    notification.GameId, context, "PeriodicReview");
-                _logger.LogInformation("[PLOTWEAVER] PeriodicReviewComplete | GameId={GameId}", notification.GameId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[PLOTWEAVER] PeriodicReviewFailed | GameId={GameId} | Error={Error}", notification.GameId, ex.Message);
-            }
+            await plotWeaver.ReviewAndAdaptAsync(notification.GameId, messageContext, "PeriodicReview");
+            _logger.LogInformation("[PLOTWEAVER] PeriodicReviewComplete | GameId={GameId}", notification.GameId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[PLOTWEAVER] PeriodicReviewFailed | GameId={GameId} | Error={Error}", notification.GameId, ex.Message);
         }
     }
 }

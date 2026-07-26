@@ -9,12 +9,12 @@ namespace Adnd.Server.Handlers;
 
 public class AgentCallFailedHandler : IEventHandler<AgentCallFailed>
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AgentCallFailedHandler> _logger;
 
-    public AgentCallFailedHandler(IServiceProvider serviceProvider, ILogger<AgentCallFailedHandler> logger)
+    public AgentCallFailedHandler(IServiceScopeFactory scopeFactory, ILogger<AgentCallFailedHandler> logger)
     {
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -22,7 +22,7 @@ public class AgentCallFailedHandler : IEventHandler<AgentCallFailed>
     {
         _logger.LogError("[SAGA] Failed | SagaId={SagaId} | Error={Error}", evt.SagaId, evt.Error);
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var call = await context.AgentCalls.FirstOrDefaultAsync(c => c.Id == evt.SagaId, ct);

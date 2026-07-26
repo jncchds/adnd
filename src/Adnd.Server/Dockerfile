@@ -1,39 +1,24 @@
-# Stage 1: Build the React Client (omit dev deps to keep image smaller)
-FROM node:20-alpine AS build-client
-WORKDIR /app
-
-COPY src/Adnd.Client/package.json src/Adnd.Client/package-lock.json* ./
+# Stage 1: Build frontend
+FROM node:22-alpine AS frontend-build
+WORKDIR /src/Adnd.Client
+COPY src/Adnd.Client/package*.json ./
 RUN npm ci
-
 COPY src/Adnd.Client/ ./
+# vite.config.ts reads ../../VERSION (resolves to /VERSION from WORKDIR /src/Adnd.Client)
+COPY VERSION /VERSION
 RUN npm run build
 
-# Stage 2: Build the .NET Server (Alpine SDK)
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build-server
-WORKDIR /src
+# Stage 2: Build and publish backend
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS backend-build
+WORKDIR /repo
+COPY src/Adnd.Server/ ./src/Adnd.Server/
+COPY --from=frontend-build /src/Adnd.Server/wwwroot ./src/Adnd.Server/wwwroot
+RUN dotnet publish src/Adnd.Server/Adnd.Server.csproj -c Release -o /app
 
-COPY src/Adnd.Server/Adnd.Server.csproj ./
-RUN dotnet restore
-
-COPY src/Adnd.Server/ .
-RUN dotnet publish "Adnd.Server.csproj" \
-    -c Release \
-    -o /app/publish \
-    /p:UseAppHost=false \
-    /p:SymbolPackageFormat=none
-
-# Stage 3: Minimal runtime image (Alpine)
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
+# Stage 3: Runtime image
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
-
-# Install Kerberos library for Npgsql GSSAPI authentication
-RUN apk add --no-cache krb5-libs
-
-# Copy published server
-COPY --from=build-server /app/publish .
-
-# Copy built client into wwwroot
-COPY --from=build-client /app/dist ./wwwroot
-
+COPY --from=backend-build /app ./
 EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
 ENTRYPOINT ["dotnet", "Adnd.Server.dll"]

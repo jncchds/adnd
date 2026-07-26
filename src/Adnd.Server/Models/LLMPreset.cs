@@ -26,6 +26,10 @@ public class LLMPreset
     public float? PresencePenalty { get; set; }
     public bool Stream { get; set; } = false;
 
+    // Advanced completion settings
+    public int? TimeoutMs { get; set; }
+    public string? ReasoningEffort { get; set; } // "none"|"low"|"medium"|"high"
+
     // Embedding settings
     public string? EmbeddingModel { get; set; }
     public string? EmbeddingEndpointUrl { get; set; }

@@ -124,8 +124,8 @@ public class LLMInteractionLogger : ILLMInteractionLogger
             OriginSessionId = originSessionId,
             OriginAgent = originAgent,
             OriginAction = originAction,
-            StartedAt = DateTime.UtcNow,
-            CompletedAt = DateTime.UtcNow
+            CompletedAt = DateTime.UtcNow,
+            StartedAt = DateTime.UtcNow.AddMilliseconds(-durationMs)
         };
 
         _context.LLMInteractionLogs.Add(log);
@@ -158,8 +158,8 @@ public class LLMInteractionLogger : ILLMInteractionLogger
             OriginSessionId = originSessionId,
             OriginAgent = originAgent,
             OriginAction = originAction,
-            StartedAt = DateTime.UtcNow,
-            CompletedAt = DateTime.UtcNow
+            CompletedAt = DateTime.UtcNow,
+            StartedAt = DateTime.UtcNow.AddMilliseconds(-durationMs)
         };
 
         _context.LLMInteractionLogs.Add(log);

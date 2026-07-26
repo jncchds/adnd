@@ -2,7 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
-using MassTransit;
+using Wolverine;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -11,16 +11,14 @@ namespace Adnd.Server.Handlers;
 
 public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<LLMResponseHandler> _logger;
-    private readonly IPublishEndpoint _publishEndpoint;
     private readonly IEventBus _eventBus;
 
-    public LLMResponseHandler(IServiceProvider serviceProvider, ILogger<LLMResponseHandler> logger, IPublishEndpoint publishEndpoint, IEventBus eventBus)
+    public LLMResponseHandler(IServiceScopeFactory scopeFactory, ILogger<LLMResponseHandler> logger, IEventBus eventBus)
     {
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
         _logger = logger;
-        _publishEndpoint = publishEndpoint;
         _eventBus = eventBus;
     }
 
@@ -28,7 +26,7 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
     {
         _logger.LogInformation("[SAGA] LLMResponse | SagaId={SagaId} | HasTools={HasTools}", evt.SagaId, evt.HasToolCalls);
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var call = await context.AgentCalls.FirstOrDefaultAsync(c => c.Id == evt.SagaId, ct);
@@ -57,7 +55,7 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
             await context.SaveChangesAsync(ct);
 
             var narrativeEvent = new NarrativeReady(evt.SagaId, evt.GameId, evt.Response);
-            await _publishEndpoint.Publish(narrativeEvent, ct);
+            await _eventBus.PublishAsync(narrativeEvent, ct);
             return;
         }
 
@@ -88,7 +86,7 @@ public class LLMResponseHandler : IEventHandler<LLMResponseReceived>
         await context.SaveChangesAsync(ct);
 
         var nextEvent = new ToolCallRequested(evt.SagaId, evt.GameId, 0, firstTool?.Name ?? "unknown", firstTool?.Arguments ?? "{}");
-        await _publishEndpoint.Publish(nextEvent, ct);
+        await _eventBus.PublishAsync(nextEvent, ct);
     }
 
     private List<ToolCallInfo> ExtractToolCalls(string response)

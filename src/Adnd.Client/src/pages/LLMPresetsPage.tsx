@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Box, Typography, Paper, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Chip, Alert, IconButton, List, ListItemButton, ListItemText, ListItemAvatar, Avatar, ListItemSecondaryAction, Autocomplete, CircularProgress, InputAdornment } from '@mui/material';
 import { useLLMPresets } from '../api/hooks/useLLM';
 import { llmGetProviderModels } from '../api/llm/llmApi';
@@ -6,6 +7,8 @@ import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Link as LinkIco
 
 export default function LLMPresetsPage() {
   const { presets, isLoading, createPreset, updatePreset, deletePreset, setDefault, testConnection } = useLLMPresets();
+  const location = useLocation();
+  const autoOpenedRef = useRef(false);
 
   const [openDialog, setOpenDialog] = useState(false);
   const [editingPreset, setEditingPreset] = useState<any>(null);
@@ -37,6 +40,14 @@ export default function LLMPresetsPage() {
       setModelsLoading(false);
     }
   }, [presetProvider, presetEndpoint, presetApiKey]);
+
+  useEffect(() => {
+    if (!autoOpenedRef.current && location.pathname.endsWith('/new')) {
+      autoOpenedRef.current = true;
+      setEditingPreset(null);
+      setOpenDialog(true);
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     if (openDialog && !editingPreset) {

@@ -2,7 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
-using MassTransit;
+using Wolverine;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -11,15 +11,15 @@ namespace Adnd.Server.Handlers;
 
 public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ToolExecutionHandler> _logger;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IEventBus _eventBus;
 
-    public ToolExecutionHandler(IServiceProvider serviceProvider, ILogger<ToolExecutionHandler> logger, IPublishEndpoint publishEndpoint)
+    public ToolExecutionHandler(IServiceScopeFactory scopeFactory, ILogger<ToolExecutionHandler> logger, IEventBus eventBus)
     {
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
         _logger = logger;
-        _publishEndpoint = publishEndpoint;
+        _eventBus = eventBus;
     }
 
     public async Task HandleAsync(ToolCallRequested evt, CancellationToken ct)
@@ -27,7 +27,7 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
         _logger.LogInformation("[TOOL] Executing | SagaId={SagaId} | Index={Index} | Tool={Tool}",
             evt.SagaId, evt.ToolIndex, evt.ToolName);
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var call = await context.AgentCalls.FirstOrDefaultAsync(c => c.Id == evt.SagaId, ct);
@@ -59,7 +59,7 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
                 evt.GameId,
                 evt.ToolName,
                 call.Id.ToString());
-            await _publishEndpoint.Publish(waitingEvent, ct);
+            await _eventBus.PublishAsync(waitingEvent, ct);
             return;
         }
 
@@ -88,7 +88,7 @@ public class ToolExecutionHandler : IEventHandler<ToolCallRequested>
         }
 
         var nextEvent = new ToolCallCompleted(evt.SagaId, evt.GameId, evt.ToolIndex, result.Output ?? "", result.Error);
-        await _publishEndpoint.Publish(nextEvent, ct);
+        await _eventBus.PublishAsync(nextEvent, ct);
 
         _logger.LogInformation("[TOOL] Executed | SagaId={SagaId} | Index={Index} | Success={Success}",
             evt.SagaId, evt.ToolIndex, result.Success);

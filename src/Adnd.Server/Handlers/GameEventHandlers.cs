@@ -22,19 +22,15 @@ public class GameLifecycleHandler :
     IEventHandler<GameNarrationStarted>
 {
     private readonly IGameAgentManager _gameAgentManager;
-    private readonly IAgentBus _agentBus;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IHubContext<Adnd.Server.Hubs.GameHub> _hubContext;
-    private readonly AppDbContext _context;
     private readonly ILogger<GameLifecycleHandler> _logger;
 
-    public GameLifecycleHandler(IGameAgentManager gameAgentManager, IAgentBus agentBus, IServiceScopeFactory serviceScopeFactory, IHubContext<Adnd.Server.Hubs.GameHub> hubContext, AppDbContext context, ILogger<GameLifecycleHandler> logger)
+    public GameLifecycleHandler(IGameAgentManager gameAgentManager, IServiceScopeFactory serviceScopeFactory, IHubContext<Adnd.Server.Hubs.GameHub> hubContext, ILogger<GameLifecycleHandler> logger)
     {
         _gameAgentManager = gameAgentManager;
-        _agentBus = agentBus;
         _serviceScopeFactory = serviceScopeFactory;
         _hubContext = hubContext;
-        _context = context;
         _logger = logger;
     }
 
@@ -47,8 +43,12 @@ public class GameLifecycleHandler :
 
     public async Task HandleAsync(GameStarted notification, CancellationToken ct = default)
     {
-        var game = await _context.Games.FindAsync(notification.GameId);
-        _logger.LogInformation("[STATE] GameStarted | GameId={GameId} | GameName={GameName} | CreatorId={CreatorId} | System={SystemId} | PlotSeed={PlotSeed} | Transition: Draft→Starting", 
+        using var scope = _serviceScopeFactory.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var agentBus = scope.ServiceProvider.GetRequiredService<IAgentBus>();
+
+        var game = await ctx.Games.FindAsync(notification.GameId);
+        _logger.LogInformation("[STATE] GameStarted | GameId={GameId} | GameName={GameName} | CreatorId={CreatorId} | System={SystemId} | PlotSeed={PlotSeed} | Transition: Draft→Starting",
             notification.GameId, game?.Name ?? "(unknown)", notification.CreatorId, game?.SystemId ?? "(unknown)", game?.PlotSeed ?? "(none)");
 
         var agent = _gameAgentManager.GetOrCreate(notification.GameId);
@@ -59,7 +59,7 @@ public class GameLifecycleHandler :
         // Queue the opening narrative call via AgentCall (async, non-blocking)
         try
         {
-            var gameEntity = await _context.Games.FindAsync(notification.GameId);
+            var gameEntity = await ctx.Games.FindAsync(notification.GameId);
             if (gameEntity == null) return;
 
             var call = new AgentCall
@@ -85,7 +85,7 @@ public class GameLifecycleHandler :
                 CreatedAt = DateTime.UtcNow
             };
 
-            var queuedCall = await _agentBus.SendCallAsync(call);
+            var queuedCall = await agentBus.SendCallAsync(call);
 
             _logger.LogInformation("[AGENT_CALL] QueuedOpenNarrative | GameId={GameId} | CallId={CallId} | Action={Action} | Status={Status}",
                 notification.GameId, queuedCall.Id, queuedCall.Action, queuedCall.Status);
@@ -139,7 +139,10 @@ public class GameLifecycleHandler :
 
     public async Task HandleAsync(GameResumed notification, CancellationToken ct = default)
     {
-        var game = await _context.Games.FindAsync(notification.GameId);
+        using var scope = _serviceScopeFactory.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var game = await ctx.Games.FindAsync(notification.GameId);
         _logger.LogInformation("[STATE] GameResumed | GameId={GameId} | GameName={GameName} | Transition: Paused→Running",
             notification.GameId, game?.Name ?? "(unknown)");
 
@@ -210,13 +213,13 @@ public class GameActionHandler :
     IEventHandler<CombatRestEnded>
 {
     private readonly IAgentBus _agentBus;
-    private readonly AppDbContext _context;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<GameActionHandler> _logger;
 
-    public GameActionHandler(IAgentBus agentBus, AppDbContext context, ILogger<GameActionHandler> logger)
+    public GameActionHandler(IAgentBus agentBus, IServiceScopeFactory scopeFactory, ILogger<GameActionHandler> logger)
     {
         _agentBus = agentBus;
-        _context = context;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -316,7 +319,9 @@ public class GameActionHandler :
         }
 
         // Load game entity to get the language setting
-        var game = await _context.Games.FindAsync(gameId);
+        using var scope = _scopeFactory.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var game = await ctx.Games.FindAsync(gameId);
         var languageSuffix = string.IsNullOrEmpty(game?.Language) || game.Language == "English" ? "" :
             $"\n\n**Language**: All narrative output must be in **{game.Language}**. Write your response entirely in {game.Language}. Do NOT use English for any narrative content.";
 

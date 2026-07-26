@@ -26,12 +26,9 @@ public partial class AdminController
             var game = await _context.Games.FindAsync(gameId.Value);
             if (game == null) return NotFound(new { error = "Game not found." });
             if (!await _authService.HasAccessAsync(_context, gameId.Value, _userIdProvider.GetCurrentUserId())) return Forbid();
-            logs = await _interactionLogger.GetGameLogsAsync(gameId.Value, limit);
         }
-        else
-        {
-            logs = await _interactionLogger.GetLogsAsync(userId, presetId, gameId, providerType, from, to, limit);
-        }
+
+        logs = await _interactionLogger.GetLogsAsync(userId, presetId, gameId, providerType, from, to, limit);
 
         return Ok(logs.Select(l => new
         {

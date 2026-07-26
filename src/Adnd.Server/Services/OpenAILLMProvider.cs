@@ -178,7 +178,7 @@ public class OpenAILLMProvider : BaseLLMProvider
             var toolCalls = result?.Choices?.FirstOrDefault()?.Message?.ToolCalls
                 ?.Select(tc => new ToolCall
                 {
-                    Id = tc.Id ?? $"call_{Guid.NewGuid():N[..8]}",
+                    Id = tc.Id ?? $"call_{Guid.NewGuid():N}"[..8],
                     Name = tc.Function?.Name ?? "unknown",
                     Arguments = tc.Function?.Arguments ?? "{}"
                 }).ToList() ?? new List<ToolCall>();

@@ -175,40 +175,59 @@ public class GameManagementService : IGameManagementService
     public async Task DeleteGameAsync(Guid id, Guid userId)
     {
         var game = await _context.Games
-            .Include(g => g.AgentCalls)
+            .Include(g => g.Players).ThenInclude(p => p.Character)
             .Include(g => g.PlotThreads)
-            .Include(g => g.Players)
+            .Include(g => g.NPCs)
             .FirstOrDefaultAsync(g => g.Id == id);
         if (game == null || game.CreatorId != userId)
             throw new UnauthorizedAccessException("Cannot delete game.");
 
-        // Set FKs to Guid.Empty instead of cascade delete to preserve related data
-        foreach (var call in game.AgentCalls)
-        {
-            call.GameId = Guid.Empty;
-        }
-        foreach (var thread in game.PlotThreads)
-        {
-            thread.GameId = Guid.Empty;
-        }
-        // Deactivate players rather than deleting them
+        var now = DateTime.UtcNow;
+
+        // Soft-delete all related entities — preserves FK integrity
         foreach (var player in game.Players)
         {
             player.Status = PlayerStatus.Left;
-            player.LeftAt = DateTime.UtcNow;
+            player.LeftAt = now;
+            player.IsDeleted = true;
+            player.DeletedAt = now;
+            if (player.Character != null)
+            {
+                player.Character.IsDeleted = true;
+                player.Character.DeletedAt = now;
+            }
+        }
+        foreach (var thread in game.PlotThreads)
+        {
+            thread.IsDeleted = true;
+            thread.DeletedAt = now;
+        }
+        foreach (var npc in game.NPCs)
+        {
+            npc.IsDeleted = true;
+            npc.DeletedAt = now;
         }
 
-        // Query and fix FKs for entities without navigation on Game model
-        var gmToolCalls = await _context.GMToolCalls.Where(g => g.GameId == id).ToListAsync();
-        foreach (var tc in gmToolCalls) tc.GameId = Guid.Empty;
-
-        var messages = await _context.Messages.Where(m => m.SessionId != Guid.Empty &&
-            _context.GameSessions.Any(s => s.Id == m.SessionId && s.GameId == id)).ToListAsync();
-        foreach (var m in messages) m.SessionId = Guid.Empty;
-
-        // LLMInteractionLogs: keep OriginGameId intact so logs remain linked to the archived game
+        // Soft-delete messages via query (no navigation on Game)
+        var sessionIds = await _context.GameSessions
+            .Where(s => s.GameId == id)
+            .Select(s => s.Id)
+            .ToListAsync();
+        if (sessionIds.Count > 0)
+        {
+            var msgs = await _context.Messages
+                .Where(m => sessionIds.Contains(m.SessionId))
+                .ToListAsync();
+            foreach (var m in msgs)
+            {
+                m.IsDeleted = true;
+                m.DeletedAt = now;
+            }
+        }
 
         game.Status = GameStatus.Archived;
+        game.IsDeleted = true;
+        game.DeletedAt = now;
         await _context.SaveChangesAsync();
     }
 

@@ -1,31 +1,14 @@
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
-  Box,
-  Drawer,
-  Typography,
-  IconButton,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Divider,
-  useTheme,
-  Avatar,
-  Chip,
-  Backdrop,
-} from '@mui/material';
-import {
-  Menu as MenuIcon,
   Dashboard as DashboardIcon,
   AutoAwesome as LLMIcon,
-  Settings as SystemsIcon,
+  Settings as SettingsIcon,
   Logout as LogoutIcon,
-  ChevronLeft as ChevronLeftIcon,
-  ChevronRight as ChevronRightIcon,
+  Login as LoginIcon,
   SportsEsports as GameIcon,
   Shield as ShieldIcon,
   ArrowBack as BackIcon,
   Chat as ChatIcon,
-  Settings as SettingsIcon,
   Add as AddIcon,
   PlayArrow as PlayArrowIcon,
   People as PeopleIcon,
@@ -34,13 +17,13 @@ import {
   History as HistoryIcon,
   AutoFixHigh as ConsistencyIcon,
   Mic as MicIcon,
+  Menu as MenuIcon,
+  DarkMode as DarkModeIcon,
+  LightMode as LightModeIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../api/hooks/useAuth';
-import type { GameListItem } from '../types';
-import type { LLMPreset } from '../types';
-
-const DRAWER_WIDTH = 260;
-const DRAWER_COLLAPSED_WIDTH = 56;
+import { useColorMode } from '../main';
+import type { GameListItem, LLMPreset } from '../types';
 
 export type AppView = 'welcome' | 'dashboard' | 'llm-presets' | 'systems' | 'user-settings' | 'game' | 'admin';
 
@@ -59,30 +42,18 @@ interface SidePanelProps {
   isMobile?: boolean;
 }
 
-// Unified button style
-const buttonBaseSx = {
-  width: '100%',
-  justifyContent: 'flex-start',
-  pl: 2,
-  borderRadius: 1,
-  mb: 0.5,
-  minHeight: 40,
-  px: 1.5,
-  bgcolor: 'transparent',
-  '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
-};
-
-export default function SidePanel({ open, onToggle, currentView, onNavigate, gameId, onNewGame, onJoinGame, onAddPreset, onNewSystem, games, presets, isMobile = false }: SidePanelProps) {
+export default function SidePanel({
+  open, onToggle, currentView, onNavigate, gameId,
+  onNewGame, onJoinGame, onAddPreset, onNewSystem,
+  games, presets, isMobile = false,
+}: SidePanelProps) {
   const navigate = useNavigate();
   const { id: adminId } = useParams<{ id: string }>();
   const location = useLocation();
-  const theme = useTheme();
   const { user, isAuthenticated, logout } = useAuth();
+  const { mode, toggle: toggleTheme } = useColorMode();
 
-  const drawerWidth = isMobile ? '100%' : (open ? DRAWER_WIDTH : DRAWER_COLLAPSED_WIDTH);
-
-  const isInGame = gameId !== undefined;
-  const activeGames = games?.filter(g => g.status !== 'Archived' && g.status !== 'Finished') || [];
+  const activeGames = games?.filter(g => g.status !== 'Archived' && g.status !== 'Finished') ?? [];
   const resolvedPresets = presets ?? [];
 
   const handleLogout = async () => {
@@ -90,296 +61,257 @@ export default function SidePanel({ open, onToggle, currentView, onNavigate, gam
     onNavigate('welcome');
   };
 
-  // On mobile: use temporary drawer (overlay). On desktop: permanent drawer.
-  const drawerVariant = isMobile ? 'temporary' : 'permanent';
+  const cls = `app-sidebar ${open ? 'expanded' : 'collapsed'}`;
+
+  const Btn = ({
+    icon, label, onClick, active = false, danger = false, extraStyle,
+  }: {
+    icon: React.ReactNode;
+    label: string;
+    onClick?: () => void;
+    active?: boolean;
+    danger?: boolean;
+    extraStyle?: React.CSSProperties;
+  }) => (
+    <button
+      className={`sidebar-btn${active ? ' active' : ''}${danger ? ' danger' : ''}`}
+      onClick={onClick}
+      style={extraStyle}
+      title={label}
+    >
+      <span className="s-icon">{icon}</span>
+      <span className="s-label">{label}</span>
+    </button>
+  );
 
   return (
     <>
       {isMobile && open && (
-        <Backdrop
-          open
-          sx={{ zIndex: (theme) => theme.zIndex.drawer - 1 }}
-          onClick={onToggle}
-        />
+        <div className="sidebar-overlay" onClick={onToggle} />
       )}
-      <Drawer
-        variant={drawerVariant}
-        open={isMobile ? open : true}
-        onClose={isMobile ? onToggle : undefined}
-        sx={{
-          width: drawerWidth,
-          flexShrink: 0,
-          whiteSpace: 'nowrap',
-          boxSizing: 'border-box',
-          '& .MuiDrawer-paper': {
-            width: drawerWidth,
-            overflowX: 'hidden',
-            bgcolor: '#121212',
-            borderRight: '1px solid rgba(255,255,255,0.08)',
-            color: 'text.primary',
-            display: 'flex',
-            flexDirection: 'column',
-            boxSizing: 'border-box',
-            ...(isMobile ? {
-              height: '100dvh',
-              maxWidth: '85vw',
-            } : {
-              transition: theme.transitions.create('width', {
-                easing: theme.transitions.easing.sharp,
-                duration: theme.transitions.duration.enteringScreen,
-              }),
-              borderRight: '1px solid rgba(255,255,255,0.08)',
-            }),
-          },
-        }}
-      >
-      {/* Header: burger + ADnD */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-          gap: 1,
-          p: 2,
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
-          minHeight: 56,
-          cursor: 'pointer',
-        }}
-        onClick={onToggle}
-      >
-        <IconButton
-          size="small"
-          sx={{
-            color: 'text.primary',
-            bgcolor: 'rgba(255,255,255,0.08)',
-            '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' },
-          }}
-        >
-          <MenuIcon />
-        </IconButton>
-        <Typography
-          variant="h6"
-          sx={{
-            fontWeight: 700,
-            letterSpacing: 1.5,
-            color: 'primary.main',
-            opacity: open ? 1 : 0,
-            transition: 'opacity 0.2s',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            userSelect: 'none',
-          }}
-        >
-          ADnD
-        </Typography>
-      </Box>
+      <aside className={cls}>
 
-      {/* Auth section */}
-      <Box sx={{ px: 1.5, mb: 1 }}>
-        {isAuthenticated ? (
-          <>
-            <ListItemButton
-              sx={{ ...buttonBaseSx, justifyContent: 'flex-start', bgcolor: 'transparent' }}
-            >
-              <Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main', fontSize: 10, mr: 1 }}>
-                {(user?.displayName || 'U')[0].toUpperCase()}
-              </Avatar>
-              {open && <ListItemText primary={user?.displayName || 'User'} primaryTypographyProps={{ fontWeight: 600, fontSize: 13 }} />}
-            </ListItemButton>
-            <ListItemButton onClick={handleLogout} sx={{ ...buttonBaseSx, color: 'error.light', '&:hover': { bgcolor: 'rgba(244,67,54,0.1)' } }}>
-              <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><LogoutIcon fontSize="small" color="error" /></ListItemIcon>
-              {open && <ListItemText primary="Log out" />}
-            </ListItemButton>
-          </>
-        ) : (
-          <>
-            <ListItemButton onClick={() => navigate('/login')} sx={{ ...buttonBaseSx, bgcolor: 'rgba(145,71,255,0.15)', color: 'primary.light', '&:hover': { bgcolor: 'rgba(145,71,255,0.2)' } }}>
-              <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><LogoutIcon fontSize="small" color="primary" /></ListItemIcon>
-              {open && <ListItemText primary="Log in" />}
-            </ListItemButton>
-            <ListItemButton onClick={() => navigate('/register')} sx={{ ...buttonBaseSx, bgcolor: 'rgba(145,71,255,0.15)', color: 'primary.light', '&:hover': { bgcolor: 'rgba(145,71,255,0.2)' } }}>
-              <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><LogoutIcon fontSize="small" color="primary" /></ListItemIcon>
-              {open && <ListItemText primary="Register" />}
-            </ListItemButton>
-          </>
-        )}
-      </Box>
-
-      {/* Scrollable content */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto', pb: 1 }}>
-        {/* Always-visible nav (logged in) */}
-        {isAuthenticated && (
-          <>
-            <ListItemButton onClick={() => onNavigate('dashboard')} sx={{ ...buttonBaseSx, bgcolor: currentView === 'dashboard' ? 'rgba(145,71,255,0.15)' : 'transparent', color: currentView === 'dashboard' ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
-              <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><DashboardIcon color={currentView === 'dashboard' ? 'primary' : 'inherit'} /></ListItemIcon>
-              {open && <ListItemText primary="Games" />}
-            </ListItemButton>
-            <ListItemButton onClick={() => onNavigate('llm-presets')} sx={{ ...buttonBaseSx, bgcolor: currentView === 'llm-presets' ? 'rgba(145,71,255,0.15)' : 'transparent', color: currentView === 'llm-presets' ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
-              <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><LLMIcon color={currentView === 'llm-presets' ? 'primary' : 'inherit'} /></ListItemIcon>
-              {open && <ListItemText primary="LLM Presets" />}
-            </ListItemButton>
-            <ListItemButton onClick={() => onNavigate('systems')} sx={{ ...buttonBaseSx, bgcolor: currentView === 'systems' ? 'rgba(145,71,255,0.15)' : 'transparent', color: currentView === 'systems' ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
-              <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><SystemsIcon color={currentView === 'systems' ? 'primary' : 'inherit'} /></ListItemIcon>
-              {open && <ListItemText primary="Systems" />}
-            </ListItemButton>
-            <ListItemButton onClick={() => onNavigate('user-settings')} sx={{ ...buttonBaseSx, bgcolor: currentView === 'user-settings' ? 'rgba(145,71,255,0.15)' : 'transparent', color: currentView === 'user-settings' ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
-              <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><SettingsIcon color={currentView === 'user-settings' ? 'primary' : 'inherit'} /></ListItemIcon>
-              {open && <ListItemText primary="User Settings" />}
-            </ListItemButton>
-            <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
-          </>
-        )}
-
-        {/* Dashboard: action buttons + game list */}
-        {currentView === 'dashboard' && open && (
-          <>
-            {onNewGame && (
-              <ListItemButton onClick={onNewGame} sx={{ ...buttonBaseSx, color: 'primary.light', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' }, mt: 0.5 }}>
-                <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><AddIcon fontSize="small" color="primary" /></ListItemIcon>
-                <ListItemText primary="New Game" />
-              </ListItemButton>
+        {/* Fixed top: hamburger + title + version + ALPHA */}
+        <div className="sidebar-fixed-top">
+          <button
+            className="sidebar-btn sidebar-toggle-btn"
+            onClick={onToggle}
+            title={open ? 'Collapse sidebar' : 'Expand sidebar'}
+            style={{ fontWeight: 700 }}
+          >
+            <span className="s-icon"><MenuIcon fontSize="small" /></span>
+            {open && (
+              <>
+                <span className="s-label" style={{ color: 'var(--accent)', letterSpacing: '0.1em' }}>ADnD</span>
+                <span className="version-pill">v{__APP_VERSION__}</span>
+                <span className="beta-badge">ALPHA</span>
+              </>
             )}
-            {onJoinGame && (
-              <ListItemButton onClick={onJoinGame} sx={{ ...buttonBaseSx, color: 'success.light', '&:hover': { bgcolor: 'rgba(76,175,80,0.1)' } }}>
-                <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><PlayArrowIcon fontSize="small" color="success" /></ListItemIcon>
-                <ListItemText primary="Join by Code" />
-              </ListItemButton>
-            )}
-            {activeGames.map(game => (
-              <ListItemButton key={game.id} onClick={() => navigate(`/game/${game.id}`)} sx={{ ...buttonBaseSx, bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-                <ListItemIcon sx={{ minWidth: 0, mr: 'auto', justifyContent: 'center' }}><GameIcon fontSize="small" color="action" /></ListItemIcon>
-                <ListItemText primary={game.name} primaryTypographyProps={{ noWrap: true, fontSize: 13, fontWeight: 500 }} />
-              </ListItemButton>
-            ))}
-          </>
-        )}
+          </button>
+        </div>
 
-        {/* LLM Presets view */}
-        {currentView === 'llm-presets' && open && (
-          <>
-            {onAddPreset && (
-              <ListItemButton onClick={onAddPreset} sx={{ ...buttonBaseSx, color: 'primary.light', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' }, mt: 0.5 }}>
-                <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><AddIcon fontSize="small" color="primary" /></ListItemIcon>
-                <ListItemText primary="Add Preset" />
-              </ListItemButton>
-            )}
-            {resolvedPresets.length === 0 ? (
-              <Typography variant="caption" sx={{ px: 2, color: 'text.secondary' }}>No presets yet</Typography>
-            ) : (
-              resolvedPresets.map(preset => (
-                <ListItemButton key={preset.id} onClick={() => navigate(`/llm-presets/${preset.id}`)} sx={{ ...buttonBaseSx, bgcolor: preset.isDefault ? 'rgba(145,71,255,0.08)' : 'transparent', border: preset.isDefault ? '1px solid' : 'none', borderColor: preset.isDefault ? 'rgba(145,71,255,0.3)' : 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 'auto', justifyContent: 'center' }}><LLMIcon fontSize="small" color="action" /></ListItemIcon>
-                  <ListItemText primary={preset.name} primaryTypographyProps={{ noWrap: true, fontSize: 13, fontWeight: 500 }} />
-                </ListItemButton>
-              ))
-            )}
-          </>
-        )}
+        {/* Scrollable nav */}
+        <div className="sidebar-scroll">
 
-        {/* Systems view */}
-        {currentView === 'systems' && open && (
-          <>
-            {onNewSystem && (
-              <ListItemButton onClick={onNewSystem} sx={{ ...buttonBaseSx, color: 'primary.light', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' }, mt: 0.5 }}>
-                <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><AddIcon fontSize="small" color="primary" /></ListItemIcon>
-                <ListItemText primary="New System" />
-              </ListItemButton>
-            )}
-          </>
-        )}
+          {/* Auth row */}
+          {isAuthenticated ? (
+            <>
+              <div className="sidebar-section-title">
+                <span className="s-label">{user?.displayName ?? 'User'}</span>
+              </div>
+              <Btn icon={<LogoutIcon fontSize="small" />} label="Log out" onClick={handleLogout} danger />
+            </>
+          ) : (
+            <>
+              <Btn icon={<LoginIcon fontSize="small" />} label="Log in" onClick={() => navigate('/login')} />
+              <Btn icon={<AddIcon fontSize="small" />} label="Register" onClick={() => navigate('/register')} />
+            </>
+          )}
 
-        {/* Game view */}
-        {currentView === 'game' && (
-          <>
-            {open && gameId && (
-              <Chip
-                label={games?.find(g => g.id === gameId)?.name || 'Game'}
-                size="small"
-                color="primary"
-                variant="outlined"
-                sx={{ mx: 1.5, mb: 1 }}
+          <div className="sidebar-divider" />
+
+          {/* Main nav */}
+          {isAuthenticated && (
+            <>
+              <Btn
+                icon={<DashboardIcon fontSize="small" />}
+                label="Games"
+                onClick={() => onNavigate('dashboard')}
+                active={currentView === 'dashboard'}
               />
-            )}
-            <ListItemButton onClick={() => onNavigate('dashboard')} sx={{ ...buttonBaseSx, color: 'text.secondary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-              <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><BackIcon fontSize="small" /></ListItemIcon>
-              {open && <ListItemText primary="Back" />}
-            </ListItemButton>
-            {isInGame && gameId && (
-              <ListItemButton onClick={() => navigate(`/admin/${gameId}`)} sx={{ ...buttonBaseSx, color: 'warning.light', '&:hover': { bgcolor: 'rgba(255,193,7,0.1)' } }}>
-                <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><ShieldIcon fontSize="small" color="warning" /></ListItemIcon>
-                {open && <ListItemText primary="Admin" />}
-              </ListItemButton>
-            )}
-            {open && (
-              <>
-                <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
-                {/* Unified chat is the main interface — all game events appear in chat */}
-                <ListItemButton onClick={() => navigate(`/game/${gameId}`)} sx={{ ...buttonBaseSx, bgcolor: gameId && location.pathname === `/game/${gameId}` ? 'rgba(145,71,255,0.15)' : 'transparent', color: gameId && location.pathname === `/game/${gameId}` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><ChatIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText primary="Chat" />
-                </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/game/${gameId}/settings`)} sx={{ ...buttonBaseSx, bgcolor: gameId && location.pathname === `/game/${gameId}/settings` ? 'rgba(145,71,255,0.15)' : 'transparent', color: gameId && location.pathname === `/game/${gameId}/settings` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.1)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><SettingsIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText primary="Settings" />
-                </ListItemButton>
-              </>
-            )}
-          </>
-        )}
+              <Btn
+                icon={<LLMIcon fontSize="small" />}
+                label="LLM Presets"
+                onClick={() => onNavigate('llm-presets')}
+                active={currentView === 'llm-presets'}
+              />
+              <Btn
+                icon={<GameIcon fontSize="small" />}
+                label="Systems"
+                onClick={() => onNavigate('systems')}
+                active={currentView === 'systems'}
+              />
+              <Btn
+                icon={<SettingsIcon fontSize="small" />}
+                label="User Settings"
+                onClick={() => onNavigate('user-settings')}
+                active={currentView === 'user-settings'}
+              />
 
-        {/* Admin view */}
-        {currentView === 'admin' && (
-          <>
-            <ListItemButton onClick={() => onNavigate('game')} sx={{ ...buttonBaseSx, color: 'text.secondary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-              <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><BackIcon fontSize="small" /></ListItemIcon>
-              {open && <ListItemText primary="Back to Game" />}
-            </ListItemButton>
-            {open && (
-              <>
-                <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(145,71,255,0.06)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><DashboardIcon fontSize="small" color="primary" /></ListItemIcon>
-                  <ListItemText primary="Dashboard" />
-                </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/plot-board`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/plot-board` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/plot-board` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><BulbIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText primary="Plot Board" />
-                </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/npcs`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/npcs` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/npcs` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><PeopleIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText primary="NPCs" />
-                </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/characters`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/characters` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/characters` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><SheetIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText primary="Characters" />
-                </ListItemButton>
-                <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
-                <Typography variant="caption" sx={{ px: 2, color: 'text.secondary', display: 'block', mt: 0.5, mb: 0.5, fontWeight: 600, textTransform: 'uppercase' }}>Tools</Typography>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/consistency`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/consistency` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/consistency` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><ConsistencyIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText primary="Consistency Check" />
-                </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/llm-logs`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/llm-logs` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/llm-logs` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><HistoryIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText primary="LLM Logs" />
-                </ListItemButton>
-                <ListItemButton onClick={() => navigate(`/admin/${adminId}/agent-calls`)} sx={{ ...buttonBaseSx, bgcolor: adminId && location.pathname === `/admin/${adminId}/agent-calls` ? 'rgba(145,71,255,0.15)' : 'transparent', color: adminId && location.pathname === `/admin/${adminId}/agent-calls` ? 'primary.light' : 'text.primary', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
-                  <ListItemIcon sx={{ minWidth: 0, mr: 2, justifyContent: 'center' }}><MicIcon fontSize="small" /></ListItemIcon>
-                  <ListItemText primary="Agent Calls" />
-                </ListItemButton>
-              </>
-            )}
-          </>
-        )}
-      </Box>
+              <div className="sidebar-divider" />
+            </>
+          )}
 
-      {/* Collapse toggle */}
-      <Box sx={{ flexGrow: 0, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-        <ListItemButton onClick={onToggle} sx={{ justifyContent: 'center', py: 1.5, bgcolor: 'rgba(255,255,255,0.04)' }}>
-          {open ? <ChevronLeftIcon /> : <ChevronRightIcon />}
-        </ListItemButton>
-      </Box>
-    </Drawer>
+          {/* Dashboard: actions + game list */}
+          {currentView === 'dashboard' && open && isAuthenticated && (
+            <>
+              {onNewGame && (
+                <Btn icon={<AddIcon fontSize="small" />} label="New Game" onClick={onNewGame} />
+              )}
+              {onJoinGame && (
+                <Btn icon={<PlayArrowIcon fontSize="small" />} label="Join by Code" onClick={onJoinGame} />
+              )}
+              {activeGames.map(game => (
+                <Btn
+                  key={game.id}
+                  icon={<GameIcon fontSize="small" />}
+                  label={game.name}
+                  onClick={() => navigate(`/game/${game.id}`)}
+                />
+              ))}
+            </>
+          )}
+
+          {/* LLM Presets view */}
+          {currentView === 'llm-presets' && open && isAuthenticated && (
+            <>
+              {onAddPreset && (
+                <Btn icon={<AddIcon fontSize="small" />} label="Add Preset" onClick={onAddPreset} />
+              )}
+              {resolvedPresets.length === 0 ? (
+                <div className="sidebar-section-title"><span className="s-label">No presets yet</span></div>
+              ) : (
+                resolvedPresets.map(preset => (
+                  <Btn
+                    key={preset.id}
+                    icon={<LLMIcon fontSize="small" />}
+                    label={preset.name}
+                    onClick={() => navigate(`/llm-presets/${preset.id}`)}
+                    active={location.pathname === `/llm-presets/${preset.id}`}
+                  />
+                ))
+              )}
+            </>
+          )}
+
+          {/* Systems view */}
+          {currentView === 'systems' && open && isAuthenticated && (
+            <>
+              {onNewSystem && (
+                <Btn icon={<AddIcon fontSize="small" />} label="New System" onClick={onNewSystem} />
+              )}
+            </>
+          )}
+
+          {/* Game view */}
+          {currentView === 'game' && (
+            <>
+              <Btn icon={<BackIcon fontSize="small" />} label="Back" onClick={() => onNavigate('dashboard')} />
+              {gameId && (
+                <Btn
+                  icon={<ShieldIcon fontSize="small" />}
+                  label="Admin"
+                  onClick={() => navigate(`/admin/${gameId}`)}
+                />
+              )}
+              {open && gameId && (
+                <>
+                  <div className="sidebar-divider" />
+                  <Btn
+                    icon={<ChatIcon fontSize="small" />}
+                    label="Chat"
+                    onClick={() => navigate(`/game/${gameId}`)}
+                    active={location.pathname === `/game/${gameId}`}
+                  />
+                  <Btn
+                    icon={<SettingsIcon fontSize="small" />}
+                    label="Settings"
+                    onClick={() => navigate(`/game/${gameId}/settings`)}
+                    active={location.pathname === `/game/${gameId}/settings`}
+                  />
+                </>
+              )}
+            </>
+          )}
+
+          {/* Admin view */}
+          {currentView === 'admin' && (
+            <>
+              <Btn icon={<BackIcon fontSize="small" />} label="Back to Game" onClick={() => onNavigate('game')} />
+              {open && adminId && (
+                <>
+                  <div className="sidebar-divider" />
+                  <Btn
+                    icon={<DashboardIcon fontSize="small" />}
+                    label="Dashboard"
+                    onClick={() => navigate(`/admin/${adminId}`)}
+                    active={location.pathname === `/admin/${adminId}`}
+                  />
+                  <Btn
+                    icon={<BulbIcon fontSize="small" />}
+                    label="Plot Board"
+                    onClick={() => navigate(`/admin/${adminId}/plot-board`)}
+                    active={location.pathname === `/admin/${adminId}/plot-board`}
+                  />
+                  <Btn
+                    icon={<PeopleIcon fontSize="small" />}
+                    label="NPCs"
+                    onClick={() => navigate(`/admin/${adminId}/npcs`)}
+                    active={location.pathname === `/admin/${adminId}/npcs`}
+                  />
+                  <Btn
+                    icon={<SheetIcon fontSize="small" />}
+                    label="Characters"
+                    onClick={() => navigate(`/admin/${adminId}/characters`)}
+                    active={location.pathname === `/admin/${adminId}/characters`}
+                  />
+                  <div className="sidebar-divider" />
+                  <div className="sidebar-section-title">
+                    <span className="s-label">Tools</span>
+                  </div>
+                  <Btn
+                    icon={<ConsistencyIcon fontSize="small" />}
+                    label="Consistency Check"
+                    onClick={() => navigate(`/admin/${adminId}/consistency`)}
+                    active={location.pathname === `/admin/${adminId}/consistency`}
+                  />
+                  <Btn
+                    icon={<HistoryIcon fontSize="small" />}
+                    label="LLM Logs"
+                    onClick={() => navigate(`/admin/${adminId}/llm-logs`)}
+                    active={location.pathname === `/admin/${adminId}/llm-logs`}
+                  />
+                  <Btn
+                    icon={<MicIcon fontSize="small" />}
+                    label="Agent Calls"
+                    onClick={() => navigate(`/admin/${adminId}/agent-calls`)}
+                    active={location.pathname === `/admin/${adminId}/agent-calls`}
+                  />
+                </>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Fixed bottom: theme toggle only */}
+        <div className="sidebar-fixed-bottom">
+          <Btn
+            icon={mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
+            label={mode === 'dark' ? 'Light mode' : 'Dark mode'}
+            onClick={toggleTheme}
+          />
+        </div>
+      </aside>
     </>
   );
 }

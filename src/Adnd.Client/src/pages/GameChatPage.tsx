@@ -419,7 +419,7 @@ export default function GameChatPage() {
   const { pendingCalls: calls } = useToolCalls(id);
   const { players, refetch: refetchPlayers } = usePlayers(id);
   const { messages, isLoading, hasMore, loadOldest } = useMessagesInfiniteScroll(id, game?.sessionId);
-  const { isConnected, on, off, invoke } = useGameHub();
+  const { isConnected, on, off, invoke, connect, disconnect } = useGameHub();
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -488,6 +488,15 @@ export default function GameChatPage() {
   useEffect(() => {
     fetchActiveCombat();
   }, []);
+
+  // Connect to SignalR hub when the game page mounts
+  useEffect(() => {
+    if (!id) return;
+    const token = api.getToken();
+    if (!token) return;
+    connect(id, token);
+    return () => { disconnect(); };
+  }, [id]);
 
   // SignalR: listen for combat events and new messages
   useEffect(() => {
@@ -629,6 +638,13 @@ export default function GameChatPage() {
       });
     };
 
+    const handleGameNarration = (msg: any) => {
+      setLiveMessages(prev => {
+        if (msg.id && prev.some((m: any) => m.id === msg.id)) return prev;
+        return [...prev, { id: msg.id, content: msg.content, type: 'narration', timestamp: msg.timestamp }];
+      });
+    };
+
     on('CombatStarted', handleCombatStarted);
     on('CombatEnded', handleCombatEnded);
     on('CombatDamageDealt', handleCombatDamage);
@@ -638,6 +654,7 @@ export default function GameChatPage() {
     on('ParticipantAdded', handleParticipantAdded);
     on('ParticipantRemoved', handleParticipantRemoved);
     on('NewMessage', handleNewMessage);
+    on('GameNarration', handleGameNarration);
     on('PlayerDisconnected', handlePlayerDisconnected);
     on('PlayerReconnected', handlePlayerReconnected);
 
@@ -651,6 +668,7 @@ export default function GameChatPage() {
       off('ParticipantAdded', handleParticipantAdded);
       off('ParticipantRemoved', handleParticipantRemoved);
       off('NewMessage', handleNewMessage);
+      off('GameNarration', handleGameNarration);
       off('PlayerDisconnected', handlePlayerDisconnected);
       off('PlayerReconnected', handlePlayerReconnected);
     };

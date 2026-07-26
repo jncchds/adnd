@@ -4,7 +4,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Hubs;
 using Adnd.Server.Models;
-using MassTransit;
+using Wolverine;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -98,7 +98,7 @@ public class AgentBus : IAgentBus
     private readonly ILogger<AgentBus> _logger;
     private readonly IHubContext<GameHub> _hubContext;
     private readonly IEventBus _eventBus;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IMessageContext _messageContext;
     private readonly IDeadLetterQueue _dlq;
     private readonly IConfiguration _configuration;
     private readonly int _toolCallingMaxDepth;
@@ -119,7 +119,7 @@ public class AgentBus : IAgentBus
         ILogger<AgentBus> logger,
         IHubContext<GameHub> hubContext,
         IEventBus mediator,
-        IPublishEndpoint publishEndpoint,
+        IMessageContext messageContext,
         IDeadLetterQueue dlq,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
@@ -139,7 +139,7 @@ public class AgentBus : IAgentBus
         _hubContext = hubContext;
         _gameAgentManager = gameAgentManager;
         _eventBus = mediator;
-        _publishEndpoint = publishEndpoint;
+        _messageContext = messageContext;
         _dlq = dlq;
         _configuration = configuration;
         _toolCallingMaxDepth = _configuration.GetValue<int>("ToolCallingMaxDepth", 5);
@@ -187,7 +187,7 @@ public class AgentBus : IAgentBus
         // Publish AgentCallQueued event — must go to agent queue (not game queue)
         // to trigger the saga system
         var agentCallQueued = new AgentCallQueued(call.Id, call.GameId);
-        await _publishEndpoint.Publish(agentCallQueued, CancellationToken.None);
+        await _messageContext.PublishAsync(agentCallQueued);
 
         return call;
     }

@@ -2,7 +2,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
-using MassTransit;
+using Wolverine;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -11,22 +11,24 @@ namespace Adnd.Server.Handlers;
 
 public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
 {
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILLMProviderFactory _providerFactory;
     private readonly ILogger<LLMDispatchHandler> _logger;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IEventBus _eventBus;
 
-    public LLMDispatchHandler(IServiceProvider serviceProvider, ILogger<LLMDispatchHandler> logger, IPublishEndpoint publishEndpoint)
+    public LLMDispatchHandler(IServiceScopeFactory scopeFactory, ILLMProviderFactory providerFactory, ILogger<LLMDispatchHandler> logger, IEventBus eventBus)
     {
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
+        _providerFactory = providerFactory;
         _logger = logger;
-        _publishEndpoint = publishEndpoint;
+        _eventBus = eventBus;
     }
 
     public async Task HandleAsync(LLMDispatchRequested evt, CancellationToken ct)
     {
         _logger.LogInformation("[LLM] Dispatching | SagaId={SagaId}", evt.SagaId);
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var call = await context.AgentCalls
@@ -79,7 +81,7 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
         var toolCallCount = hasToolCalls ? CountToolCalls(result) : 0;
 
         var nextEvent = new LLMResponseReceived(evt.SagaId, evt.GameId, result, hasToolCalls, toolCallCount);
-        await _publishEndpoint.Publish(nextEvent, ct);
+        await _eventBus.PublishAsync(nextEvent, ct);
 
         call.CurrentStep = SagaStep.LLMResponseReceived;
         await context.SaveChangesAsync(ct);
@@ -88,11 +90,7 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
             evt.SagaId, hasToolCalls, toolCallCount);
     }
 
-    private ILLMProvider? GetProvider(LLMPreset preset)
-    {
-        var factory = _serviceProvider.GetRequiredService<ILLMProviderFactory>();
-        return factory.CreateFromPreset(preset);
-    }
+    private ILLMProvider? GetProvider(LLMPreset preset) => _providerFactory.CreateFromPreset(preset);
 
     private int CountToolCalls(string response)
     {
@@ -119,6 +117,6 @@ public class LLMDispatchHandler : IEventHandler<LLMDispatchRequested>
         }
 
         var nextEvent = new AgentCallFailed(sagaId, gameId, error);
-        await _publishEndpoint.Publish(nextEvent, ct);
+        await _eventBus.PublishAsync(nextEvent, ct);
     }
 }

@@ -554,7 +554,7 @@ public abstract class BaseLLMProvider : ILLMProvider
 
             return calls.Select(c => new ToolCall
             {
-                Id = c.id ?? $"call_{Guid.NewGuid():N[..8]}",
+                Id = c.id ?? $"call_{Guid.NewGuid():N}"[..8],
                 Name = c.name ?? "",
                 Arguments = c.arguments ?? ""
             }).ToList();
