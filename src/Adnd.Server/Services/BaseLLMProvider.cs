@@ -1,3 +1,0 @@
-namespace Adnd.Server.Services;
-
-
