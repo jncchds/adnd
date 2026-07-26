@@ -1,0 +1,23 @@
+# .NET
+**/bin/
+**/obj/
+**/*.user
+**/*.suo
+.vs/
+
+# Node
+node_modules/
+dist/
+
+# Vite output (built into wwwroot by Docker)
+src/Adnd.Server/wwwroot/
+
+# Environment (never commit real .env)
+.env
+
+# EF Migrations tool local
+.config/
+
+# macOS / Windows
+.DS_Store
+Thumbs.db

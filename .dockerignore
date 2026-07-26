@@ -1,0 +1,13 @@
+.git
+.gitignore
+DESIGN_DOCUMENT.md
+PLAN.md
+RELEASE_NOTES.md
+README.md
+src/Adnd.Client/node_modules/
+src/Adnd.Server/wwwroot/
+src/Adnd.Server/bin/
+src/Adnd.Server/obj/
+.vs/
+**/*.user
+**/*.suo

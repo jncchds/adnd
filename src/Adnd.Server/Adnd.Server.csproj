@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Adnd.Server</RootNamespace>
+    <AssemblyName>Adnd.Server</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Suppress only well-known false positives from third-party packages -->
+    <NoWarn></NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- EF Core + PostgreSQL -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Pgvector.EntityFrameworkCore" />
+
+    <!-- Wolverine durable messaging -->
+    <PackageReference Include="WolverineFx" />
+    <PackageReference Include="WolverineFx.Postgresql" />
+
+    <!-- Background jobs -->
+    <PackageReference Include="Hangfire.AspNetCore" />
+    <PackageReference Include="Hangfire.PostgreSql" />
+
+    <!-- LLM providers -->
+    <PackageReference Include="OllamaSharp" />
+    <PackageReference Include="OpenAI" />
+
+    <!-- Auth + security -->
+    <PackageReference Include="BCrypt.Net-Next" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+
+    <!-- Resilience -->
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <PackageReference Include="Polly" />
+    <PackageReference Include="Polly.Extensions.Http" />
+
+    <!-- API docs -->
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+
+    <!-- Health checks -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" />
+  </ItemGroup>
+
+</Project>

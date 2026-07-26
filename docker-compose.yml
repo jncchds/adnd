@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: adnd
+      POSTGRES_USER: adnd
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "adnd"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - adnd-data:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+      dockerfile: src/Adnd.Server/Dockerfile
+    ports:
+      - "${APP_PORT:-5010}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=adnd;Username=adnd;Password=${POSTGRES_PASSWORD};Include Error Detail=true"
+      JwtSettings__SecretKey: ${JWT_SECRET_KEY}
+      JwtSettings__Issuer: ${JWT_ISSUER:-adnd-server}
+      JwtSettings__Audience: ${JWT_AUDIENCE:-adnd-client}
+      Encryption__MasterKey: ${ENCRYPTION_MASTER_KEY}
+      Resilience__RetryDelayMs: 500
+      Resilience__MaxRetries: 3
+      Resilience__FailureThreshold: 5
+      Resilience__HalfOpenDurationSeconds: 30
+      RateLimiting__GlobalPermitLimit: 100
+      RateLimiting__AuthPermitLimit: 10
+      RateLimiting__LLMPresetPermitLimit: 30
+      Logging__LogLevel__Microsoft.EntityFrameworkCore: Warning
+      ASPNETCORE_ENVIRONMENT: Production
+
+  # SDK service for running EF migrations and other dev tooling.
+  # Usage: docker compose run --rm sdk dotnet ef migrations add <Name> --project src/Adnd.Server
+  sdk:
+    build:
+      context: .
+      dockerfile: src/Adnd.Server/Dockerfile
+      target: build
+    volumes:
+      - .:/repo
+    working_dir: /repo
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=adnd;Username=adnd;Password=${POSTGRES_PASSWORD};Include Error Detail=true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["sdk"]
+    entrypoint: [""]
+    command: ["bash"]
+
+volumes:
+  adnd-data:
