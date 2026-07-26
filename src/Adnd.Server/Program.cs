@@ -94,6 +94,14 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserIdProvider, UserIdProvider>();
 builder.Services.AddSingleton<IApiKeyEncryptionService, ApiKeyEncryptionService>();
+builder.Services.AddScoped<ILLMPresetService, LLMPresetService>();
+builder.Services.AddScoped<IGameAuthorizationService, GameAuthorizationService>();
+builder.Services.AddScoped<IGameManagementService, GameManagementService>();
+builder.Services.AddScoped<ISessionManagementService, SessionManagementService>();
+builder.Services.AddSingleton<IDiceEngine, DiceEngine>();
+builder.Services.AddSingleton<ISystemRegistry, SystemRegistry>();
+builder.Services.AddScoped<IGameEngine, GameEngine>();
+builder.Services.AddScoped<IPlayerManagementService, PlayerManagementService>();
 
 // ── SignalR ───────────────────────────────────────────────────────────────────
 builder.Services.AddSignalR();
