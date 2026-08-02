@@ -56,5 +56,30 @@ export function useMessagesInfiniteScroll(sessionId: string | null) {
     setMessages(prev => [...prev, msg])
   }, [])
 
-  return { messages, loading, hasMore, error, loadInitial, loadOlder, appendLive }
+  /**
+   * A prompt resolving into its outcome. The row keeps its id and its place in the log, so
+   * "the GM asks you to roll" becomes the roll where it already sat rather than scrolling
+   * away and reappearing at the bottom.
+   */
+  const replaceLive = useCallback((msg: Message) => {
+    setMessages(prev => {
+      const index = prev.findIndex(m => m.id === msg.id)
+      if (index < 0) {
+        // The prompt was never in this client's window — treat the outcome as new.
+        if (seenIds.current.has(msg.id)) return prev
+        seenIds.current.add(msg.id)
+        return [...prev, msg]
+      }
+      const next = [...prev]
+      next[index] = msg
+      return next
+    })
+  }, [])
+
+  const removeLive = useCallback((messageId: string) => {
+    seenIds.current.delete(messageId)
+    setMessages(prev => prev.filter(m => m.id !== messageId))
+  }, [])
+
+  return { messages, loading, hasMore, error, loadInitial, loadOlder, appendLive, replaceLive, removeLive }
 }

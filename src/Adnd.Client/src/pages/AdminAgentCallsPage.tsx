@@ -14,7 +14,7 @@ const STATUS_COLORS: Record<AgentCallStatus, 'default' | 'info' | 'success' | 'e
 
 const TOOL_STATUS_COLORS: Record<GMToolCallStatus, 'default' | 'info' | 'success' | 'error' | 'warning'> = {
   Pending: 'info', Running: 'warning', Completed: 'success', Failed: 'error',
-  AwaitingConfirmation: 'warning', Declined: 'default',
+  AwaitingConfirmation: 'warning', Declined: 'default', AwaitingReroll: 'warning',
 }
 
 function ToolCallList({ agentCallId }: { agentCallId: string }) {

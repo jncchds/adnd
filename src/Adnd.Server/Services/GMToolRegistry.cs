@@ -12,12 +12,34 @@ namespace Adnd.Server.Services;
 public interface IGMToolRegistry
 {
     IEnumerable<ToolDefinition> GetToolDefinitions();
-    bool RequiresConfirmation(string toolName);
+    bool RequiresConfirmation(string toolName, JsonElement arguments);
     Task<string> ExecuteToolAsync(string toolName, JsonElement arguments, Guid gameId, Guid sessionId, CancellationToken ct);
 }
 
-public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext<GameHub> hub) : IGMToolRegistry
+public class GMToolRegistry(
+    AppDbContext db,
+    IDiceEngine diceEngine,
+    IPlayerRollService playerRolls,
+    IHubContext<GameHub> hub) : IGMToolRegistry
 {
+    /// <summary>
+    /// Reads the arguments requestPlayerRoll shares with the saga path, so the tool and
+    /// ToolExecutionHandler cannot drift into rolling two different things.
+    /// </summary>
+    internal static PlayerRollRequest BuildPlayerRollRequest(JsonElement arguments, Guid gameId, Guid sessionId)
+    {
+        var formula = arguments.TryGetProperty("formula", out var f) ? f.GetString() ?? "1d20" : "1d20";
+        var reason = arguments.TryGetProperty("reason", out var r) ? r.GetString() : null;
+        TryGetGuid(arguments, "playerId", out var rollerId);
+
+        return new PlayerRollRequest(
+            gameId, sessionId,
+            rollerId == Guid.Empty ? null : rollerId,
+            formula,
+            ReadDc(arguments),
+            reason);
+    }
+
     private static JsonElement Schema(string json)
         => JsonSerializer.Deserialize<JsonElement>(json);
 
@@ -61,8 +83,8 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
             Schema("""{"type":"object","properties":{"formula":{"type":"string"},"reason":{"type":"string"},"dc":{"type":"integer"}},"required":["formula"]}""")),
         new("skillCheck", "Perform a skill check for a character",
             Schema("""{"type":"object","properties":{"characterId":{"type":"string"},"skillId":{"type":"string"},"dc":{"type":"integer"}},"required":["characterId","skillId","dc"]}""")),
-        new("requestPlayerRoll", "Request a player to roll dice. formula must be fully-resolved, e.g. \"1d20+2\" — never a placeholder like \"{strength}\"; look up the character's ability modifier first. Include \"dc\" whenever the roll is against a target number — the result will state whether it succeeded.",
-            Schema("""{"type":"object","properties":{"playerId":{"type":"string"},"formula":{"type":"string"},"reason":{"type":"string"},"dc":{"type":"integer"}},"required":["playerId","formula","reason"]}""")),
+        new("requestPlayerRoll", "Request a player to roll dice. formula must be fully-resolved, e.g. \"1d20+2\" — never a placeholder like \"{strength}\"; look up the character's ability modifier first. Include \"dc\" whenever the roll is against a target number — the result will state whether it succeeded. Set \"mandatory\": true when the rules give the character no choice about rolling — a saving throw, initiative, a check forced on them, an opposed roll they are the target of; it resolves immediately with no prompt. Leave it false (the default) when the character is choosing to attempt something and could simply decline, and the player will be asked first.",
+            Schema("""{"type":"object","properties":{"playerId":{"type":"string"},"formula":{"type":"string"},"reason":{"type":"string"},"dc":{"type":"integer"},"mandatory":{"type":"boolean"}},"required":["playerId","formula","reason"]}""")),
         new("queryCharacter", "Retrieve character data",
             Schema("""{"type":"object","properties":{"characterId":{"type":"string"}},"required":["characterId"]}""")),
         new("queryNPCs", "Retrieve NPC list for a game",
@@ -87,7 +109,20 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
             Schema("""{"type":"object","properties":{"reason":{"type":"string"}}}""")),
     ];
 
-    public bool RequiresConfirmation(string toolName) => toolName == "requestPlayerRoll";
+    /// <summary>
+    /// Asking a player to confirm a roll they have no choice about is pure friction: the
+    /// confirm endpoint doesn't collect a rolled value either way, so on a saving throw the
+    /// prompt only ever meant "may I apply the rules to you?". A mandatory roll therefore
+    /// resolves immediately. The player still gets a say in the one place they actually have
+    /// one — the reroll offer afterwards, if they have an ability that grants it.
+    /// </summary>
+    public bool RequiresConfirmation(string toolName, JsonElement arguments)
+        => toolName == "requestPlayerRoll" && !IsMandatory(arguments);
+
+    private static bool IsMandatory(JsonElement arguments)
+        => arguments.ValueKind == JsonValueKind.Object
+           && arguments.TryGetProperty("mandatory", out var el)
+           && el.ValueKind == JsonValueKind.True;
 
     public async Task<string> ExecuteToolAsync(string toolName, JsonElement arguments, Guid gameId, Guid sessionId, CancellationToken ct)
     {
@@ -131,20 +166,14 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
 
             case "requestPlayerRoll":
             {
-                // Reached only after player approval (ToolExecutionHandler skips straight to
-                // "Declined: ..." on decline without calling ExecuteToolAsync at all). The
-                // confirm/decline endpoints don't collect a player-submitted roll value, so
-                // approval means "roll it for me" — same as skillCheck/rollDice, just
-                // attributed to the target player instead of the GM.
-                var formula = arguments.GetProperty("formula").GetString() ?? "1d20";
-                var reason = arguments.TryGetProperty("reason", out var reasonEl) ? reasonEl.GetString() : null;
-                var roll = diceEngine.Roll(formula);
-                TryGetGuid(arguments, "playerId", out var rollerId);
-                var (content, dc, success) = FormatRollContent(formula, roll, arguments, reason);
-                await BroadcastRollAsync(gameId, sessionId, content, "DiceRoll",
-                    new { formula = roll.Formula, total = roll.Total, breakdown = roll.Breakdown, dc, success }, ct,
-                    rollerId == Guid.Empty ? null : rollerId);
-                return content;
+                // The saga does not reach here: ToolExecutionHandler drives requestPlayerRoll
+                // through IPlayerRollService directly so it can hold the turn open on a reroll
+                // offer, which a method returning a string cannot do. This path serves the
+                // manual /api/gmtools/execute escape hatch, and rolls without that gate — any
+                // reroll offer it produces is pushed to the player but nothing waits on it.
+                var request = BuildPlayerRollRequest(arguments, gameId, sessionId);
+                var result = await playerRolls.RollAsync(request, ct);
+                return result.Content;
             }
 
             case "queryCharacter":
@@ -445,17 +474,17 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
     private static (string Content, int? Dc, bool? Success) FormatRollContent(
         string formula, DiceResult result, JsonElement arguments, string? reason = null)
     {
-        int? dc = arguments.TryGetProperty("dc", out var dcEl) && dcEl.ValueKind == JsonValueKind.Number
+        var dc = ReadDc(arguments);
+        var (content, success) = RollFormatting.Describe(formula, result, dc, reason);
+        return (content, dc, success);
+    }
+
+    internal static int? ReadDc(JsonElement arguments)
+        => arguments.ValueKind == JsonValueKind.Object
+           && arguments.TryGetProperty("dc", out var dcEl)
+           && dcEl.ValueKind == JsonValueKind.Number
             ? dcEl.GetInt32()
             : null;
-        bool? success = dc.HasValue ? result.Total >= dc.Value : null;
-
-        var prefix = string.IsNullOrEmpty(reason) ? "" : $"{reason} — ";
-        var suffix = dc.HasValue
-            ? $" vs DC {dc}: {result.Breakdown} — {(success!.Value ? "Success" : "Failure")}"
-            : $": {result.Breakdown}";
-        return ($"{prefix}Rolled {formula}{suffix}", dc, success);
-    }
 
     // Mirrors GameHub.RollDice: GM-tool rolls must land their own chat message immediately,
     // not rely on the follow-up narrator LLM call to happen to mention the numbers — that call

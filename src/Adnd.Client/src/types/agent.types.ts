@@ -42,9 +42,40 @@ export interface ToolCall {
   arguments: Record<string, unknown>
   targetPlayerId: string | null
   startedAt: string
+  status: GMToolCallStatus
+  /** For AwaitingReroll, the interim roll and the abilities offered on it. */
+  result: PendingRerollResult | null
 }
 
-export type GMToolCallStatus = 'Pending' | 'Running' | 'Completed' | 'Failed' | 'AwaitingConfirmation' | 'Declined'
+export type GMToolCallStatus =
+  | 'Pending' | 'Running' | 'Completed' | 'Failed'
+  | 'AwaitingConfirmation' | 'Declined' | 'AwaitingReroll'
+
+export interface RerollOption {
+  featureId: string
+  name: string
+  description: string
+  usesRemaining: number | null
+}
+
+export interface PendingRerollResult {
+  content: string
+  total: number
+  success: boolean | null
+  options: RerollOption[]
+}
+
+/**
+ * Pushed over SignalR ("RerollOffered") to the roller alone. toolCallId is null for a roll
+ * the player made themselves — nothing is waiting on the answer, so it resolves over the hub
+ * rather than through /api/gmtools.
+ */
+export interface RerollOffer {
+  toolCallId: string | null
+  gameId: string
+  content: string
+  options: RerollOption[]
+}
 
 export interface GMToolCallSummary {
   id: string

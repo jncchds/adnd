@@ -18,6 +18,14 @@ public class Message : ISoftDelete
     public Guid? WhisperToId { get; set; }
     public string? WhisperTarget { get; set; }
 
+    /// <summary>
+    /// A roll only the roller and the GM may see. Deliberately separate from the whisper
+    /// fields: a whisper is hidden from the AI narrator too, whereas a secret roll must
+    /// still reach it — the GM is precisely who a secret roll is secret *for*. See
+    /// <c>MessageVisibility</c>.
+    /// </summary>
+    public bool IsSecret { get; set; }
+
     public Vector? Embedding { get; set; }
 
     public bool IsDeleted { get; set; }

@@ -7,7 +7,13 @@ public record DiceResult(
     int Total,
     List<int> IndividualRolls,
     List<int> KeptRolls,
-    string Breakdown);
+    string Breakdown,
+    /// <summary>
+    /// The face of the first kept d20, or null if the formula rolled no d20. "Natural 1"
+    /// is a property of that die, not of Total, which the modifier has already moved —
+    /// a Halfling with +3 who rolls a 1 totals 4, and nothing in Total says so.
+    /// </summary>
+    int? NaturalD20 = null);
 
 public interface IDiceEngine
 {
@@ -41,6 +47,7 @@ public partial class DiceEngine : IDiceEngine
         var allKeptRolls = new List<int>();
         var breakdownParts = new List<string>();
         var total = 0;
+        int? naturalD20 = null;
 
         // TokenPattern only matches well-formed dice/number terms, so it silently skips
         // over anything else — a formula like "1d20+{strength}" (an LLM emitting an
@@ -87,7 +94,13 @@ public partial class DiceEngine : IDiceEngine
 
                 total += groupSum * sign;
                 allIndividualRolls.AddRange(rolls);
-                allKeptRolls.AddRange(keptIndices.Select(i => rolls[i]));
+                var kept = keptIndices.OrderBy(i => i).Select(i => rolls[i]).ToList();
+                allKeptRolls.AddRange(kept);
+
+                // First kept d20 wins: with advantage ("2d20kh1") exactly one is kept, and
+                // that is the die the table would call the natural roll.
+                if (sides == 20 && naturalD20 is null && kept.Count > 0)
+                    naturalD20 = kept[0];
 
                 var rollDisplay = string.Join(",", Enumerable.Range(0, count)
                     .Select(i => keptIndices.Contains(i) ? rolls[i].ToString() : $"~~{rolls[i]}~~"));
@@ -117,7 +130,7 @@ public partial class DiceEngine : IDiceEngine
         var breakdown = breakdownParts.Count > 1
             ? string.Join(" ", breakdownParts) + $" = {total}"
             : string.Join(" ", breakdownParts);
-        return new DiceResult(formula, total, allIndividualRolls, allKeptRolls, breakdown);
+        return new DiceResult(formula, total, allIndividualRolls, allKeptRolls, breakdown, naturalD20);
     }
 
     private static HashSet<int> GetKeptIndices(int[] rolls, string modStr)

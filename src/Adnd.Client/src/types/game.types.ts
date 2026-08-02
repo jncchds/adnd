@@ -67,6 +67,7 @@ export interface Character {
   playerId: string
   name: string
   class: string
+  race: string | null
   level: number
   proficiencyBonus: number
   currentHP: number
@@ -86,7 +87,35 @@ export interface Character {
   spellcastingAbility: string | null
   spellSaveDC: number
   spellAttackBonus: number
+  features: CharacterFeature[]
   isDeleted: boolean
+}
+
+/** One entry of Character.Features. The rules behind the id live on the server. */
+export interface CharacterFeature {
+  id: string
+  name: string
+  /** Null for an unlimited ability — never "unknown". */
+  usesRemaining: number | null
+}
+
+export type RerollTrigger = 'AnyRoll' | 'NaturalOne' | 'FailedCheck'
+export type RestPeriod = 'ShortRest' | 'LongRest'
+
+/** GET /api/characters/options — what the wizard offers and what the catalogue knows. */
+export interface CharacterOptions {
+  races: string[]
+  features: {
+    id: string
+    name: string
+    description: string
+    trigger: RerollTrigger
+    maxUses: number | null
+    recharge: RestPeriod | null
+    grantedByRace: string | null
+    grantedByClass: string | null
+    grantedAtLevel: number
+  }[]
 }
 
 export interface CreateCharacterRequest {
@@ -96,6 +125,7 @@ export interface CreateCharacterRequest {
   background: string
   backstory?: string
   attributes?: Record<string, number>
+  race?: string
 }
 
 export interface GameCreateRequest {

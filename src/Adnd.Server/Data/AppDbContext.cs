@@ -129,6 +129,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         ConfigureJsonb<Character>(modelBuilder, c => c.Conditions, jsonComparer);
         ConfigureJsonb<Character>(modelBuilder, c => c.CustomFields, jsonComparer);
         ConfigureJsonb<Character>(modelBuilder, c => c.SpellSlots, jsonComparer);
+        ConfigureJsonb<Character>(modelBuilder, c => c.Features, jsonComparer);
 
         // ── Message ──
         modelBuilder.Entity<Message>()

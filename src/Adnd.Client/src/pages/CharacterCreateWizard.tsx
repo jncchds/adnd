@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Box, Typography, Button, Stepper, Step, StepLabel,
   TextField, Grid, CircularProgress, Alert, Card, CardActionArea, CardContent,
+  MenuItem,
 } from '@mui/material'
 import { api } from '../api/client'
+import type { CharacterOptions } from '../types'
 
 const BACKGROUNDS = [
   { id: 'acolyte', label: 'Acolyte', desc: 'Temple servant. Skills: Insight, Religion. Feature: Shelter of the Faithful.' },
@@ -19,7 +21,7 @@ const BACKGROUNDS = [
 
 const ATTRS = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA']
 const STANDARD_ARRAY = [15, 14, 13, 12, 10, 8]
-const STEPS = ['Background', 'Name & Class', 'Attributes', 'Backstory']
+const STEPS = ['Background', 'Name, Race & Class', 'Attributes', 'Backstory']
 
 function isStandardArray(attrs: Record<string, number>) {
   const values = ATTRS.map(a => attrs[a]).sort((a, b) => a - b)
@@ -35,12 +37,29 @@ export default function CharacterCreateWizard() {
   const [background, setBackground] = useState('')
   const [name, setName] = useState('')
   const [characterClass, setCharacterClass] = useState('Fighter')
+  const [race, setRace] = useState('')
+  const [options, setOptions] = useState<CharacterOptions | null>(null)
+  const [optionsError, setOptionsError] = useState<string | null>(null)
   const [attrs, setAttrs] = useState<Record<string, number>>(
     Object.fromEntries(ATTRS.map((a, i) => [a, STANDARD_ARRAY[i]])),
   )
   const [backstory, setBackstory] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Served rather than hardcoded so the list and the abilities each race grants cannot
+  // disagree with the server's catalogue.
+  useEffect(() => {
+    api.characters.options()
+      .then(o => { setOptions(o); setOptionsError(null) })
+      .catch(e => setOptionsError((e as Error).message))
+  }, [])
+
+  // What picking this race and class will actually give the character. Worth showing: the
+  // reroll prompt appearing mid-game is otherwise unexplained.
+  const grantedFeatures = (options?.features ?? []).filter(f =>
+    (f.grantedByRace != null && f.grantedByRace.toLowerCase() === race.trim().toLowerCase()) ||
+    (f.grantedByClass != null && f.grantedByClass.toLowerCase() === characterClass.trim().toLowerCase() && f.grantedAtLevel <= 1))
 
   const handleCreate = async () => {
     if (!name.trim()) { setError('Name is required'); return }
@@ -51,6 +70,7 @@ export default function CharacterCreateWizard() {
         gameId, name, class: characterClass,
         background, attributes: attrs,
         backstory: backstory || undefined,
+        race: race || undefined,
       })
       navigate(gameId ? `/game/${gameId}` : `/character/${char.id}`)
     } catch (e) { setError((e as Error).message) }
@@ -89,8 +109,25 @@ export default function CharacterCreateWizard() {
       {step === 1 && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <TextField label="Character Name" value={name} onChange={e => setName(e.target.value)} fullWidth />
+          <TextField
+            select={options != null}
+            label="Race"
+            value={race}
+            onChange={e => setRace(e.target.value)}
+            fullWidth
+            helperText={optionsError
+              ? `Could not load the race list (${optionsError}) — type one instead.`
+              : 'Some races grant abilities the GM will offer you automatically, such as Halfling Luck.'}
+          >
+            {(options?.races ?? []).map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+          </TextField>
           <TextField label="Class" value={characterClass} onChange={e => setCharacterClass(e.target.value)} fullWidth
             helperText="e.g. Fighter, Wizard, Rogue, Cleric" />
+          {grantedFeatures.length > 0 && (
+            <Alert severity="success">
+              You will start with: {grantedFeatures.map(f => f.name).join(', ')}.
+            </Alert>
+          )}
         </Box>
       )}
 

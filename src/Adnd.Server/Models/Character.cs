@@ -9,6 +9,7 @@ public class Character : ISoftDelete
 
     public string Name { get; set; } = string.Empty;
     public string Class { get; set; } = string.Empty;
+    public string? Race { get; set; }
     public int Level { get; set; } = 1;
     public int ProficiencyBonus { get; set; } = 2;
     public int CurrentHP { get; set; }
@@ -20,6 +21,16 @@ public class Character : ISoftDelete
     public JsonElement Spells { get; set; }
     public JsonElement Conditions { get; set; }
     public JsonElement CustomFields { get; set; }
+
+    /// <summary>
+    /// Abilities the character has, as <c>[{ "id", "name", "usesRemaining" }]</c>. Only the
+    /// id and the remaining uses are authoritative here — what the ability *does* (its
+    /// trigger, its maximum, which rest restores it) lives in
+    /// <see cref="Services.IFeatureCatalogue"/>, so a rules fix does not have to be
+    /// backfilled across every character row. The name is denormalised for display only,
+    /// so a homebrew id the catalogue doesn't know still renders as something readable.
+    /// </summary>
+    public JsonElement Features { get; set; }
 
     public string? Background { get; set; }
     public string? BackgroundSkills { get; set; }

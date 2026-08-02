@@ -17,6 +17,9 @@ public partial class GameHub(
     ISessionManagementService sessionService,
     IAgentBus agentBus,
     IDiceEngine diceEngine,
+    IPlayerRollService playerRolls,
+    IRerollService rerolls,
+    IRollPromptService prompts,
     IRAGService rag,
     INPCRelevanceService npcRelevance,
     IGmActivityBroadcaster gmActivity) : Hub
@@ -84,7 +87,9 @@ public partial class GameHub(
         await base.OnDisconnectedAsync(exception);
     }
 
-    protected async Task PersistGameEventAsync(Guid sessionId, string content, string messageType, Guid? playerId = null, bool isOOC = false)
+    /// <summary>Returns the saved row so callers that also broadcast it send the id that was
+    /// actually persisted, rather than minting a second one the client can never match.</summary>
+    protected async Task<Message> PersistGameEventAsync(Guid sessionId, string content, string messageType, Guid? playerId = null, bool isOOC = false)
     {
         var msg = new Message
         {
@@ -97,6 +102,7 @@ public partial class GameHub(
         };
         db.Messages.Add(msg);
         await db.SaveChangesAsync();
+        return msg;
     }
 
     protected async Task<GameSession> ResolveGameSessionAsync(Guid gameId)

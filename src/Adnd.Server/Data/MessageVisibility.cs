@@ -24,6 +24,11 @@ namespace Adnd.Server.Data;
 /// whisper routing, so it is included — which is exactly what "unless they shared it
 /// publicly" means. Deciding on the routing fields rather than <c>Type == "Whisper"</c>
 /// matters, because a private GM-suggest reply is stored with <c>Type "GM"</c>.
+///
+/// <c>Message.IsSecret</c> is deliberately *not* consulted here. A secret roll is secret
+/// from the other players; the GM is who it is secret for, and a narrator that could not see
+/// it would be unable to resolve the very check it asked for. Player-facing visibility is a
+/// separate predicate, in <c>MessagesController</c>.
 /// </summary>
 public static class MessageVisibility
 {

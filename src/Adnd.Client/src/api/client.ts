@@ -1,6 +1,6 @@
 import type {
   AuthResponse, LoginRequest, RegisterRequest, User,
-  Game, GameCreateRequest, Player, GameSession, NPC, Character, CreateCharacterRequest,
+  Game, GameCreateRequest, Player, GameSession, NPC, Character, CreateCharacterRequest, CharacterOptions,
   LLMPreset, LLMPresetCreate, LLMPresetUpdate, ProviderStatus, LLMInteractionLog,
   Message, MessagePage,
   AgentCall, ToolCall, GMToolCallSummary,
@@ -195,6 +195,9 @@ class APIClient {
     confirm: (id: string) => this.post<void>(`/gmtools/${id}/confirm`),
     decline: (id: string, reason?: string) =>
       this.post<void>(`/gmtools/${id}/decline`, { reason }),
+    // featureId null keeps the original roll; either way the GM's held-open turn resumes.
+    reroll: (id: string, featureId: string | null) =>
+      this.post<void>(`/gmtools/${id}/reroll`, { featureId }),
     // sessionId is required by GMToolExecuteRequest; omitting it bound Guid.Empty.
     execute: (gameId: string, sessionId: string, toolName: string, args: Record<string, unknown>) =>
       this.post<unknown>('/gmtools/execute', { gameId, sessionId, toolName, arguments: args }),
@@ -230,6 +233,7 @@ class APIClient {
     listForGame: (gameId: string) => this.get<Character[]>(`/characters?gameId=${gameId}`),
     create: (data: CreateCharacterRequest) => this.post<Character>('/characters', data),
     update: (id: string, data: Partial<Character>) => this.put<Character>(`/characters/${id}`, data),
+    options: () => this.get<CharacterOptions>('/characters/options'),
   }
 
   // Prompt templates — server route is /quickwins/templates

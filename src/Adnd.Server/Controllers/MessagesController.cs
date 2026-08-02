@@ -58,7 +58,11 @@ public class MessagesController(
             // so a private GM-suggest reply (Type "GM" with WhisperToId set to the asker) is
             // hidden from everyone else the same way a player-to-player whisper is.
             .Where(m => (m.WhisperFromId == null && m.WhisperToId == null)
-                || m.WhisperFromId == player.Id || m.WhisperToId == player.Id);
+                || m.WhisperFromId == player.Id || m.WhisperToId == player.Id)
+            // A secret roll is secret from the other players, not from the GM. It carries no
+            // whisper routing on purpose — that would hide it from the AI narrator too, and
+            // the narrator is exactly who is meant to see it.
+            .Where(m => !m.IsSecret || m.PlayerId == player.Id || player.Role == PlayerRole.Creator);
 
         if (cursor is not null)
             query = query.Where(m => m.CreatedAt < cursor);

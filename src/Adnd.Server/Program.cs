@@ -133,6 +133,11 @@ builder.Services.AddScoped<IGameManagementService, GameManagementService>();
 builder.Services.AddScoped<ISessionManagementService, SessionManagementService>();
 builder.Services.AddSingleton<IDiceEngine, DiceEngine>();
 builder.Services.AddSingleton<ISystemRegistry, SystemRegistry>();
+// Stateless rules lookup, so singleton; the services that read character rows are scoped.
+builder.Services.AddSingleton<IFeatureCatalogue, FeatureCatalogue>();
+builder.Services.AddScoped<IRerollService, RerollService>();
+builder.Services.AddScoped<IPlayerRollService, PlayerRollService>();
+builder.Services.AddScoped<IRollPromptService, RollPromptService>();
 builder.Services.AddScoped<IGameEngine, GameEngine>();
 builder.Services.AddScoped<IPlayerManagementService, PlayerManagementService>();
 builder.Services.AddScoped<IWhisperService, WhisperService>();

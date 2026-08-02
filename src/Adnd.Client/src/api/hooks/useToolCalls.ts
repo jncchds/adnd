@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from '../client'
 import type { ToolCall } from '../../types'
 
@@ -33,5 +33,21 @@ export function useToolCalls(gameId: string | null) {
     setToolCalls(prev => prev.filter(tc => tc.id !== id))
   }, [])
 
-  return { toolCalls, error, refresh, confirm, decline }
+  const reroll = useCallback(async (id: string, featureId: string | null) => {
+    await api.toolCalls.reroll(id, featureId)
+    setToolCalls(prev => prev.filter(tc => tc.id !== id))
+  }, [])
+
+  // Two different questions share this endpoint: "may the GM roll for you?" and "you rolled,
+  // do you want to spend an ability?". Rendering the second through the confirm/decline
+  // banner would offer Confirm and Decline buttons that resolve nothing.
+  const confirmations = useMemo(
+    () => toolCalls.filter(tc => tc.status === 'AwaitingConfirmation'),
+    [toolCalls])
+
+  const rerollOffers = useMemo(
+    () => toolCalls.filter(tc => tc.status === 'AwaitingReroll'),
+    [toolCalls])
+
+  return { toolCalls, confirmations, rerollOffers, error, refresh, confirm, decline, reroll }
 }

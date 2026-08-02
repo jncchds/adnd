@@ -2,6 +2,64 @@
 
 ## v0.1.2 — 2026-08-02
 
+### Secret rolls are now actually secret
+
+The README promised "result visible only to roller and GM". The live push honoured that, but
+the `Message` row carried no marker at all — so on reload `MessagesController` served every
+secret roll to the whole table.
+
+- New `Message.IsSecret`, filtered in `MessagesController` to the roller and the game's creator.
+- Deliberately *not* expressed with whisper routing, and deliberately not consulted by
+  `MessageVisibility`: a secret roll is secret from the other players, and the GM — who is who
+  it is secret for — must still see it to resolve the check it asked for.
+- The live push now addresses the roller and the creator by user id rather than the caller's
+  connection alone, so the GM sees it in the moment too.
+
+### Mandatory rolls stop asking permission
+
+`requestPlayerRoll` always gated on a confirmation prompt, and confirming did not even let the
+player roll — the endpoint collects no value, so the server rolled anyway. On a saving throw
+the prompt therefore only ever meant "may I apply the rules to you?".
+
+- The tool takes a `mandatory` flag. Mandatory rolls resolve immediately; optional ones still
+  ask. `IGMToolRegistry.RequiresConfirmation` now takes the arguments, not just the tool name.
+- The tool description tells the model which is which — saving throws, initiative, opposed
+  rolls the character is the target of, versus something they are choosing to attempt.
+
+### Reroll abilities are offered automatically
+
+- `Character.Race` and `Character.Features`, plus `IFeatureCatalogue` — the rules for Lucky,
+  Halfling Luck and Indomitable. Characters store only an id and remaining uses; triggers,
+  maximums and recharge live in the catalogue, so a rules fix is not a data migration.
+- Racial and class abilities are granted at creation, and the wizard says what you will get.
+  Feats taken later are added from a new Features tab on the character sheet.
+- Triggers are evaluated against the actual die: `NaturalOne` needs the new
+  `DiceResult.NaturalD20`, because a Halfling with +3 who rolls a 1 totals 4 and nothing in
+  `Total` says so. `FailedCheck` is only offered on a roll with a stated DC — a roll with no DC
+  cannot be known to have failed, and offering would spend a limited resource on a success.
+- **The GM's turn is held open on an outstanding offer** (`GMToolCallStatus.AwaitingReroll`),
+  so the narrator is handed the final number. Without the hold it would narrate a failure the
+  player is about to reroll into a success.
+- `GameHub.TakeRest` — `RestSystem.cs` was an empty stub, so every limited reroll was one-way:
+  three Lucky points spent once and never seen again. A long rest also confers a short rest's
+  restoration.
+
+### Roll prompts live in the chat log
+
+They were banners floating above the log: modeless, undated, and gone the moment they were
+answered, leaving no record of what was asked or what came of it.
+
+- A roll request and a reroll offer are now `Message` rows addressed to one player, carrying
+  their buttons in metadata. Answering one **replaces it in place** (`MessageUpdated`), so a
+  private "the GM asks you to roll 1d20+3 vs DC 15" becomes the public roll on the same row,
+  where the player is already looking. Declining resolves it privately; a waived reroll
+  withdraws it (`MessageRemoved`).
+- Because prompts are whispers, `MessageVisibility` already keeps them out of the narrator's
+  context — the GM asked the question and does not need to be told that it asked.
+- Because they are persisted rows, a reload restores an unanswered prompt with its buttons.
+  That replaced the 5-second poll as the thing keeping a dropped SignalR push from stranding
+  a turn.
+
 ### Private messages can no longer reach the narrator
 
 Four different places built "the messages the GM saw" with three different filters, and the

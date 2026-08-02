@@ -15,23 +15,32 @@ import { useGame } from '../api/hooks/useGame'
 import { usePlayers } from '../api/hooks/usePlayers'
 import { useGameHub } from '../api/hooks/useHub'
 import { useMessagesInfiniteScroll } from '../api/hooks/useMessagesInfiniteScroll'
-import { useToolCalls } from '../api/hooks/useToolCalls'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api/client'
 import type {
   Message, Combat, Player, Character,
-  DamageEvent, HealEvent, ConditionEvent, GMActivity,
+  DamageEvent, HealEvent, ConditionEvent, GMActivity, RerollOption,
 } from '../types'
 import { activityLabel } from '../utils/gmActivity'
 
 type ReceiverType = 'All' | 'GM' | string
 
-function MsgBubble({ msg, players, characters }: { msg: Message; players: Player[]; characters: Character[] }) {
+function MsgBubble({ msg, players, characters, prompt }: {
+  msg: Message
+  players: Player[]
+  characters: Character[]
+  prompt: React.ReactNode
+}) {
   const isGM = msg.type === 'GM'
   const isSystem = ['System', 'PlayerJoined', 'PlayerLeft', 'GameStarted', 'SessionCreated'].includes(msg.type)
   const isDice = ['DiceRoll', 'SkillCheck', 'AttackRoll'].includes(msg.type)
-  const isWhisper = msg.type === 'Whisper' || msg.type === 'OOCWhisper'
+  // A prompt is addressed to one player, so it renders like a whisper — visually marked as
+  // "only you can see this", which is exactly what it is.
+  const isPrompt = ['RollRequest', 'RerollOffer', 'RollDecline'].includes(msg.type)
+  const isWhisper = msg.type === 'Whisper' || msg.type === 'OOCWhisper' || isPrompt
   const isOOC = msg.isOOC || msg.type === 'OOC'
+  // History sends isSecret as a field; the live hub carries it in the roll metadata.
+  const isSecret = msg.isSecret === true || (msg.metadata as { isSecret?: boolean } | null)?.isSecret === true
 
   // Sender label leads with the character name (what the table sees in-fiction), with the
   // account's display name in brackets — previously this showed the raw account name only,
@@ -104,9 +113,11 @@ function MsgBubble({ msg, players, characters }: { msg: Message; players: Player
             fontWeight={isDice ? 600 : undefined}
             sx={{ whiteSpace: 'pre-wrap' }}
           >
-            {isDice && '🎲 '}{msg.content}
+            {/* Marked so the roller knows the rest of the table cannot see this one. */}
+            {isDice && '🎲 '}{isSecret && '🔒 '}{msg.content}
           </Typography>
         )}
+        {prompt}
       </Paper>
       <Typography variant="caption" color="text.disabled" sx={{ ml: 1, display: 'block' }}>
         {new Date(msg.createdAt).toLocaleTimeString()}
@@ -191,30 +202,61 @@ function CombatPanel({ combat }: { combat: Combat }) {
   )
 }
 
-function ToolCallBanner({ gameId }: { gameId: string }) {
-  // Decline was already implemented in useToolCalls (and supported end-to-end by
-  // /api/gmtools/{id}/decline) but had no button here — a player who wanted to skip a
-  // gated roll had no way to say so and the call just sat there until the saga's
-  // 5-minute timeout failed the whole turn.
-  const { toolCalls, confirm, decline } = useToolCalls(gameId)
-  if (!toolCalls.length) return null
-  const tc = toolCalls[0]
-  const isRoll = tc.toolName === 'requestPlayerRoll'
-  const formula = isRoll ? (tc.arguments.formula as string | undefined) : undefined
-  const reason = isRoll ? (tc.arguments.reason as string | undefined) : undefined
-  const dc = isRoll ? (tc.arguments.dc as number | undefined) : undefined
-  return (
-    <Alert severity="info" sx={{ mb: 1 }} action={
-      <Box sx={{ display: 'flex', gap: 0.5 }}>
-        <Button size="small" color="inherit" onClick={() => decline(tc.id)}>Decline</Button>
-        <Button size="small" onClick={() => confirm(tc.id)}>Confirm</Button>
+/**
+ * The buttons on a prompt message. A prompt is a real row in the log rather than a banner
+ * over it, so this renders inside the bubble and the answer replaces the row in place —
+ * the ask stays where it was asked instead of vanishing.
+ */
+function PromptActions({ msg, onRoll, onDecline, onReroll }: {
+  msg: Message
+  onRoll: (toolCallId: string) => void
+  onDecline: (toolCallId: string) => void
+  onReroll: (toolCallId: string | null, featureId: string | null) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const meta = (msg.metadata ?? {}) as {
+    kind?: string
+    toolCallId?: string | null
+    options?: RerollOption[]
+  }
+
+  const run = async (fn: () => void | Promise<void>) => {
+    setBusy(true)
+    try { await fn() } finally { setBusy(false) }
+  }
+
+  if (meta.kind === 'rollRequest' && meta.toolCallId) {
+    const id = meta.toolCallId
+    return (
+      <Box sx={{ display: 'flex', gap: 0.5, mt: 1 }}>
+        <Button size="small" variant="contained" disabled={busy} onClick={() => run(() => onRoll(id))}>Roll</Button>
+        <Button size="small" color="inherit" disabled={busy} onClick={() => run(() => onDecline(id))}>Decline</Button>
       </Box>
-    }>
-      {isRoll
-        ? <>The GM requests a roll: <strong>{formula ?? '1d20'}</strong>{dc != null ? <> vs DC <strong>{dc}</strong></> : null}{reason ? ` — ${reason}` : ''}</>
-        : <>AI is waiting: <strong>{tc.toolName}</strong></>}
-    </Alert>
-  )
+    )
+  }
+
+  if (meta.kind === 'rerollOffer') {
+    return (
+      <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
+        {(meta.options ?? []).map(o => (
+          <Tooltip key={o.featureId} title={o.description}>
+            <span>
+              <Button size="small" variant="outlined" disabled={busy}
+                onClick={() => run(() => onReroll(meta.toolCallId ?? null, o.featureId))}>
+                {o.name}{o.usesRemaining != null ? ` (${o.usesRemaining} left)` : ''}
+              </Button>
+            </span>
+          </Tooltip>
+        ))}
+        <Button size="small" color="inherit" disabled={busy}
+          onClick={() => run(() => onReroll(meta.toolCallId ?? null, null))}>
+          Keep the roll
+        </Button>
+      </Box>
+    )
+  }
+
+  return null
 }
 
 export default function GameChatPage() {
@@ -239,7 +281,7 @@ export default function GameChatPage() {
       .catch(() => setCharacters([]))
   }, [gameId, gameLoading])
   const hub = useGameHub()
-  const { messages, loading: msgsLoading, hasMore, loadInitial, loadOlder, appendLive } = useMessagesInfiniteScroll(game?.currentSessionId ?? null)
+  const { messages, loading: msgsLoading, hasMore, loadInitial, loadOlder, appendLive, replaceLive, removeLive } = useMessagesInfiniteScroll(game?.currentSessionId ?? null)
   const [combat, setCombat] = useState<Combat | null>(null)
   const [input, setInput] = useState('')
   const [isOOC, setIsOOC] = useState(false)
@@ -273,6 +315,10 @@ export default function GameChatPage() {
       if (isAtBottom.current) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
     }
     const handleGMActivity = (a: GMActivity) => setGmActivity(a.step === 'Completed' || a.step === 'Failed' ? null : a)
+    // A prompt resolving into its outcome, in place. Sent to the whole group when the
+    // outcome is public and to the one player when it stays private.
+    const handleMessageUpdated = (m: Message) => replaceLive(m)
+    const handleMessageRemoved = ({ messageId }: { messageId: string }) => removeLive(messageId)
     const handleGMError = ({ message }: { message: string }) => { setGmError(message); setGmActivity(null) }
     const handleCombatStarted = (c: Combat) => setCombat(c)
     const handleCombatEnded = () => setCombat(null)
@@ -312,6 +358,8 @@ export default function GameChatPage() {
     hub.on('NewMessage', handleNewMessage)
     hub.on('Error', handleError)
     hub.on('GMActivity', handleGMActivity)
+    hub.on('MessageUpdated', handleMessageUpdated)
+    hub.on('MessageRemoved', handleMessageRemoved)
     hub.on('GMError', handleGMError)
     hub.on('CombatStarted', handleCombatStarted)
     hub.on('CombatEnded', handleCombatEnded)
@@ -325,6 +373,8 @@ export default function GameChatPage() {
       hub.off('NewMessage', handleNewMessage)
       hub.off('Error', handleError)
       hub.off('GMActivity', handleGMActivity)
+      hub.off('MessageUpdated', handleMessageUpdated)
+      hub.off('MessageRemoved', handleMessageRemoved)
       hub.off('GMError', handleGMError)
       hub.off('CombatStarted', handleCombatStarted)
       hub.off('CombatEnded', handleCombatEnded)
@@ -334,11 +384,50 @@ export default function GameChatPage() {
       hub.off('CombatConditionApplied', handleCondition)
       hub.off('CombatConditionRemoved', handleCondition)
     }
-  }, [hub, appendLive])
+  }, [hub, appendLive, replaceLive, removeLive])
 
   useEffect(() => {
     if (isAtBottom.current) bottomRef.current?.scrollIntoView()
   }, [messages])
+
+  const confirmRoll = useCallback(async (toolCallId: string) => {
+    try { await api.toolCalls.confirm(toolCallId) }
+    catch (e) { setSendError((e as Error).message || 'That roll could not be made.') }
+  }, [])
+
+  const declineRoll = useCallback(async (toolCallId: string) => {
+    try { await api.toolCalls.decline(toolCallId) }
+    catch (e) { setSendError((e as Error).message || 'That roll could not be declined.') }
+  }, [])
+
+  /**
+   * A roll made for a GM request has a turn held open on it and resolves through
+   * /api/gmtools; a roll the player made themselves has nothing waiting, so it resolves over
+   * the hub. The prompt message carries which one it is.
+   */
+  const resolveReroll = useCallback(async (toolCallId: string | null, featureId: string | null) => {
+    if (!gameId) return
+    try {
+      if (toolCallId) {
+        await api.toolCalls.reroll(toolCallId, featureId)
+      } else if (featureId) {
+        await hub.invoke('TakeReroll', gameId, featureId)
+      } else {
+        await hub.invoke('WaiveReroll', gameId)
+      }
+    } catch (e) {
+      setSendError((e as Error).message || 'That reroll could not be applied.')
+    }
+  }, [gameId, hub])
+
+  const takeRest = useCallback(async (restType: 'ShortRest' | 'LongRest') => {
+    if (!gameId) return
+    try {
+      await hub.invoke('TakeRest', gameId, restType)
+    } catch (e) {
+      setSendError((e as Error).message || 'That rest could not be taken.')
+    }
+  }, [gameId, hub])
 
   const handleScroll = useCallback(() => {
     const el = chatRef.current
@@ -403,13 +492,6 @@ export default function GameChatPage() {
         </Box>
       )}
 
-      {/* Tool call banner */}
-      {gameId && (
-        <Box sx={{ px: 2 }}>
-          <ToolCallBanner gameId={gameId} />
-        </Box>
-      )}
-
       {/* GM Error */}
       {gmError && (
         <Alert severity="error" onClose={() => setGmError(null)} sx={{ mx: 2 }}>
@@ -432,6 +514,15 @@ export default function GameChatPage() {
         </Alert>
       )}
 
+      {/* Resting is a table action, not a private one — it happens here rather than on the
+          solo character sheet, and everyone sees it. */}
+      {myCharacter && (
+        <Box sx={{ px: 2, pb: 1, display: 'flex', gap: 1 }}>
+          <Button size="small" variant="outlined" onClick={() => takeRest('ShortRest')}>Short rest</Button>
+          <Button size="small" variant="outlined" onClick={() => takeRest('LongRest')}>Long rest</Button>
+        </Box>
+      )}
+
       {/* Zone B: Chat */}
       <Box
         ref={chatRef}
@@ -446,7 +537,20 @@ export default function GameChatPage() {
           </Box>
         )}
         {messages.map(msg => (
-          <MsgBubble key={msg.id} msg={msg} players={players} characters={characters} />
+          <MsgBubble
+            key={msg.id}
+            msg={msg}
+            players={players}
+            characters={characters}
+            prompt={
+              <PromptActions
+                msg={msg}
+                onRoll={confirmRoll}
+                onDecline={declineRoll}
+                onReroll={resolveReroll}
+              />
+            }
+          />
         ))}
         <div ref={bottomRef} />
       </Box>

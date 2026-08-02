@@ -20,12 +20,13 @@ public record MessageHistoryDto(
     Guid? WhisperToId,
     string? WhisperTarget,
     DateTimeOffset CreatedAt,
-    string? PlayerDisplayName)
+    string? PlayerDisplayName,
+    bool IsSecret)
 {
     public static MessageHistoryDto From(Message m, string? displayName) => new(
         m.Id, m.SessionId, m.PlayerId, m.Content, m.Type,
         m.Metadata.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ? null : m.Metadata,
-        m.IsOOC, m.WhisperFromId, m.WhisperToId, m.WhisperTarget, m.CreatedAt, displayName);
+        m.IsOOC, m.WhisperFromId, m.WhisperToId, m.WhisperTarget, m.CreatedAt, displayName, m.IsSecret);
 }
 
 public record MessagePageDto(

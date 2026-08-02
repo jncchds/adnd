@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Box, Typography, Paper, Tabs, Tab, CircularProgress, Alert,
-  TextField, Button, Chip, Divider, Grid,
+  TextField, Button, Chip, Divider, Grid, MenuItem, IconButton, Tooltip,
 } from '@mui/material'
+import { Delete as DeleteIcon } from '@mui/icons-material'
 import { useCharacter } from '../api/hooks/useCharacters'
 import { api } from '../api/client'
+import type { CharacterFeature, CharacterOptions } from '../types'
 
 function AttrCard({ abbr, value }: { abbr: string; value: number }) {
   const mod = Math.floor((value - 10) / 2)
@@ -26,6 +28,15 @@ export default function CharacterSheetPage() {
   const [tab, setTab] = useState(0)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [options, setOptions] = useState<CharacterOptions | null>(null)
+  const [optionsError, setOptionsError] = useState<string | null>(null)
+  const [featureToAdd, setFeatureToAdd] = useState('')
+
+  useEffect(() => {
+    api.characters.options()
+      .then(o => { setOptions(o); setOptionsError(null) })
+      .catch(e => setOptionsError((e as Error).message))
+  }, [])
 
   const save = async () => {
     if (!characterId || !character) return
@@ -46,6 +57,20 @@ export default function CharacterSheetPage() {
   const skills = character.skills as Record<string, unknown> ?? {}
   const inventory = character.inventory ?? []
   const spells = character.spells as Record<string, unknown> ?? {}
+  const features = character.features ?? []
+
+  // Uses start full: the catalogue's maximum for a limited ability, null for an unlimited
+  // one. Null here means unlimited everywhere else too, never "not yet known".
+  const addFeature = () => {
+    const def = options?.features.find(d => d.id === featureToAdd)
+    if (!def) return
+    const next: CharacterFeature = { id: def.id, name: def.name, usesRemaining: def.maxUses }
+    setCharacter(c => c ? { ...c, features: [...(c.features ?? []), next] } : c)
+    setFeatureToAdd('')
+  }
+
+  const removeFeature = (id: string) =>
+    setCharacter(c => c ? { ...c, features: (c.features ?? []).filter(f => f.id !== id) } : c)
 
   return (
     <Box sx={{ p: 3, maxWidth: 900, mx: 'auto' }}>
@@ -53,7 +78,7 @@ export default function CharacterSheetPage() {
       <Box sx={{ mb: 3 }}>
         <Typography variant="h4" fontWeight={700}>{character.name}</Typography>
         <Typography variant="subtitle1" color="text.secondary">
-          Level {character.level} {character.class} — HP: {character.currentHP}/{character.maxHP}
+          Level {character.level} {character.race ? `${character.race} ` : ''}{character.class} — HP: {character.currentHP}/{character.maxHP}
         </Typography>
       </Box>
 
@@ -65,6 +90,7 @@ export default function CharacterSheetPage() {
         <Tab label="Inventory" />
         <Tab label="Spells" />
         <Tab label="Background" />
+        <Tab label="Features" />
         <Tab label="Custom" />
       </Tabs>
 
@@ -163,8 +189,67 @@ export default function CharacterSheetPage() {
         </Box>
       )}
 
-      {/* Custom */}
+      {/* Features */}
       {tab === 5 && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            Abilities that let you reroll. The GM offers these automatically when their trigger
+            fires — you never have to ask. Limited uses come back on a rest.
+          </Typography>
+
+          {optionsError && <Alert severity="warning">Could not load the ability list: {optionsError}</Alert>}
+
+          {features.length === 0 && <Typography color="text.secondary">No abilities recorded.</Typography>}
+
+          {features.map(f => {
+            const def = options?.features.find(d => d.id === f.id)
+            return (
+              <Paper key={f.id} sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="subtitle2" fontWeight={600}>{f.name}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {def?.description ?? 'Not in the rules catalogue — the GM will not offer this automatically.'}
+                  </Typography>
+                </Box>
+                <Chip
+                  size="small"
+                  label={f.usesRemaining == null ? 'Unlimited' : `${f.usesRemaining} left`}
+                  color={f.usesRemaining === 0 ? 'default' : 'primary'}
+                />
+                <Tooltip title="Remove">
+                  <IconButton size="small" onClick={() => removeFeature(f.id)}><DeleteIcon fontSize="small" /></IconButton>
+                </Tooltip>
+              </Paper>
+            )
+          })}
+
+          <Divider />
+
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+            <TextField
+              select
+              size="small"
+              label="Add an ability"
+              value={featureToAdd}
+              onChange={e => setFeatureToAdd(e.target.value)}
+              sx={{ minWidth: 240 }}
+              helperText="Racial and class abilities are granted at creation; add feats you take later."
+            >
+              {(options?.features ?? [])
+                .filter(d => !features.some(f => f.id === d.id))
+                .map(d => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}
+            </TextField>
+            <Button variant="outlined" disabled={!featureToAdd} onClick={addFeature} sx={{ mt: 0.5 }}>Add</Button>
+          </Box>
+
+          <Button variant="contained" onClick={save} disabled={saving} sx={{ alignSelf: 'flex-start' }}>
+            Save Features
+          </Button>
+        </Box>
+      )}
+
+      {/* Custom */}
+      {tab === 6 && (
         <Box>
           <TextField
             label="Custom Fields (JSON)"

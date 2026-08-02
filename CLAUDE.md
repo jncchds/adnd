@@ -54,7 +54,8 @@ Migrations are applied automatically on startup by `MigrationService.ApplyMigrat
 
 `DesignTimeDbContextFactory` builds the context for the EF tooling so `dotnet ef` does not boot the full host (which would demand a real JWT key and encryption key it has no need for).
 
-Current migrations: `InitialCreate`, `AddCharacterBackstory`, `AgentLoopToolCallState`, `PlotThreadResolvedAt`, `AddLlmInteractionLogStatus`, `AddAgentCallStepHistoryAndLlmReasoning`, `AddAgentCallRequestedByPlayer`, `NPCStatusAndLastSeen`, `ClearPrivateMessageEmbeddings`.
+Current migrations: `InitialCreate`, `AddCharacterBackstory`, `AgentLoopToolCallState`, `PlotThreadResolvedAt`, `AddLlmInteractionLogStatus`, `AddAgentCallStepHistoryAndLlmReasoning`, `AddAgentCallRequestedByPlayer`, `NPCStatusAndLastSeen`, `ClearPrivateMessageEmbeddings`,
+`CharacterFeaturesAndSecretRolls`, `RollPromptMessageLink`.
 
 **Check scaffolded migrations before accepting them.** EF emits `jsonb NOT NULL DEFAULT ''` for new `JsonElement` columns; `''` is not valid JSON and the `ALTER TABLE` fails. The converter's sentinel is the literal `"null"`.
 
@@ -129,6 +130,50 @@ AgentCallQueued → AgentSaga.Start
 
 `wait` is the GM declining to act this turn — every in-character player line fires a narrate call, so without it the GM is structurally obliged to interject on both halves of a conversation the characters are having with each other. It never reaches `GMToolRegistry.ExecuteToolAsync` in the normal case: `AgentSaga.Handle(LLMResponseReceived)` intercepts a response whose tool calls are *all* `wait` (and only for `AgentAction.Narrate`) and completes the saga right there — no tools run, no follow-up LLM call, no `Message` row, nothing broadcast but the `Completed` step that clears the client's activity chip. Silence is therefore not the same as the empty-narrative guard in `Handle(NarrativeReady)`, which still treats a blank response as a failure to retry. `GameHub.BuildNarrateSystemPromptAsync` forbids `wait` once the GM has been silent for `WaitStreakLimit` (3) consecutive table messages, so a model that settles into waiting can't leave the table talking to itself forever.
 
+### Rolls, rerolls, and who is asked what
+
+`requestPlayerRoll` takes a `mandatory` flag. A mandatory roll — a saving throw, initiative,
+anything the rules give the character no choice about — resolves immediately with no prompt;
+asking was always meaningless, because the confirm endpoint never collected a rolled value
+and approval only ever meant "yes, apply the rules to me". Optional rolls still gate on
+confirmation. `IGMToolRegistry.RequiresConfirmation` therefore takes the *arguments*, not just
+the tool name.
+
+**Every roll attributed to a player goes through `IPlayerRollService`** — the hub's `RollDice`
+/`RollSkillCheck`/`RollAttack`, the `requestPlayerRoll` tool, and any reroll. That is what
+makes "does this character have a reroll for this?" one question answered in one place rather
+than four call sites that will not all remember to ask it.
+
+`IRerollService` answers it, against `Character.Features` (`[{id, name, usesRemaining}]`) and
+`IFeatureCatalogue`. The character row stores only the id and the remaining uses; the trigger,
+the maximum and which rest restores it live in the catalogue, so a rules fix is a one-line
+change and not a backfill across every campaign. Triggers are `AnyRoll`, `NaturalOne` (needs
+`DiceResult.NaturalD20` — a natural 1 is a property of the die, not of `Total`, which the
+modifier has already moved) and `FailedCheck` (only offered when the roll had a stated DC, since
+a roll with no DC cannot be known to have failed). `GameHub.TakeRest` refills them.
+
+**A reroll offer holds the GM's turn open.** `ToolExecutionHandler` parks the `GMToolCall` in
+`AwaitingReroll` rather than publishing `ToolCallCompleted`, so the narrator is told the final
+number. Without that hold the GM narrates a failure the player then rerolls into a success.
+
+### Roll prompts are messages, not banners
+
+A roll request and a reroll offer are real `Message` rows addressed to one player via
+`WhisperToId`, carrying their actions in `Metadata` (`kind`, `toolCallId`, `options`). Answering
+one **replaces that row in place** — `IRollPromptService.ResolveAsync` rewrites the content and
+type and clears the whisper routing, so a private "the GM asks you to roll" becomes the public
+roll where it already sat, pushed as `MessageUpdated`. `WithdrawAsync` (→ `MessageRemoved`)
+handles a prompt that resolved into nothing worth showing.
+
+Two consequences worth knowing. Because prompts are whispers, `MessageVisibility` already keeps
+them out of the narrator's context — the GM asked the question and does not need to be told it
+asked. And because they are persisted rows, a reload restores an unanswered prompt with its
+buttons intact; there is no separate polling path keeping the UI honest.
+
+When a prompt exists, the roll must not also post its own message — pass
+`PlayerRollRequest.PostMessage = false` and resolve the prompt into the result, or the table
+sees the roll twice.
+
 The pending tool list lives on `ToolCallCoordinator.ToolCalls` — **not** on `AgentCall.Output`, which holds narrative text. Tools requiring confirmation (`requestPlayerRoll`) are persisted as `GMToolCall` rows with `Status = AwaitingConfirmation` and resume the saga via `ToolCallConfirmationResolved` when `/api/gmtools/{id}/confirm|decline` is called.
 
 Tool arguments are LLM-generated: parse ids with `TryGetGuid` rather than `Guid.Parse`, and always scope looked-up entities to `gameId`.
@@ -156,6 +201,12 @@ exactly why a character repeating a whisper publicly *should* influence narratio
 Embeddings are filtered at the **write** site, not at each read. Nothing similarity-searches
 `Message.Embedding` today (only `PlotThread.Embedding`), so a read-side filter would be a rule
 the next feature could forget; a null vector cannot leak.
+
+`Message.IsSecret` is a **different** predicate and is deliberately not consulted here. A secret
+roll is secret from the other *players*; the GM is who it is secret for, and a narrator that
+could not see it could not resolve the check it just asked for. Player-facing visibility lives in
+`MessagesController` (roller, or the game's creator). Do not express "secret" with whisper
+routing — that would hide it from the narrator too.
 
 ### RAG + Plot Intelligence
 

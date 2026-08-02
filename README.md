@@ -14,7 +14,11 @@ ADnD is a multiplayer tabletop RPG platform where a configurable AI Game Master 
 - **JWT auth** — refresh token rotation, encrypted API keys at rest (AES-256-GCM)
 - **Whispers** — private GM-to-player and player-to-player messaging; whispers and OOC chat are
   excluded from everything the AI GM sees, so they never surface in narration or recaps
-- **Secret dice rolls** — result visible only to roller and GM
+- **Secret dice rolls** — result visible only to the roller and the GM, on reload as well as live
+- **Reroll abilities** — Lucky, Halfling Luck and the like are offered automatically when they
+  apply, with uses tracked and restored on a rest
+- **Roll prompts in the chat log** — the GM's request and any reroll offer arrive as private
+  messages that turn into the result in place; mandatory rolls resolve without asking
 - **Session recaps** — on-demand or automatic "previously on..." summaries
 - **Multi-language narration** — pick a language at game creation (English, Spanish, French,
   German, Italian, Portuguese, Polish, Russian, Ukrainian, Japanese) and the GM narrates, adapts

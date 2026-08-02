@@ -8,7 +8,8 @@ public record CreateCharacterDto(
     string Class,
     string Background,
     string? Backstory,
-    Dictionary<string, int>? Attributes);
+    Dictionary<string, int>? Attributes,
+    string? Race);
 
 /// <summary>
 /// Fields a player may edit on their own sheet. Update previously bound the Character
@@ -27,7 +28,9 @@ public record UpdateCharacterDto(
     JsonElement? Spells,
     JsonElement? Conditions,
     JsonElement? CustomFields,
-    JsonElement? SpellSlots);
+    JsonElement? SpellSlots,
+    string? Race,
+    JsonElement? Features);
 
 /// <summary>GM-only adjustments to a character's progression and current state.</summary>
 public record GMCharacterAdjustmentDto(

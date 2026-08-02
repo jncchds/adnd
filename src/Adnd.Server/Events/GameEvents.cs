@@ -81,3 +81,10 @@ public record AgentCallFailed(Guid AgentCallId, Guid GameId, string Error);
 public record AgentCallAbandoned([property: SagaIdentity] Guid AgentCallId, Guid GameId, string Error);
 public record ToolCallWaitingConfirmation(Guid AgentCallId, Guid GameId, string ToolName, string ArgumentsJson, Guid? TargetPlayerId);
 public record ToolCallConfirmationResolved(Guid AgentCallId, Guid GameId, string ToolName, string ArgumentsJson, int ToolIndex, bool Approved, string? DeclineReason);
+
+/// <summary>
+/// A player has answered the reroll offer that followed a requestPlayerRoll. <paramref
+/// name="FeatureId"/> is null when they kept the original roll, in which case the interim
+/// result stands and the turn simply resumes.
+/// </summary>
+public record RerollResolved(Guid AgentCallId, Guid GameId, string ArgumentsJson, int ToolIndex, Guid CharacterId, string? FeatureId, string InterimContent, Guid? PromptMessageId);

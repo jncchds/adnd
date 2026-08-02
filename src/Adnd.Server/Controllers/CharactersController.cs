@@ -15,8 +15,33 @@ namespace Adnd.Server.Controllers;
 public class CharactersController(
     AppDbContext db,
     ICharacterCreationFactory factory,
+    IFeatureCatalogue features,
     IUserIdProvider userIdProvider) : ControllerBase
 {
+    /// <summary>
+    /// Races the creation wizard offers, and the reroll abilities the catalogue knows about.
+    /// Served rather than hardcoded in the client so the two cannot disagree about which
+    /// race grants which ability.
+    /// </summary>
+    [HttpGet("options")]
+    [AllowAnonymous]
+    public IActionResult GetOptions() => Ok(new
+    {
+        races = factory.GetAvailableRaces(),
+        features = features.All.Select(f => new
+        {
+            f.Id,
+            f.Name,
+            f.Description,
+            Trigger = f.Trigger.ToString(),
+            f.MaxUses,
+            Recharge = f.Recharge?.ToString(),
+            f.GrantedByRace,
+            f.GrantedByClass,
+            f.GrantedAtLevel
+        })
+    });
+
     [HttpGet]
     public async Task<IActionResult> ListForGame([FromQuery] Guid gameId)
     {
@@ -98,7 +123,7 @@ public class CharactersController(
         if (player.Character != null)
             return Conflict("You already have a character in this game.");
 
-        var character = factory.CreateFromBackground(dto.Background, player.Id, dto.Name, dto.Class);
+        var character = factory.CreateFromBackground(dto.Background, player.Id, dto.Name, dto.Class, dto.Race);
 
         if (dto.Attributes is { Count: > 0 })
             character.Attributes = JsonSerializer.SerializeToElement(dto.Attributes);
@@ -129,6 +154,8 @@ public class CharactersController(
         if (dto.Conditions.HasValue) character.Conditions = dto.Conditions.Value;
         if (dto.CustomFields.HasValue) character.CustomFields = dto.CustomFields.Value;
         if (dto.SpellSlots.HasValue) character.SpellSlots = dto.SpellSlots.Value;
+        if (dto.Race is not null) character.Race = dto.Race;
+        if (dto.Features.HasValue) character.Features = dto.Features.Value;
 
         await db.SaveChangesAsync();
         return Ok(character);

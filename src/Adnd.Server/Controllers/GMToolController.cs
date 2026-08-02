@@ -12,6 +12,9 @@ namespace Adnd.Server.Controllers;
 public record GMToolExecuteRequest(string ToolName, JsonElement Arguments, Guid GameId, Guid SessionId);
 public record GMToolDeclineRequest(string? Reason);
 
+/// <param name="FeatureId">The ability to spend, or null to keep the original roll.</param>
+public record RerollRequest(string? FeatureId);
+
 public record PendingToolCallDto(
     Guid Id,
     Guid GameId,
@@ -19,7 +22,9 @@ public record PendingToolCallDto(
     string ToolName,
     JsonElement Arguments,
     Guid? TargetPlayerId,
-    DateTimeOffset StartedAt);
+    DateTimeOffset StartedAt,
+    GMToolCallStatus Status,
+    JsonElement Result);
 
 public record GMToolCallSummaryDto(
     Guid Id,
@@ -54,14 +59,29 @@ public class GMToolController(
     [HttpGet("pending")]
     public async Task<IActionResult> GetPending([FromQuery] Guid gameId, CancellationToken ct)
     {
-        if (await RequireMemberAsync(gameId) is { } failure) return failure;
+        var userId = userIdProvider.GetUserId();
+        Player caller;
+        try
+        {
+            caller = await auth.RequirePlayerAsync(gameId, userId);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, new { error = ex.Message });
+        }
 
         var pending = await db.GMToolCalls
             .AsNoTracking()
-            .Where(t => t.GameId == gameId && t.Status == GMToolCallStatus.AwaitingConfirmation)
+            .Where(t => t.GameId == gameId
+                && (t.Status == GMToolCallStatus.AwaitingConfirmation
+                    // A reroll offer belongs to one player, so unlike a confirmation it is
+                    // filtered here. It is listed at all so a dropped SignalR push cannot
+                    // strand the turn until the saga's 5-minute timeout.
+                    || (t.Status == GMToolCallStatus.AwaitingReroll && t.TargetPlayerId == caller.Id)))
             .OrderBy(t => t.StartedAt)
             .Select(t => new PendingToolCallDto(
-                t.Id, t.GameId, t.SessionId, t.ToolName, t.Arguments, t.TargetPlayerId, t.StartedAt))
+                t.Id, t.GameId, t.SessionId, t.ToolName, t.Arguments, t.TargetPlayerId, t.StartedAt,
+                t.Status, t.Result))
             .ToListAsync(ct);
 
         return Ok(pending);
@@ -89,6 +109,73 @@ public class GMToolController(
 
         return Ok(toolCalls);
     }
+
+    /// <summary>
+    /// Take, or waive, the reroll offered after a requestPlayerRoll. A null featureId keeps
+    /// the original roll. Either way the GM's turn — which has been held open precisely so it
+    /// never narrates a number the player is about to replace — resumes here.
+    /// </summary>
+    [HttpPost("{id:guid}/reroll")]
+    public async Task<IActionResult> Reroll(Guid id, [FromBody] RerollRequest? body, CancellationToken ct)
+    {
+        var toolCall = await db.GMToolCalls.FirstOrDefaultAsync(t => t.Id == id, ct);
+        if (toolCall is null)
+            return NotFound(new { error = "Tool call not found." });
+
+        if (toolCall.Status != GMToolCallStatus.AwaitingReroll)
+            return BadRequest(new { error = "This roll is not awaiting a reroll." });
+
+        // The offer belongs to one player. Authorizing only on game membership would let any
+        // player at the table spend someone else's Lucky points.
+        var userId = userIdProvider.GetUserId();
+        Player caller;
+        try
+        {
+            caller = await auth.RequirePlayerAsync(toolCall.GameId, userId);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, new { error = ex.Message });
+        }
+
+        if (toolCall.TargetPlayerId is { } target && target != caller.Id)
+            return StatusCode(403, new { error = "This reroll was offered to another player." });
+
+        var featureId = string.IsNullOrWhiteSpace(body?.FeatureId) ? null : body!.FeatureId;
+
+        // Only an ability that was actually offered may be taken — otherwise the client could
+        // name any id and the roll would be reattempted under an ability the trigger never fired for.
+        if (featureId is not null && !WasOffered(toolCall.Result, featureId))
+            return BadRequest(new { error = "That ability was not offered for this roll." });
+
+        toolCall.Status = GMToolCallStatus.Completed;
+        toolCall.CompletedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        if (toolCall.AgentCallId is { } agentCallId && toolCall.RerollCharacterId is { } characterId)
+        {
+            await eventBus.PublishAsync(new RerollResolved(
+                agentCallId, toolCall.GameId, toolCall.Arguments.GetRawText(), toolCall.ToolIndex,
+                characterId, featureId, ReadInterimContent(toolCall.Result), toolCall.PromptMessageId), ct);
+        }
+
+        return NoContent();
+    }
+
+    private static bool WasOffered(JsonElement result, string featureId)
+        => result.ValueKind == JsonValueKind.Object
+           && result.TryGetProperty("options", out var options)
+           && options.ValueKind == JsonValueKind.Array
+           && options.EnumerateArray().Any(o =>
+               o.TryGetProperty("featureId", out var id)
+               && string.Equals(id.GetString(), featureId, StringComparison.OrdinalIgnoreCase));
+
+    private static string ReadInterimContent(JsonElement result)
+        => result.ValueKind == JsonValueKind.Object
+           && result.TryGetProperty("content", out var content)
+           && content.ValueKind == JsonValueKind.String
+            ? content.GetString() ?? string.Empty
+            : string.Empty;
 
     [HttpPost("{id:guid}/confirm")]
     public Task<IActionResult> Confirm(Guid id, CancellationToken ct)
@@ -134,7 +221,7 @@ public class GMToolController(
         // Without this the endpoint ran GM tools against any caller-supplied game.
         if (await RequireCreatorAsync(request.GameId) is { } failure) return failure;
 
-        if (gmToolRegistry.RequiresConfirmation(request.ToolName))
+        if (gmToolRegistry.RequiresConfirmation(request.ToolName, request.Arguments))
             return Accepted(new { message = "Awaiting confirmation", toolName = request.ToolName });
 
         try

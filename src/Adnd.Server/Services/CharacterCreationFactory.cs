@@ -16,12 +16,25 @@ public record BackgroundDefinition(
 
 public interface ICharacterCreationFactory
 {
-    Character CreateFromBackground(string backgroundId, Guid playerId, string name, string className, int level = 1);
+    Character CreateFromBackground(string backgroundId, Guid playerId, string name, string className, string? race = null, int level = 1);
     List<BackgroundDefinition> GetAvailableBackgrounds();
+    IReadOnlyList<string> GetAvailableRaces();
 }
 
-public class CharacterCreationFactory : ICharacterCreationFactory
+public class CharacterCreationFactory(IFeatureCatalogue features) : ICharacterCreationFactory
 {
+    /// <summary>
+    /// Race exists on the sheet because abilities hang off it — Halfling Luck is a reroll the
+    /// server has to know about without being told. The list is not a rules constraint; it is
+    /// the set the creation UI offers, and any string is accepted.
+    /// </summary>
+    private static readonly string[] Races =
+    [
+        "Human", "Elf", "Dwarf", "Halfling", "Gnome", "Half-Elf", "Half-Orc", "Tiefling", "Dragonborn"
+    ];
+
+    public IReadOnlyList<string> GetAvailableRaces() => Races;
+
     private static readonly List<BackgroundDefinition> Backgrounds =
     [
         new("acolyte", "Acolyte",
@@ -99,7 +112,7 @@ public class CharacterCreationFactory : ICharacterCreationFactory
 
     public List<BackgroundDefinition> GetAvailableBackgrounds() => Backgrounds;
 
-    public Character CreateFromBackground(string backgroundId, Guid playerId, string name, string className, int level = 1)
+    public Character CreateFromBackground(string backgroundId, Guid playerId, string name, string className, string? race = null, int level = 1)
     {
         var bg = Backgrounds.FirstOrDefault(b => b.Id.Equals(backgroundId, StringComparison.OrdinalIgnoreCase))
                  ?? Backgrounds[0]; // default to Acolyte
@@ -123,11 +136,18 @@ public class CharacterCreationFactory : ICharacterCreationFactory
 
         var defaultInventory = new[] { "Clothes", "Backpack", "Rations (5 days)", "Waterskin", "Tinderbox" };
 
+        // Granted up front rather than asked for: a Halfling player should not have to know
+        // that Halfling Luck is the thing that makes the reroll prompt appear.
+        var granted = features.GrantedTo(race, className, level)
+            .Select(d => new CharacterFeature(d.Id, d.Name, d.MaxUses))
+            .ToList();
+
         return new Character
         {
             PlayerId = playerId,
             Name = name,
             Class = className,
+            Race = race,
             Level = level,
             ProficiencyBonus = proficiencyBonus,
             CurrentHP = 10 + level,
@@ -139,6 +159,7 @@ public class CharacterCreationFactory : ICharacterCreationFactory
             Conditions = JsonSerializer.SerializeToElement(Array.Empty<string>()),
             CustomFields = JsonSerializer.SerializeToElement(new object()),
             SpellSlots = JsonSerializer.SerializeToElement(new object()),
+            Features = JsonSerializer.SerializeToElement(granted, FeatureJson.Options),
             Background = bg.Description,
             BackgroundSkills = string.Join(", ", bg.SkillProficiencies),
             BackgroundProficiencies = string.Join(", ", bg.ToolProficiencies),
