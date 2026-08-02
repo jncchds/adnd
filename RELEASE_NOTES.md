@@ -1,6 +1,6 @@
 # Release Notes
 
-## v0.1.3 — 2026-08-02
+## v0.1.2 — 2026-08-02
 
 ### NPCs introduced in narration now register themselves
 
@@ -31,8 +31,6 @@ next scene with a different attitude, faction, or name spelling.
   Dead and departed NPCs appear only while the party is still talking about them.
 - `queryNPCs` stays unfiltered as the escape hatch ("who was that innkeeper three towns back")
   and now reports status and faction. The admin NPC page shows and edits status.
-
-## v0.1.2 — 2026-08-02
 
 ### The GM can now stay silent while the party talks
 
