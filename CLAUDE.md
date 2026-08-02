@@ -54,7 +54,7 @@ Migrations are applied automatically on startup by `MigrationService.ApplyMigrat
 
 `DesignTimeDbContextFactory` builds the context for the EF tooling so `dotnet ef` does not boot the full host (which would demand a real JWT key and encryption key it has no need for).
 
-Current migrations: `InitialCreate`, `AddCharacterBackstory`, `AgentLoopToolCallState`, `PlotThreadResolvedAt`.
+Current migrations: `InitialCreate`, `AddCharacterBackstory`, `AgentLoopToolCallState`, `PlotThreadResolvedAt`, `AddLlmInteractionLogStatus`, `AddAgentCallStepHistoryAndLlmReasoning`, `AddAgentCallRequestedByPlayer`, `NPCStatusAndLastSeen`.
 
 **Check scaffolded migrations before accepting them.** EF emits `jsonb NOT NULL DEFAULT ''` for new `JsonElement` columns; `''` is not valid JSON and the `ALTER TABLE` fails. The converter's sentinel is the literal `"null"`.
 
@@ -117,7 +117,15 @@ AgentCallQueued → AgentSaga.Start
 
 ### GM Tool Registry
 
-13 registered tools: `narrate`, `rollDice`, `skillCheck`, `requestPlayerRoll`, `queryCharacter`, `queryNPCs`, `searchPlotContext`, `updateGameState`, `sendWhisper`, `startCombat`, `addCombatParticipant`, `generateLoot`, `wait`. Executed sequentially by `CoordinatorHandler`.
+15 registered tools: `narrate`, `rollDice`, `skillCheck`, `requestPlayerRoll`, `queryCharacter`, `queryNPCs`, `registerNPC`, `updateNPCStatus`, `searchPlotContext`, `updateGameState`, `sendWhisper`, `startCombat`, `addCombatParticipant`, `generateLoot`, `wait`. Executed sequentially by `CoordinatorHandler`.
+
+`registerNPC` is how an NPC introduced in narration becomes a real row instead of a name that scrolls out of the RAG window and comes back as a different person. It is deliberately a *same-turn* tool: `BuildNarrateSystemPromptAsync` lists the NPCs in play and tells the model to call it alongside `narrate` in the same response, so there is no second LLM pass to bill or to fail. Matching is by **name**, case-insensitively scoped to the game — never by an id, which the model would have to invent — and an existing name updates rather than duplicating. Only fields the model actually supplied are written, so a later attitude-only call doesn't blank the description.
+
+`updateNPCStatus` is the other half: `NPCStatus` is `Active | Dead | Departed`, and only `Active` NPCs are offered to the prompt unprompted. Without it the roster only grows and the narrator keeps being handed people the party killed two sessions ago. It refuses to create — a status change naming an unregistered NPC means the model invented the name. `registerNPC` revives `Departed` (they were just written back into a scene) but never `Dead`, which needs an explicit status call.
+
+### NPC relevance
+
+`INPCRelevanceService.GetRelevantAsync(gameId, sessionId, limit = 8)` decides which NPCs the narrator sees, and is the **only** thing that should build an NPC list for a prompt — both `BuildNarrateSystemPromptAsync` and `RAGService.GeneratePlotContextAsync` (`=== NPCs IN PLAY ===`) go through it. A campaign accumulates NPCs indefinitely; a prompt cannot, and the old unbounded dump buried the two people actually in the room. Ranking is name-mentions in the last 20 table messages first, then `Active` NPCs by `LastSeenAt` desc; a `Dead`/`Departed` NPC is included only while the party is still talking about them. `LastSeenAt` is stamped by `registerNPC`/`updateNPCStatus` and on manual creation. This is recency, not semantics — NPCs have no embedding column, and adding one would cost an embedding call per turn to answer a question recency already answers. `queryNPCs` remains the unfiltered escape hatch and reports `Status`.
 
 `wait` is the GM declining to act this turn — every in-character player line fires a narrate call, so without it the GM is structurally obliged to interject on both halves of a conversation the characters are having with each other. It never reaches `GMToolRegistry.ExecuteToolAsync` in the normal case: `AgentSaga.Handle(LLMResponseReceived)` intercepts a response whose tool calls are *all* `wait` (and only for `AgentAction.Narrate`) and completes the saga right there — no tools run, no follow-up LLM call, no `Message` row, nothing broadcast but the `Completed` step that clears the client's activity chip. Silence is therefore not the same as the empty-narrative guard in `Handle(NarrativeReady)`, which still treats a blank response as a failure to retry. `GameHub.BuildNarrateSystemPromptAsync` forbids `wait` once the GM has been silent for `WaitStreakLimit` (3) consecutive table messages, so a model that settles into waiting can't leave the table talking to itself forever.
 

@@ -49,6 +49,10 @@ public partial class GameHub
             .Take(4)
             .ToListAsync();
 
+        // Not every NPC in the campaign — only the ones the situation is about. See
+        // NPCRelevanceService for what "relevant" means here.
+        var npcs = await npcRelevance.GetRelevantAsync(gameId, sessionId);
+
         var characters = await db.Characters
             .Where(c => c.Player.GameId == gameId && !c.IsDeleted)
             .Include(c => c.Player)
@@ -92,8 +96,32 @@ public partial class GameHub
             sb.AppendLine();
         }
 
+        // The roster is what makes "register anyone not on this list" a usable instruction:
+        // without it the model has no way to tell a new NPC from one it named three turns ago,
+        // and either re-registers everybody or registers nobody.
+        if (npcs.Count > 0)
+        {
+            sb.AppendLine("NPCs currently in play (already registered — do not re-register unless something about them changed). This is the cast relevant to the situation, not every NPC in the campaign; use queryNPCs if you need someone else:");
+            foreach (var n in npcs)
+            {
+                var faction = string.IsNullOrEmpty(n.Faction) ? "" : $", {n.Faction}";
+                var status = n.Status == NPCStatus.Active ? "" : $", {n.Status.ToString().ToUpperInvariant()}";
+                sb.AppendLine($"- {n.Name} ({n.Attitude}{faction}{status})");
+            }
+            sb.AppendLine();
+        }
+
         sb.AppendLine("Narrate the scene vividly. Use the available tools (rollDice, skillCheck, startCombat, etc.) when appropriate. Keep responses concise and end with an open question or clear call to action.");
         sb.AppendLine("When a roll is needed, use a fully-resolved dice formula such as \"1d20+3\" — add the relevant ability modifier listed above yourself. Never write a placeholder like \"1d20+{strength}\"; the dice engine cannot resolve it.");
+
+        // NPCs used to exist only if the human GM typed them into the admin UI, so anyone the
+        // narration introduced was forgotten the moment they scrolled out of the RAG window,
+        // and came back next scene as a different person with a different attitude.
+        sb.AppendLine("Whenever your narration names or introduces an NPC who is not already registered, call the \"registerNPC\" tool in the SAME response as your narration — one call per NPC, with a one-or-two-sentence description, their attitude toward the party, and their faction if they have one. Do the same when an established NPC's attitude, faction or situation changes. Registering a name that already exists updates that NPC rather than creating a duplicate, so it is always safe to call. Do not register unnamed background extras (a crowd, a guard the party walks past) — only NPCs the story is likely to return to.");
+
+        // Without this the roster only ever grows, and the narrator keeps being handed people
+        // the party killed two sessions ago as though they were still standing there.
+        sb.AppendLine("When a registered NPC dies, or leaves the story for good — they move away, are written out, or the plot has passed them by — call \"updateNPCStatus\" in the same response with status Dead or Departed. They stay on record and remain available through queryNPCs; they just stop being listed as part of the current cast.");
 
         // Every in-character line a player sends fires a narrate call, so without an explicit
         // way to pass, the GM was structurally obliged to interject on every single one —

@@ -39,6 +39,20 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
         };
     }
 
+    /// <summary>
+    /// Optional string argument, normalised to null when absent, non-string or blank, so a
+    /// caller can tell "the model didn't supply this" from "the model supplied a value".
+    /// </summary>
+    private static string? ReadOptionalString(JsonElement arguments, string property)
+    {
+        if (arguments.ValueKind != JsonValueKind.Object) return null;
+        if (!arguments.TryGetProperty(property, out var element)) return null;
+        if (element.ValueKind != JsonValueKind.String) return null;
+
+        var value = element.GetString()?.Trim();
+        return string.IsNullOrEmpty(value) ? null : value;
+    }
+
     public IEnumerable<ToolDefinition> GetToolDefinitions() =>
     [
         new("narrate", "Output narrative text to players",
@@ -53,6 +67,10 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
             Schema("""{"type":"object","properties":{"characterId":{"type":"string"}},"required":["characterId"]}""")),
         new("queryNPCs", "Retrieve NPC list for a game",
             Schema("""{"type":"object","properties":{"gameId":{"type":"string"}},"required":["gameId"]}""")),
+        new("registerNPC", "Record an NPC in the campaign roster so it persists between turns. Call this in the SAME response as \"narrate\" whenever your narration names or introduces an NPC who is not already listed as a known NPC, and again whenever an established NPC's attitude, faction or description changes. Matching is by name: registering a name that already exists updates that NPC instead of creating a duplicate, so it is always safe to call.",
+            Schema("""{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"attitude":{"type":"string","enum":["Friendly","Neutral","Unfriendly","Hostile"]},"faction":{"type":"string"}},"required":["name"]}""")),
+        new("updateNPCStatus", "Write an NPC out of the living story. Call this in the SAME response as \"narrate\" when a registered NPC dies (\"Dead\"), or when they leave the story for good — they move away, are written out, or the plot has simply passed them by (\"Departed\"). Use \"Active\" to bring someone back. Departed and dead NPCs stay on record and can still be asked about with queryNPCs, but they stop being offered to you as part of the current cast, which is what keeps the known-NPC list short enough to be useful.",
+            Schema("""{"type":"object","properties":{"name":{"type":"string"},"status":{"type":"string","enum":["Active","Dead","Departed"]},"reason":{"type":"string"}},"required":["name","status"]}""")),
         new("searchPlotContext", "Search plot context using RAG",
             Schema("""{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}""")),
         new("updateGameState", "Update the game state JSON",
@@ -156,8 +174,107 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
 
             case "queryNPCs":
             {
+                // Unlike the roster in the system prompt, this is deliberately everyone —
+                // it is the escape hatch for "who was that innkeeper three towns back",
+                // so dead and departed NPCs are included and labelled as such.
                 var npcs = await db.NPCs.Where(n => n.GameId == gameId).ToListAsync(ct);
-                return JsonSerializer.Serialize(npcs.Select(n => new { n.Id, n.Name, n.Description, n.Attitude }));
+                return JsonSerializer.Serialize(npcs.Select(n => new
+                {
+                    n.Id,
+                    n.Name,
+                    n.Description,
+                    Attitude = n.Attitude.ToString(),
+                    Status = n.Status.ToString(),
+                    n.Faction
+                }));
+            }
+
+            case "registerNPC":
+            {
+                var name = arguments.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String
+                    ? nameEl.GetString()?.Trim()
+                    : null;
+                if (string.IsNullOrWhiteSpace(name))
+                    return "Invalid or missing name";
+
+                var description = ReadOptionalString(arguments, "description");
+                var faction = ReadOptionalString(arguments, "faction");
+                var attitudeText = ReadOptionalString(arguments, "attitude");
+                Attitude? attitude = Enum.TryParse<Attitude>(attitudeText, ignoreCase: true, out var parsedAttitude)
+                    ? parsedAttitude
+                    : null;
+
+                // Matched by name, not by id: the model is registering someone it just wrote
+                // into the narration, and an id it supplied would be invented. Re-registering
+                // an existing name therefore updates rather than duplicating — which is what
+                // makes it safe to instruct the model to call this on every introduction.
+                var lowered = name.ToLowerInvariant();
+                var npc = await db.NPCs.FirstOrDefaultAsync(
+                    n => n.GameId == gameId && n.Name.ToLower() == lowered, ct);
+
+                var created = npc == null;
+                if (npc == null)
+                {
+                    npc = new NPC { GameId = gameId, Name = name };
+                    db.NPCs.Add(npc);
+                }
+
+                // Only overwrite what the model actually supplied — a later call that just
+                // flips attitude must not blank out the description written on introduction.
+                if (description is not null) npc.Description = description;
+                if (faction is not null) npc.Faction = faction;
+                if (attitude.HasValue) npc.Attitude = attitude.Value;
+
+                // Registering someone is the GM putting them on stage, so this is also what
+                // ranks them for the next turn's roster. A departed NPC written back into a
+                // scene is simply back; the dead are not resurrected by a description edit —
+                // that needs an explicit updateNPCStatus call.
+                npc.LastSeenAt = DateTimeOffset.UtcNow;
+                if (npc.Status == NPCStatus.Departed) npc.Status = NPCStatus.Active;
+
+                await db.SaveChangesAsync(ct);
+
+                return JsonSerializer.Serialize(new
+                {
+                    npc.Id,
+                    npc.Name,
+                    npc.Description,
+                    Attitude = npc.Attitude.ToString(),
+                    Status = npc.Status.ToString(),
+                    npc.Faction,
+                    result = created ? "created" : "updated"
+                });
+            }
+
+            case "updateNPCStatus":
+            {
+                var name = ReadOptionalString(arguments, "name");
+                if (name is null) return "Invalid or missing name";
+
+                var statusText = ReadOptionalString(arguments, "status");
+                if (!Enum.TryParse<NPCStatus>(statusText, ignoreCase: true, out var status))
+                    return "Invalid status — expected Active, Dead or Departed";
+
+                var lowered = name.ToLowerInvariant();
+                var npc = await db.NPCs.FirstOrDefaultAsync(
+                    n => n.GameId == gameId && n.Name.ToLower() == lowered, ct);
+                // No silent create here: a status change naming someone who was never
+                // registered means the model invented a name, and inventing a dead NPC to
+                // match would put a corpse in the roster nobody ever met.
+                if (npc == null) return $"No registered NPC named \"{name}\" in this game";
+
+                npc.Status = status;
+                npc.LastSeenAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(ct);
+
+                var reason = ReadOptionalString(arguments, "reason");
+                return JsonSerializer.Serialize(new
+                {
+                    npc.Id,
+                    npc.Name,
+                    Status = npc.Status.ToString(),
+                    reason
+                });
             }
 
             case "searchPlotContext":

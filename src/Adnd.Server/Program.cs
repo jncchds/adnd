@@ -155,6 +155,7 @@ builder.Services.AddHostedService(sp => (GameAgentManager)sp.GetRequiredService<
 
 // ── Plot Intelligence (Phase 7) ───────────────────────────────────────────────
 builder.Services.AddScoped<IRAGService, RAGService>();
+builder.Services.AddScoped<INPCRelevanceService, NPCRelevanceService>();
 builder.Services.AddScoped<IPlotWeaver, PlotWeaver>();
 builder.Services.AddScoped<ICharacterCreationFactory, CharacterCreationFactory>();
 builder.Services.AddScoped<INarrativeGenerationFactory, NarrativeGenerationFactory>();

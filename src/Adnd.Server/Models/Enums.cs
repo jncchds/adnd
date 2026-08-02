@@ -16,3 +16,8 @@ public enum CombatEventType { Start, End, TurnChange, Attack, Damage, Healing, C
 public enum EventRecordStatus { Pending, Processing, Completed, Failed }
 public enum WhisperType { PlayerToGM, GMToPlayer, PlayerToPlayer, GMBroadcast, SystemMessage, NPCToPlayer, TableTalk }
 public enum Attitude { Friendly, Neutral, Unfriendly, Hostile }
+
+// Whether an NPC is still part of the living story. Only Active ones are offered to the GM
+// prompt unprompted; Dead/Departed still exist (and are still queryable) but stop competing
+// for room in the roster.
+public enum NPCStatus { Active, Dead, Departed }

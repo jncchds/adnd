@@ -16,7 +16,8 @@ public record UpdateNPCDto(
     string? Name,
     string? Description,
     Attitude? Attitude,
-    string? Faction);
+    string? Faction,
+    NPCStatus? Status = null);
 
 public record CreatePlotThreadDto(
     Guid GameId,

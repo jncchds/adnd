@@ -11,26 +11,34 @@ import { api } from '../api/client'
 import type { NPC } from '../types'
 
 const ATTITUDES = ['Friendly', 'Neutral', 'Unfriendly', 'Hostile'] as const
+const STATUSES = ['Active', 'Dead', 'Departed'] as const
 
 export default function AdminNPCsPage() {
   const { id: gameId } = useParams<{ id: string }>()
   const { npcs, loading, refresh } = useNPCs(gameId ?? null)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<NPC | null>(null)
-  const [form, setForm] = useState({ name: '', description: '', attitude: 'Neutral', faction: '' })
+  const [form, setForm] = useState({ name: '', description: '', attitude: 'Neutral', faction: '', status: 'Active' })
   const [error, setError] = useState<string | null>(null)
 
-  const openCreate = () => { setEditing(null); setForm({ name: '', description: '', attitude: 'Neutral', faction: '' }); setOpen(true) }
+  const openCreate = () => { setEditing(null); setForm({ name: '', description: '', attitude: 'Neutral', faction: '', status: 'Active' }); setOpen(true) }
   const openEdit = (npc: NPC) => {
     setEditing(npc)
-    setForm({ name: npc.name, description: npc.description ?? '', attitude: npc.attitude ?? 'Neutral', faction: npc.faction ?? '' })
+    setForm({
+      name: npc.name, description: npc.description ?? '', attitude: npc.attitude ?? 'Neutral',
+      faction: npc.faction ?? '', status: npc.status ?? 'Active',
+    })
     setOpen(true)
   }
 
   const handleSave = async () => {
     if (!gameId || !form.name.trim()) return
     try {
-      const data = { gameId, name: form.name, description: form.description, attitude: form.attitude as NPC['attitude'], faction: form.faction || null }
+      const data = {
+        gameId, name: form.name, description: form.description,
+        attitude: form.attitude as NPC['attitude'], faction: form.faction || null,
+        status: form.status as NPC['status'],
+      }
       if (editing) await api.npcs.update(editing.id, data)
       else await api.npcs.create(data)
       setOpen(false)
@@ -65,6 +73,10 @@ export default function AdminNPCsPage() {
                 <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
                   {npc.attitude && <Chip label={npc.attitude} size="small" color={attitudeColor(npc.attitude)} />}
                   {npc.faction && <Chip label={npc.faction} size="small" variant="outlined" />}
+                  {/* Only the exceptions are worth a chip — an Active badge on every card is noise. */}
+                  {npc.status && npc.status !== 'Active' && (
+                    <Chip label={npc.status} size="small" variant="outlined" color="default" />
+                  )}
                 </Box>
               </Box>
               <Box>
@@ -91,6 +103,12 @@ export default function AdminNPCsPage() {
             <InputLabel>Attitude</InputLabel>
             <Select value={form.attitude} label="Attitude" onChange={e => setForm(f => ({ ...f, attitude: e.target.value }))}>
               {ATTITUDES.map(a => <MenuItem key={a} value={a}>{a}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth>
+            <InputLabel>Status</InputLabel>
+            <Select value={form.status} label="Status" onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+              {STATUSES.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
             </Select>
           </FormControl>
           <TextField label="Faction (optional)" value={form.faction}

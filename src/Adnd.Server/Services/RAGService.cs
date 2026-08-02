@@ -33,6 +33,7 @@ public class RAGService(
     ILLMProviderFactory factory,
     IApiKeyEncryptionService encryption,
     ILLMInteractionLogger llmLogger,
+    INPCRelevanceService npcRelevance,
     ILogger<RAGService> logger) : IRAGService
 {
     // Static cache shared across all scoped instances; 60-minute TTL
@@ -72,18 +73,19 @@ public class RAGService(
             }
         }
 
-        // Active NPCs
-        var npcs = await db.NPCs
-            .Where(n => n.GameId == gameId)
-            .ToListAsync(ct);
+        // NPCs relevant to the situation, not the whole campaign roster — this block used to
+        // dump every NPC ever created, descriptions and all, which crowded out the plot
+        // threads below it and kept re-introducing the dead.
+        var npcs = await npcRelevance.GetRelevantAsync(gameId, session?.Id, ct: ct);
 
         if (npcs.Count > 0)
         {
-            sb.AppendLine("=== ACTIVE NPCs ===");
+            sb.AppendLine("=== NPCs IN PLAY ===");
             foreach (var npc in npcs)
             {
                 var tags = new List<string> { npc.Attitude.ToString() };
                 if (!string.IsNullOrEmpty(npc.Faction)) tags.Add($"{npc.Faction} faction");
+                if (npc.Status != NPCStatus.Active) tags.Add(npc.Status.ToString().ToUpperInvariant());
                 var tagStr = $" [{string.Join(", ", tags)}]";
                 sb.AppendLine($"{npc.Name}{tagStr}: {npc.Description}");
             }

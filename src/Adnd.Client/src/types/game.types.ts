@@ -56,6 +56,9 @@ export interface NPC {
   inventory: unknown[] | null
   attitude?: 'Friendly' | 'Neutral' | 'Unfriendly' | 'Hostile'
   faction?: string | null
+  // Dead/Departed NPCs stay on record but drop out of the cast the GM is shown each turn.
+  status?: 'Active' | 'Dead' | 'Departed'
+  lastSeenAt?: string | null
   isDeleted: boolean
 }
 

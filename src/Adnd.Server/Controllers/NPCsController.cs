@@ -47,7 +47,10 @@ public class NPCsController(
             Name = dto.Name,
             Description = dto.Description,
             Attitude = dto.Attitude,
-            Faction = dto.Faction
+            Faction = dto.Faction,
+            // An NPC the GM just typed in is the most current one there is; without this it
+            // sorts below every LLM-registered NPC in the relevance roster.
+            LastSeenAt = DateTimeOffset.UtcNow
         };
 
         db.NPCs.Add(npc);
@@ -66,6 +69,7 @@ public class NPCsController(
         if (dto.Description is not null) npc.Description = dto.Description;
         if (dto.Attitude.HasValue) npc.Attitude = dto.Attitude.Value;
         if (dto.Faction is not null) npc.Faction = dto.Faction;
+        if (dto.Status.HasValue) npc.Status = dto.Status.Value;
 
         await db.SaveChangesAsync();
         return Ok(npc);

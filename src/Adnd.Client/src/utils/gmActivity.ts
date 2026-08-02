@@ -24,6 +24,8 @@ export const TOOL_LABELS: Record<string, string> = {
   requestPlayerRoll: 'Waiting on your roll…',
   queryCharacter: 'Looking up a character…',
   queryNPCs: 'Looking up NPCs…',
+  registerNPC: 'Noting down someone new…',
+  updateNPCStatus: 'Updating who is still around…',
   searchPlotContext: 'Recalling the story so far…',
   updateGameState: 'Updating the world…',
   sendWhisper: 'Sending a whisper…',

@@ -1,5 +1,37 @@
 # Release Notes
 
+## v0.1.3 — 2026-08-02
+
+### NPCs introduced in narration now register themselves
+
+An NPC only existed if the human GM typed it into the admin UI. Anyone the AI GM invented in
+narration lived exactly as long as the RAG window that quoted the message, then came back the
+next scene with a different attitude, faction, or name spelling.
+
+- New `registerNPC` GM tool (name, description, attitude, faction). Matching is by name,
+  case-insensitively and scoped to the game: an existing name updates that NPC instead of
+  creating a duplicate, and only the fields the model supplied are written, so an
+  attitude-only follow-up call can't blank the description.
+- `GameHub.BuildNarrateSystemPromptAsync` lists the already-registered NPCs and instructs the
+  model to call `registerNPC` **in the same response as `narrate`** — no second LLM pass to bill
+  or to fail — while excluding unnamed background extras.
+- Ids are never taken from the model here; there is no `npcId` argument to hallucinate.
+
+### NPCs can now die, leave, and stop crowding the prompt
+
+- `NPC.Status` (`Active | Dead | Departed`) and `NPC.LastSeenAt`, plus the `updateNPCStatus` GM
+  tool the narrator calls in the same response when someone dies or is written out. It refuses
+  to create: a status change naming an unregistered NPC means the model invented the name.
+  `registerNPC` revives a `Departed` NPC (they were just written back into a scene) but never a
+  dead one. Migration `NPCStatusAndLastSeen`; existing NPCs default to `Active`.
+- New `INPCRelevanceService` picks the NPCs a prompt actually gets: whoever the last 20 table
+  messages named, then `Active` NPCs by recency, capped at 8. Both the narrate system prompt
+  and `RAGService.GeneratePlotContextAsync` now go through it, instead of each dumping the
+  entire campaign roster — descriptions and all — and burying the two people in the room.
+  Dead and departed NPCs appear only while the party is still talking about them.
+- `queryNPCs` stays unfiltered as the escape hatch ("who was that innkeeper three towns back")
+  and now reports status and faction. The admin NPC page shows and edits status.
+
 ## v0.1.2 — 2026-08-02
 
 ### The GM can now stay silent while the party talks
