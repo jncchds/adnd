@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Adnd.Server.Data;
+using Adnd.Server.Hubs;
 using Adnd.Server.Models;
 using Adnd.Server.Services.Llm;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using CombatEntity = Adnd.Server.Models.Combat;
 
@@ -14,7 +16,7 @@ public interface IGMToolRegistry
     Task<string> ExecuteToolAsync(string toolName, JsonElement arguments, Guid gameId, Guid sessionId, CancellationToken ct);
 }
 
-public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine) : IGMToolRegistry
+public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext<GameHub> hub) : IGMToolRegistry
 {
     private static JsonElement Schema(string json)
         => JsonSerializer.Deserialize<JsonElement>(json);
@@ -78,6 +80,9 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine) : IGMToolRe
             {
                 var formula = arguments.GetProperty("formula").GetString() ?? "1d20";
                 var result = diceEngine.Roll(formula);
+                var content = $"Rolled {formula}: {result.Total} ({result.Breakdown})";
+                await BroadcastRollAsync(gameId, sessionId, content, "DiceRoll",
+                    new { formula = result.Formula, total = result.Total, breakdown = result.Breakdown }, ct);
                 return result.Breakdown;
             }
 
@@ -86,11 +91,31 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine) : IGMToolRe
                 var roll = diceEngine.Roll("1d20");
                 var dc = arguments.TryGetProperty("dc", out var dcEl) ? dcEl.GetInt32() : 10;
                 var success = roll.Total >= dc;
-                return $"Skill check: rolled {roll.Total} vs DC {dc} — {(success ? "Success" : "Failure")}. {roll.Breakdown}";
+                var content = $"Skill check: rolled {roll.Total} vs DC {dc} — {(success ? "Success" : "Failure")}. {roll.Breakdown}";
+                await BroadcastRollAsync(gameId, sessionId, content, "SkillCheck",
+                    new { dc, total = roll.Total, success, breakdown = roll.Breakdown }, ct);
+                return content;
             }
 
             case "requestPlayerRoll":
-                return "Awaiting player roll confirmation";
+            {
+                // Reached only after player approval (ToolExecutionHandler skips straight to
+                // "Declined: ..." on decline without calling ExecuteToolAsync at all). The
+                // confirm/decline endpoints don't collect a player-submitted roll value, so
+                // approval means "roll it for me" — same as skillCheck/rollDice, just
+                // attributed to the target player instead of the GM.
+                var formula = arguments.GetProperty("formula").GetString() ?? "1d20";
+                var reason = arguments.TryGetProperty("reason", out var reasonEl) ? reasonEl.GetString() : null;
+                var roll = diceEngine.Roll(formula);
+                TryGetGuid(arguments, "playerId", out var rollerId);
+                var content = string.IsNullOrEmpty(reason)
+                    ? $"Rolled {formula}: {roll.Total} ({roll.Breakdown})"
+                    : $"Rolled {formula} ({reason}): {roll.Total} ({roll.Breakdown})";
+                await BroadcastRollAsync(gameId, sessionId, content, "DiceRoll",
+                    new { formula = roll.Formula, total = roll.Total, breakdown = roll.Breakdown }, ct,
+                    rollerId == Guid.Empty ? null : rollerId);
+                return content;
+            }
 
             case "queryCharacter":
             {
@@ -148,15 +173,21 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine) : IGMToolRe
                     .FirstOrDefaultAsync(p => p.Id == targetPlayerId && p.GameId == gameId, ct);
                 if (target == null) return "Target player not found in this game";
 
-                db.Messages.Add(new Message
+                var whisperMsg = new Message
                 {
                     SessionId = sessionId,
                     Content = content,
                     Type = "Whisper",
                     WhisperToId = target.Id,
                     CreatedAt = DateTimeOffset.UtcNow
-                });
+                };
+                db.Messages.Add(whisperMsg);
                 await db.SaveChangesAsync(ct);
+
+                // A whisper is private: broadcast to the target user only, never the game group
+                // (mirrors GameHub.SendGMWhisper) — otherwise every player would see it.
+                var whisperDto = new MessageDto(whisperMsg.Id, sessionId, null, content, "Whisper", false, whisperMsg.CreatedAt, null);
+                await hub.Clients.User(target.UserId.ToString()).SendAsync("NewMessage", whisperDto, ct);
                 return $"Whisper sent to {target.CharacterName}";
             }
 
@@ -203,10 +234,93 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine) : IGMToolRe
             }
 
             case "generateLoot":
-                return "Loot generated for combat";
+            {
+                if (!TryGetGuid(arguments, "combatId", out var lootCombatId))
+                    return "Invalid combatId";
+
+                if (!await db.Combats.AnyAsync(c => c.Id == lootCombatId && c.GameId == gameId, ct))
+                    return "Combat not found in this game";
+
+                var defeatedIds = new List<Guid>();
+                if (arguments.TryGetProperty("defeatedNPCIds", out var idsEl) && idsEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var idEl in idsEl.EnumerateArray())
+                        if (idEl.ValueKind == JsonValueKind.String && Guid.TryParse(idEl.GetString(), out var npcId))
+                            defeatedIds.Add(npcId);
+                }
+                if (defeatedIds.Count == 0)
+                    return "No valid defeatedNPCIds provided";
+
+                // Ids are LLM-generated — only loot NPCs that actually fought in this combat,
+                // or a hallucinated id could pull loot from an unrelated NPC in the game.
+                var participantNpcIds = await db.CombatParticipants
+                    .Where(p => p.CombatId == lootCombatId && p.NPCId != null && defeatedIds.Contains(p.NPCId.Value))
+                    .Select(p => p.NPCId!.Value)
+                    .ToListAsync(ct);
+
+                var npcs = await db.NPCs
+                    .Where(n => n.GameId == gameId && participantNpcIds.Contains(n.Id))
+                    .ToListAsync(ct);
+                if (npcs.Count == 0)
+                    return "None of the given NPCs were found in that combat";
+
+                // No item-claiming flow exists yet (ICombatInventoryService only consumes
+                // items, it has no AddItemAsync), so loot is generated and narrated but not
+                // auto-transferred into any player's Character.Inventory.
+                var entries = new List<object>();
+                var summaryLines = new List<string>();
+                var totalGold = 0;
+                foreach (var npc in npcs)
+                {
+                    var items = new List<string>();
+                    if (npc.Inventory.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var prop in npc.Inventory.EnumerateObject())
+                        {
+                            var name = prop.Value.ValueKind == JsonValueKind.Object && prop.Value.TryGetProperty("name", out var n)
+                                ? n.GetString() : prop.Name;
+                            items.Add(name ?? prop.Name);
+                        }
+                    }
+                    else if (npc.Inventory.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var el in npc.Inventory.EnumerateArray())
+                            if (el.ValueKind == JsonValueKind.String) items.Add(el.GetString() ?? "");
+                    }
+
+                    var gold = diceEngine.Roll("2d10").Total;
+                    totalGold += gold;
+                    entries.Add(new { npc.Id, npc.Name, items, gold });
+                    summaryLines.Add($"{npc.Name}: {(items.Count > 0 ? string.Join(", ", items) : "no items")}, {gold} gold");
+                }
+
+                var content = $"Loot recovered: {string.Join(" | ", summaryLines)} (total {totalGold} gold)";
+                await BroadcastRollAsync(gameId, sessionId, content, "Loot", new { entries, totalGold }, ct);
+                return JsonSerializer.Serialize(new { entries, totalGold });
+            }
 
             default:
                 throw new InvalidOperationException($"Unknown tool: {toolName}");
         }
+    }
+
+    // Mirrors GameHub.RollDice: GM-tool rolls must land their own chat message immediately,
+    // not rely on the follow-up narrator LLM call to happen to mention the numbers — that call
+    // is prose-only and routinely narrates around the roll without ever stating it.
+    private async Task BroadcastRollAsync(Guid gameId, Guid sessionId, string content, string type, object metadata, CancellationToken ct, Guid? playerId = null)
+    {
+        var msg = new Message
+        {
+            SessionId = sessionId,
+            PlayerId = playerId,
+            Content = content,
+            Type = type,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.Messages.Add(msg);
+        await db.SaveChangesAsync(ct);
+
+        var dto = new MessageDto(msg.Id, sessionId, playerId, content, type, false, msg.CreatedAt, metadata);
+        await hub.Clients.Group(gameId.ToString()).SendAsync("NewMessage", dto, ct);
     }
 }

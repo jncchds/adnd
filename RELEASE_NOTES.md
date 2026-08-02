@@ -22,6 +22,25 @@ regardless of what the GM selected.
   creation happens in-game after joining, and `CharactersController.Create` now syncs
   `Player.CharacterName` from the created character so the join-time placeholder isn't stale.
 
+### GM tool results now reach chat directly instead of hoping the narrator mentions them
+
+`rollDice` and `skillCheck` only ever returned a string that was folded into a second,
+tool-disabled "narrate the results" LLM call — if that call's prose didn't happen to mention
+the roll, the roll simply never appeared in chat, even though it succeeded and was visible in
+the LLM logs.
+
+- `rollDice`/`skillCheck` (and an approved `requestPlayerRoll`) now write and broadcast their
+  own `DiceRoll`/`SkillCheck` chat message immediately via SignalR, the same way
+  `GameHub.RollDice` already does for player-initiated rolls.
+- `sendWhisper` saved its `Message` row but never broadcast it over SignalR — the target player
+  only saw it after a manual refresh. It now pushes to `Clients.User(target.UserId)` live,
+  mirroring `GameHub.SendGMWhisper`.
+- `generateLoot` was a complete no-op stub (`return "Loot generated for combat";`, ignoring its
+  own arguments). It now validates the defeated NPCs actually fought in that combat, pulls each
+  NPC's `Inventory`, rolls gold, and posts a `Loot` chat message with the result. Items are not
+  auto-transferred into any `Character.Inventory` — no claiming flow exists yet
+  (`ICombatInventoryService` only has `UseItemAsync`, no `AddItemAsync`).
+
 ## v0.1.1 — 2026-08-02
 
 ### GM turn observability + live activity feedback
