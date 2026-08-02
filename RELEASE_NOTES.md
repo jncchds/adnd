@@ -2,6 +2,15 @@
 
 ## v0.1.2 — 2026-08-02
 
+### Character creation starts from the standard array
+
+The attribute step opened on straight 10s across the board, which is not a legal starting spread
+in any supported system and gave no hint of what one should look like.
+
+- `CharacterCreateWizard` now seeds STR–CHA with the standard array (15, 14, 13, 12, 10, 8).
+- Editing away from it shows a non-blocking warning rather than preventing it — point buy and
+  rolled stats are still legitimate, they just shouldn't be reached by accident.
+
 ### Tool calls written as text by local models now actually run
 
 Observed live with LM Studio + Gemma: rather than populating the structured `tool_calls` field,

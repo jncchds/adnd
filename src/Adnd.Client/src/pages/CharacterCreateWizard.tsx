@@ -18,7 +18,14 @@ const BACKGROUNDS = [
 ]
 
 const ATTRS = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA']
+const STANDARD_ARRAY = [15, 14, 13, 12, 10, 8]
 const STEPS = ['Background', 'Name & Class', 'Attributes', 'Backstory']
+
+function isStandardArray(attrs: Record<string, number>) {
+  const values = ATTRS.map(a => attrs[a]).sort((a, b) => a - b)
+  const expected = [...STANDARD_ARRAY].sort((a, b) => a - b)
+  return values.length === expected.length && values.every((v, i) => v === expected[i])
+}
 
 export default function CharacterCreateWizard() {
   const navigate = useNavigate()
@@ -28,7 +35,9 @@ export default function CharacterCreateWizard() {
   const [background, setBackground] = useState('')
   const [name, setName] = useState('')
   const [characterClass, setCharacterClass] = useState('Fighter')
-  const [attrs, setAttrs] = useState<Record<string, number>>({ STR: 10, DEX: 10, CON: 10, INT: 10, WIS: 10, CHA: 10 })
+  const [attrs, setAttrs] = useState<Record<string, number>>(
+    Object.fromEntries(ATTRS.map((a, i) => [a, STANDARD_ARRAY[i]])),
+  )
   const [backstory, setBackstory] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -99,6 +108,12 @@ export default function CharacterCreateWizard() {
               </Grid>
             ))}
           </Grid>
+          {!isStandardArray(attrs) && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              These values aren't the standard array (each of 15, 14, 13, 12, 10, 8 used once) —
+              you can still continue, but double-check this is intentional.
+            </Alert>
+          )}
         </Box>
       )}
 
