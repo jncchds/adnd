@@ -117,7 +117,9 @@ AgentCallQueued → AgentSaga.Start
 
 ### GM Tool Registry
 
-12 registered tools: `narrate`, `rollDice`, `skillCheck`, `requestPlayerRoll`, `queryCharacter`, `queryNPCs`, `searchPlotContext`, `updateGameState`, `sendWhisper`, `startCombat`, `addCombatParticipant`, `generateLoot`. Executed sequentially by `CoordinatorHandler`.
+13 registered tools: `narrate`, `rollDice`, `skillCheck`, `requestPlayerRoll`, `queryCharacter`, `queryNPCs`, `searchPlotContext`, `updateGameState`, `sendWhisper`, `startCombat`, `addCombatParticipant`, `generateLoot`, `wait`. Executed sequentially by `CoordinatorHandler`.
+
+`wait` is the GM declining to act this turn — every in-character player line fires a narrate call, so without it the GM is structurally obliged to interject on both halves of a conversation the characters are having with each other. It never reaches `GMToolRegistry.ExecuteToolAsync` in the normal case: `AgentSaga.Handle(LLMResponseReceived)` intercepts a response whose tool calls are *all* `wait` (and only for `AgentAction.Narrate`) and completes the saga right there — no tools run, no follow-up LLM call, no `Message` row, nothing broadcast but the `Completed` step that clears the client's activity chip. Silence is therefore not the same as the empty-narrative guard in `Handle(NarrativeReady)`, which still treats a blank response as a failure to retry. `GameHub.BuildNarrateSystemPromptAsync` forbids `wait` once the GM has been silent for `WaitStreakLimit` (3) consecutive table messages, so a model that settles into waiting can't leave the table talking to itself forever.
 
 The pending tool list lives on `ToolCallCoordinator.ToolCalls` — **not** on `AgentCall.Output`, which holds narrative text. Tools requiring confirmation (`requestPlayerRoll`) are persisted as `GMToolCall` rows with `Status = AwaitingConfirmation` and resume the saga via `ToolCallConfirmationResolved` when `/api/gmtools/{id}/confirm|decline` is called.
 

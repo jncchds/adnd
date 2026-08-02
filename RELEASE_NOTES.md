@@ -2,6 +2,23 @@
 
 ## v0.1.2 — 2026-08-02
 
+### The GM can now stay silent while the party talks
+
+Every in-character line a player sent fired a narrate call, and the GM had no way to answer
+"nothing needs to happen here" — it either invented a beat or returned nothing, which the
+empty-narrative guard turned into a retry and finally a red GM error for the whole table.
+
+- New `wait` GM tool. A response whose tool calls are all `wait` is intercepted in
+  `AgentSaga.Handle(LLMResponseReceived)` and completes the turn silently: no tools execute,
+  no follow-up LLM call is billed, no chat message is written, and the only broadcast is the
+  `Completed` step that clears the activity chip. Only applies to `Narrate` calls — the other
+  actions are explicit requests for output, where silence would look broken.
+- The reason (if the model gave one) is stored on `AgentCall.Output` so a waited turn is
+  distinguishable from a broken one in the admin views.
+- `GameHub.BuildNarrateSystemPromptAsync` explains when to wait, and forbids it once the GM
+  has been silent for 3 consecutive table messages so a model can't settle into waiting
+  permanently.
+
 ### Dice results were unreadable, and a bad formula silently under-rolled
 
 - `DiceEngine.Roll` skipped any token its regex didn't recognise, so an LLM-emitted placeholder

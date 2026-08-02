@@ -65,6 +65,8 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
             Schema("""{"type":"object","properties":{"combatId":{"type":"string"},"displayName":{"type":"string"},"hp":{"type":"integer"},"ac":{"type":"integer"},"initiative":{"type":"number"}},"required":["combatId","displayName","hp","ac"]}""")),
         new("generateLoot", "Generate loot for a combat encounter",
             Schema("""{"type":"object","properties":{"combatId":{"type":"string"},"defeatedNPCIds":{"type":"array","items":{"type":"string"}}},"required":["combatId","defeatedNPCIds"]}""")),
+        new("wait", "Stay silent this turn and let the players keep talking. Use this — as the ONLY tool call, with no narration text — when the characters are conversing among themselves, deliberating, or otherwise doing something that needs no ruling, no roll and no reaction from the world. Players see nothing at all; the scene simply continues. Do not use it as a way to avoid a question the players put to you, an NPC, or the world.",
+            Schema("""{"type":"object","properties":{"reason":{"type":"string"}}}""")),
     ];
 
     public bool RequiresConfirmation(string toolName) => toolName == "requestPlayerRoll";
@@ -75,6 +77,15 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
         {
             case "narrate":
                 return arguments.GetProperty("text").GetString() ?? string.Empty;
+
+            // A wait-only response never reaches here — AgentSaga intercepts it at
+            // LLMResponseReceived and completes the turn silently without executing anything.
+            // This case exists for the contradictory response where the model asks to wait
+            // *and* to do something else in the same turn: the other tools run normally and
+            // the wait degrades to a no-op the follow-up call is told about, rather than a
+            // "Unknown tool" string that reads to the model like a malfunction.
+            case "wait":
+                return "Acknowledged — no GM action was taken for this part of the turn.";
 
             case "rollDice":
             {

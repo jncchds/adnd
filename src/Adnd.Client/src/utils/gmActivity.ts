@@ -31,6 +31,9 @@ export const TOOL_LABELS: Record<string, string> = {
   addCombatParticipant: 'Adding a combatant…',
   generateLoot: 'Generating loot…',
   narrate: 'Narrating…',
+  // A wait-only turn never reaches ToolExecution — the saga completes it silently — so this
+  // only shows for the odd response that asks to wait alongside doing something else.
+  wait: 'Listening…',
 }
 
 export function activityLabel(a: GMActivity): string {

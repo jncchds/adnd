@@ -12,7 +12,7 @@ public partial class GameHub
         // Queues a billable LLM call against the game owner's API key.
         await RequireMemberAsync(gameId);
         var session = await ResolveGameSessionAsync(gameId);
-        var systemPrompt = await BuildNarrateSystemPromptAsync(gameId);
+        var systemPrompt = await BuildNarrateSystemPromptAsync(gameId, session.Id);
 
         // Without recent-message context each narrate call only ever saw the single line the
         // player just sent, with no memory of the last several exchanges — the GM re-invented
@@ -37,7 +37,7 @@ public partial class GameHub
         await agentBus.SendCallAsync(call);
     }
 
-    private async Task<string> BuildNarrateSystemPromptAsync(Guid gameId)
+    private async Task<string> BuildNarrateSystemPromptAsync(Guid gameId, Guid sessionId)
     {
         var game = await db.Games.Include(g => g.Players).ThenInclude(p => p.User)
             .FirstOrDefaultAsync(g => g.Id == gameId);
@@ -94,7 +94,40 @@ public partial class GameHub
 
         sb.AppendLine("Narrate the scene vividly. Use the available tools (rollDice, skillCheck, startCombat, etc.) when appropriate. Keep responses concise and end with an open question or clear call to action.");
         sb.AppendLine("When a roll is needed, use a fully-resolved dice formula such as \"1d20+3\" — add the relevant ability modifier listed above yourself. Never write a placeholder like \"1d20+{strength}\"; the dice engine cannot resolve it.");
+
+        // Every in-character line a player sends fires a narrate call, so without an explicit
+        // way to pass, the GM was structurally obliged to interject on every single one —
+        // including the halves of a conversation the characters are having with each other.
+        sb.AppendLine("Not every player line needs a response. When the characters are talking among themselves, planning, or bantering, and nothing in the world would react, call the \"wait\" tool as your only tool call and write no narration — the players simply keep talking. Answering a question put to an NPC, resolving an action against the world, or reacting to something that changes the scene is never a wait.");
+
+        var silence = await CountTableMessagesSinceGMSpokeAsync(sessionId);
+        if (silence >= WaitStreakLimit)
+        {
+            // Otherwise a model that has settled into waiting can keep waiting indefinitely,
+            // and the table is left talking to itself with no GM at all.
+            sb.AppendLine($"You have stayed silent for the last {silence} table messages. Do NOT call \"wait\" this turn — respond, move the scene, or bring something into it.");
+        }
+
         return sb.ToString();
+    }
+
+    /// <summary>Number of in-character table messages since the GM last said anything to the
+    /// whole table. GM output (narration, tool-driven dice results, loot) is written with no
+    /// PlayerId and no whisper routing, so that is what marks the boundary.</summary>
+    private const int WaitStreakLimit = 3;
+
+    private async Task<int> CountTableMessagesSinceGMSpokeAsync(Guid sessionId)
+    {
+        var lastGMAt = await db.Messages
+            .Where(m => m.SessionId == sessionId && m.PlayerId == null && m.WhisperToId == null && m.WhisperFromId == null)
+            .OrderByDescending(m => m.CreatedAt)
+            .Select(m => (DateTimeOffset?)m.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        return await db.Messages
+            .Where(m => m.SessionId == sessionId && m.Type == "Chat"
+                && (lastGMAt == null || m.CreatedAt > lastGMAt))
+            .CountAsync();
     }
 
     public async Task TriggerSuggest(Guid gameId, string prompt)

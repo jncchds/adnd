@@ -107,6 +107,38 @@ public class AgentSaga : Wolverine.Saga
             return;
         }
 
+        // The GM deciding that nothing needs to happen is a legitimate outcome, not a failure:
+        // players talking among themselves shouldn't force the world to react to every line.
+        // Without a way to express that, the model had only two options — invent a beat it
+        // didn't want to narrate, or return nothing, which the NarrativeReady guard below
+        // turns into a retry and ultimately a red "GM error" for the whole table. A wait-only
+        // response completes the turn here: no tools run, no follow-up LLM call is billed, no
+        // Message row is written and nothing is broadcast except the Completed step that
+        // clears the activity chip. Restricted to Narrate because the other actions are
+        // explicit GM/admin requests for output, where silence would just look broken.
+        if (call.Action == AgentAction.Narrate && toolCalls.All(t => t.Name == "wait"))
+        {
+            CurrentState = "Completed";
+            call.Status = AgentCallStatus.Completed;
+            call.AdvanceStep(SagaStep.Completed);
+            call.DurationMs = (long)(DateTimeOffset.UtcNow - call.CreatedAt).TotalMilliseconds;
+
+            // Kept for the admin LLM/agent-call views only — a turn that produced no output
+            // is otherwise indistinguishable from one that broke halfway through.
+            var reason = toolCalls
+                .Select(t => t.Arguments.ValueKind == JsonValueKind.Object
+                    && t.Arguments.TryGetProperty("reason", out var r) ? r.GetString() : null)
+                .FirstOrDefault(r => !string.IsNullOrWhiteSpace(r));
+            call.Output = string.IsNullOrWhiteSpace(reason)
+                ? "GM waited — no action taken."
+                : $"GM waited — {reason}";
+
+            await db.SaveChangesAsync();
+            await activity.BroadcastAsync(msg.GameId, SagaStep.Completed);
+            MarkCompleted();
+            return;
+        }
+
         ToolsRemaining = toolCalls.Count;
         CurrentState = "ToolExecution";
         call.AdvanceStep(SagaStep.ToolExecution);
