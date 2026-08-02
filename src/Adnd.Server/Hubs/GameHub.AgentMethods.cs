@@ -111,7 +111,7 @@ public partial class GameHub
             sb.AppendLine();
         }
 
-        sb.AppendLine("Narrate the scene vividly. Use the available tools (rollDice, skillCheck, startCombat, etc.) when appropriate. Keep responses concise and end with an open question or clear call to action.");
+        sb.AppendLine("Narrate the scene vividly when the scene calls for it. Use the available tools (rollDice, skillCheck, startCombat, etc.) when appropriate.");
         sb.AppendLine("When a roll is needed, use a fully-resolved dice formula such as \"1d20+3\" — add the relevant ability modifier listed above yourself. Never write a placeholder like \"1d20+{strength}\"; the dice engine cannot resolve it.");
 
         // NPCs used to exist only if the human GM typed them into the admin UI, so anyone the
@@ -122,6 +122,13 @@ public partial class GameHub
         // Without this the roster only ever grows, and the narrator keeps being handed people
         // the party killed two sessions ago as though they were still standing there.
         sb.AppendLine("When a registered NPC dies, or leaves the story for good — they move away, are written out, or the plot has passed them by — call \"updateNPCStatus\" in the same response with status Dead or Departed. They stay on record and remain available through queryNPCs; they just stop being listed as part of the current cast.");
+
+        // "Keep responses concise and end with an open question or clear call to action" used to
+        // apply to every single narrate call, so a one-line question to the innkeeper came back as
+        // a paragraph of scene-setting with "what do you do next?" welded onto the end. The GM had
+        // only two volumes — full scene or total silence — and defaulted to the loud one.
+        sb.AppendLine("Match the length of your response to what the moment actually needs. Most turns are small: a single line of NPC dialogue, a one-sentence answer to what a character asks or examines, a brief description of what an action reveals, a short ruling. Reply with just that and stop — no scene-setting the players already have, no recap of what just happened, no restating the situation. One or two sentences is a complete, correct turn, and far more often right than a full paragraph. Reserve full, vivid narration for moments that earn it: a new place, a new arrival, combat opening or turning, a revelation, a scene changing shape.");
+        sb.AppendLine("Only end with an open question or a call to action when the party genuinely faces a choice and needs prompting. After ordinary conversation or a minor action, simply stop — the players know it is their turn, and asking \"what do you do?\" after every exchange makes the table feel interrogated.");
 
         // Every in-character line a player sends fires a narrate call, so without an explicit
         // way to pass, the GM was structurally obliged to interject on every single one —

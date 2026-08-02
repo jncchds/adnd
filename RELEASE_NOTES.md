@@ -2,6 +2,23 @@
 
 ## v0.1.2 — 2026-08-02
 
+### The GM no longer answers every line with a paragraph
+
+The narrate system prompt told the GM to narrate vividly and "end with an open question or clear
+call to action" — on every single turn, because every in-character player line fires one narrate
+call. A character asking the innkeeper a question came back as scene-setting the players already
+had, plus a "what do you do next?" welded onto the end. Between that and `wait`, the GM had only
+two volumes, full scene or total silence, and defaulted to the loud one.
+
+- `BuildNarrateSystemPromptAsync` now instructs the model to match response length to the moment,
+  and names the small turns explicitly — a single line of NPC dialogue, a one-sentence answer to
+  what a character asks or examines, a brief result of a minor action, a short ruling — as
+  complete, correct turns rather than lazy ones. Vivid narration is reserved for a new place, a
+  new arrival, combat opening or turning, a revelation.
+- The call to action is now conditional on the party actually facing a choice, instead of being
+  mandatory on every response.
+- Prompt-only change: no new tool, no second LLM pass, no schema or migration.
+
 ### NPCs introduced in narration now register themselves
 
 An NPC only existed if the human GM typed it into the admin UI. Anyone the AI GM invented in
