@@ -50,6 +50,9 @@ public partial class GameHub
         sb.AppendLine();
         sb.AppendLine($"Game: {game.Name} | System: {game.SystemId}");
 
+        if (game.LanguageDirective is { } languageDirective)
+            sb.AppendLine(languageDirective);
+
         if (!string.IsNullOrEmpty(game.PlotSeed))
         {
             sb.AppendLine($"Campaign seed: {game.PlotSeed}");
@@ -80,7 +83,11 @@ public partial class GameHub
     {
         await RequireMemberAsync(gameId);
         var session = await ResolveGameSessionAsync(gameId);
-        var options = new GMDispatchOptions("You are an AI GM assistant.", prompt);
+        var game = await db.Games.FirstOrDefaultAsync(g => g.Id == gameId);
+        var systemPrompt = "You are an AI GM assistant.";
+        if (game?.LanguageDirective is { } languageDirective)
+            systemPrompt = $"{systemPrompt} {languageDirective}";
+        var options = new GMDispatchOptions(systemPrompt, prompt);
         var call = new AgentCall
         {
             GameId = gameId,

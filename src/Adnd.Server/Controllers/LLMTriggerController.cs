@@ -1,8 +1,10 @@
 using System.Text.Json;
+using Adnd.Server.Data;
 using Adnd.Server.Dtos;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Controllers;
 
@@ -11,6 +13,7 @@ public record LLMTriggerRequest(Guid GameId, Guid? SessionId, string? Context);
 [Route("api/llmtrigger")]
 public class LLMTriggerController(
     IAgentBus agentBus,
+    AppDbContext db,
     IGameAuthorizationService auth,
     IUserIdProvider userIdProvider) : GameScopedController(auth, userIdProvider)
 {
@@ -21,10 +24,15 @@ public class LLMTriggerController(
         // into their game.
         if (await RequireCreator(req.GameId) is { } failure) return failure;
 
+        var game = await db.Games.FirstOrDefaultAsync(g => g.Id == req.GameId);
+        var systemPrompt = $"You are the AI Game Master. Perform the '{action}' action for this session.";
+        if (game?.LanguageDirective is { } languageDirective)
+            systemPrompt = $"{systemPrompt} {languageDirective}";
+
         // Input must be serialized GMDispatchOptions — the dispatch handler deserializes
         // it, and a bare context string would abort the call as malformed.
         var options = new GMDispatchOptions(
-            SystemPrompt: $"You are the AI Game Master. Perform the '{action}' action for this session.",
+            SystemPrompt: systemPrompt,
             UserPrompt: req.Context ?? $"Perform the {action} action.");
 
         var call = new AgentCall

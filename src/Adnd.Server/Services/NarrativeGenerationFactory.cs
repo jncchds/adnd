@@ -152,15 +152,16 @@ public class NarrativeGenerationFactory(
             .OrderByDescending(t => t.GameId.HasValue)
             .FirstOrDefaultAsync(ct);
 
-        if (template is not null)
-            return template.Content;
-
-        return game.SystemId switch
+        var basePrompt = template?.Content ?? game.SystemId switch
         {
             "dnd5e" => "You are a skilled Dungeon Master running a D&D 5th Edition campaign. Your narration is vivid and immersive, your rulings fair and exciting. You balance tactical challenge with dramatic storytelling.",
             "pf2e" => "You are a skilled Game Master running a Pathfinder 2e campaign. You embrace the action economy and tactical depth of the system. Your narration is gritty and heroic.",
             "coc7e" => "You are a skilled Keeper running a Call of Cthulhu 7th Edition campaign. Your atmosphere is dread-filled and your narration relentless. The cosmos is indifferent and the horrors are real.",
             _ => "You are a skilled Game Master running a tabletop RPG. Your narration is vivid and immersive, your rulings fair and exciting."
         };
+
+        return game.LanguageDirective is { } languageDirective
+            ? $"{basePrompt}\n\n{languageDirective}"
+            : basePrompt;
     }
 }

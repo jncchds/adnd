@@ -17,6 +17,14 @@ public class Game : ISoftDelete
     public string? SystemVersion { get; set; }
     public string? CustomSystemJson { get; set; }
     public string Language { get; set; } = "English";
+
+    // Null for English (the LLM's default) — every narration prompt appends this when set,
+    // so a game's language selection can't be forgotten by a new prompt-building path.
+    public string? LanguageDirective =>
+        string.IsNullOrWhiteSpace(Language) || Language.Equals("English", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : $"Write all narration, dialogue, and descriptions in {Language}. Do not switch to English.";
+
     public string? PlotSeed { get; set; }
     public string? GameParameters { get; set; }
     public string? GameState { get; set; }
