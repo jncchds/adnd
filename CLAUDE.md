@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working in this repo
+
+Rules for anyone (or anything) making changes here:
+
+- **Build with `docker compose build --no-cache`.** Layer caching has produced misleading
+  green builds in this repo; a cold build is the only trusted signal.
+- **Do not start, stop or recreate containers.** No `docker compose up`, `restart`, `down`
+  or `stop` — running the stack is the maintainer's call. Build, report the result, and stop.
+- **Never run `dotnet ef database update`.** Migrations apply on startup (see below).
+- Use the `sdk` profile for anything that needs the .NET toolchain
+  (`docker compose run --rm sdk …`); it does not touch the running app.
+- The backend must build with **0 warnings** (`TreatWarningsAsErrors`), and the frontend
+  must pass `tsc --noEmit && vite build`. Never suppress a warning to get green.
+
 ## Build & Run
 
 **Docker Compose is the only supported workflow.** There is no `dotnet run` or Vite dev server path.
@@ -10,8 +24,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # First run: copy and fill in required env vars
 cp .env.example .env
 
-# Build and start the full stack
-docker compose up --build
+# Build the images (always --no-cache; see "Working in this repo")
+docker compose build --no-cache
+
+# Start the full stack
+docker compose up
 
 # Endpoints once running
 # App:      http://localhost:5010
