@@ -15,7 +15,7 @@ public interface IGameManagementService
     Task<Game> UpdateAsync(Guid gameId, Guid userId, UpdateGameDto dto);
     Task DeleteAsync(Guid gameId, Guid userId);
     Task<string> GenerateInviteCodeAsync(Guid gameId, Guid userId);
-    Task<Game> JoinByCodeAsync(string inviteCode, Guid userId, string characterName);
+    Task<Game> JoinByCodeAsync(string inviteCode, Guid userId);
     Task StartAsync(Guid gameId, Guid userId);
     Task ArchiveAsync(Guid gameId, Guid userId);
     Task<List<Player>> GetPlayersAsync(Guid gameId, Guid userId);
@@ -141,7 +141,7 @@ public class GameManagementService(
         return code;
     }
 
-    public async Task<Game> JoinByCodeAsync(string inviteCode, Guid userId, string characterName)
+    public async Task<Game> JoinByCodeAsync(string inviteCode, Guid userId)
     {
         var game = await db.Games
             .FirstOrDefaultAsync(g => g.InviteCode == inviteCode.ToLower())
@@ -154,11 +154,14 @@ public class GameManagementService(
         if (existing is not null)
             throw new InvalidOperationException("User is already a member of this game.");
 
+        // CharacterName is just a placeholder label until the player creates their
+        // Character sheet in-game (CharactersController.Create keeps it in sync).
+        var joiningUser = await db.Users.FindAsync(userId);
         var player = new Player
         {
             GameId = game.Id,
             UserId = userId,
-            CharacterName = characterName,
+            CharacterName = joiningUser?.DisplayName ?? "Player",
             Role = PlayerRole.Player
         };
 

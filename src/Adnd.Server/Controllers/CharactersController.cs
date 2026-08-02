@@ -105,6 +105,7 @@ public class CharactersController(
 
         character.Backstory = dto.Backstory;
 
+        player.CharacterName = character.Name;
         db.Characters.Add(character);
         await db.SaveChangesAsync();
         return CreatedAtAction(nameof(Get), new { id = character.Id }, character);

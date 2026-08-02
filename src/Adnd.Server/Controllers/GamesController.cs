@@ -130,7 +130,7 @@ public class GamesController(
         try
         {
             var userId = userIdProvider.GetUserId();
-            var game = await games.JoinByCodeAsync(dto.InviteCode, userId, dto.CharacterName);
+            var game = await games.JoinByCodeAsync(dto.InviteCode, userId);
             return Ok(game);
         }
         catch (KeyNotFoundException ex)

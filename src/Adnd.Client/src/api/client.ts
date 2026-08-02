@@ -127,10 +127,10 @@ class APIClient {
     // Server returns { inviteCode }, not { code } — reading the wrong field meant the GM
     // saw nothing after generating an invite.
     generateInvite: (id: string) => this.post<{ inviteCode: string }>(`/games/${id}/invite`),
-    // Body must match JoinByCodeRequest(InviteCode, CharacterName); sending { code } bound
+    // Body must match JoinByCodeRequest(InviteCode); sending { code } bound
     // InviteCode to null, so joining a game was impossible.
-    joinByCode: (inviteCode: string, characterName: string) =>
-      this.post<Game>('/games/join', { inviteCode, characterName }),
+    joinByCode: (inviteCode: string) =>
+      this.post<Game>('/games/join', { inviteCode }),
     leave: (id: string, playerId: string) => this.delete<void>(`/games/${id}/players/${playerId}`),
     getPlayers: (id: string) => this.get<Player[]>(`/games/${id}/players`),
     promotePlayer: (id: string, playerId: string, role: string) =>

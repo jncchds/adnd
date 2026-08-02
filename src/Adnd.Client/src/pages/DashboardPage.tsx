@@ -33,7 +33,6 @@ export default function DashboardPage() {
   const [archivedLoading, setArchivedLoading] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [joinCode, setJoinCode] = useState('')
-  const [joinName, setJoinName] = useState('')
   const [joinError, setJoinError] = useState('')
   const [joining, setJoining] = useState(false)
   const [presets, setPresets] = useState<LLMPreset[]>([])
@@ -75,11 +74,11 @@ export default function DashboardPage() {
   }
 
   const handleJoin = async () => {
-    if (!joinCode.trim() || !joinName.trim() || joining) return
+    if (!joinCode.trim() || joining) return
     setJoinError('')
     setJoining(true)
     try {
-      const game = await api.games.joinByCode(joinCode.trim(), joinName.trim())
+      const game = await api.games.joinByCode(joinCode.trim())
       navigate(`/game/${game.id}`)
     } catch (e) {
       setJoinError((e as Error).message)
@@ -108,8 +107,8 @@ export default function DashboardPage() {
         </Button>
       </Box>
 
-      {/* Join by invite code. The server requires a character name alongside the code. */}
-      <Box sx={{ display: 'flex', gap: 1, mb: 3, maxWidth: 560, alignItems: 'flex-start' }}>
+      {/* Join by invite code. Character creation happens in-game after joining. */}
+      <Box sx={{ display: 'flex', gap: 1, mb: 3, maxWidth: 400, alignItems: 'flex-start' }}>
         <TextField
           size="small" label="Invite Code" value={joinCode}
           onChange={e => setJoinCode(e.target.value)}
@@ -117,17 +116,11 @@ export default function DashboardPage() {
           error={!!joinError} helperText={joinError}
           fullWidth
         />
-        <TextField
-          size="small" label="Your Character Name" value={joinName}
-          onChange={e => setJoinName(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleJoin()}
-          fullWidth
-        />
         <Button
           variant="outlined"
           startIcon={<JoinIcon />}
           onClick={handleJoin}
-          disabled={joining || !joinCode.trim() || !joinName.trim()}
+          disabled={joining || !joinCode.trim()}
           sx={{ flexShrink: 0 }}
         >
           {joining ? 'Joining…' : 'Join'}

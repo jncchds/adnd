@@ -17,7 +17,7 @@ public record UpdateGameDto(
     string? GameParameters,
     string? Language);
 
-public record JoinByCodeRequest(string InviteCode, string CharacterName);
+public record JoinByCodeRequest(string InviteCode);
 
 public record PromotePlayerRequest(PlayerRole Role);
 
