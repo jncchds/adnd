@@ -1,11 +1,9 @@
 import type { GMStatus } from './game.types'
 
+/** Matches GMStatusController.GetStatus, which returns { gameId, status }. */
 export interface GMStatusResponse {
   gameId: string
-  gmStatus: GMStatus
-  lastAction: string | null
-  lastActionAt: string | null
-  isPaused: boolean
+  status: GMStatus
 }
 
 export interface SwayRequest {

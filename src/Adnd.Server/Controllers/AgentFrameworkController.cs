@@ -1,7 +1,6 @@
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,10 +14,12 @@ public record CreateAgentCallRequest(
     AgentAction Action,
     string? Input);
 
-[ApiController]
 [Route("api/agentcalls")]
-[Authorize]
-public class AgentFrameworkController(AppDbContext db, IAgentBus agentBus) : ControllerBase
+public class AgentFrameworkController(
+    AppDbContext db,
+    IAgentBus agentBus,
+    IGameAuthorizationService auth,
+    IUserIdProvider userIdProvider) : GameScopedController(auth, userIdProvider)
 {
     /// <summary>List agent calls for a game with optional status filter.</summary>
     [HttpGet]
@@ -27,15 +28,15 @@ public class AgentFrameworkController(AppDbContext db, IAgentBus agentBus) : Con
         [FromQuery] AgentCallStatus? status,
         CancellationToken ct)
     {
-        var query = db.AgentCalls.Where(a => a.GameId == gameId);
+        // Agent calls carry raw LLM prompt and response text.
+        if (await RequireCreator(gameId) is { } failure) return failure;
+
+        var query = db.AgentCalls.AsNoTracking().Where(a => a.GameId == gameId);
 
         if (status.HasValue)
             query = query.Where(a => a.Status == status.Value);
 
-        var calls = await query
-            .OrderByDescending(a => a.CreatedAt)
-            .ToListAsync(ct);
-
+        var calls = await query.OrderByDescending(a => a.CreatedAt).ToListAsync(ct);
         return Ok(calls);
     }
 
@@ -44,10 +45,13 @@ public class AgentFrameworkController(AppDbContext db, IAgentBus agentBus) : Con
     public async Task<IActionResult> Get(Guid id, CancellationToken ct)
     {
         var call = await db.AgentCalls
+            .AsNoTracking()
             .Include(a => a.ChildCalls)
             .FirstOrDefaultAsync(a => a.Id == id, ct);
 
         if (call == null) return NotFound();
+        if (await RequireCreator(call.GameId) is { } failure) return failure;
+
         return Ok(call);
     }
 
@@ -55,7 +59,10 @@ public class AgentFrameworkController(AppDbContext db, IAgentBus agentBus) : Con
     [HttpGet("pending")]
     public async Task<IActionResult> Pending([FromQuery] Guid gameId, CancellationToken ct)
     {
+        if (await RequireCreator(gameId) is { } failure) return failure;
+
         var calls = await db.AgentCalls
+            .AsNoTracking()
             .Where(a => a.GameId == gameId && a.Status == AgentCallStatus.Pending)
             .OrderBy(a => a.CreatedAt)
             .ToListAsync(ct);
@@ -65,10 +72,11 @@ public class AgentFrameworkController(AppDbContext db, IAgentBus agentBus) : Con
 
     /// <summary>Create and queue a new agent call.</summary>
     [HttpPost]
-    public async Task<IActionResult> Create(
-        [FromBody] CreateAgentCallRequest request,
-        CancellationToken ct)
+    public async Task<IActionResult> Create([FromBody] CreateAgentCallRequest request, CancellationToken ct)
     {
+        // Queues billable LLM work against the game owner's key.
+        if (await RequireCreator(request.GameId) is { } failure) return failure;
+
         var call = new AgentCall
         {
             GameId = request.GameId,

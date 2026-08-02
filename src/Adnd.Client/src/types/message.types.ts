@@ -9,6 +9,10 @@ export type MessageType =
   | 'LootGenerated' | 'AITool' | 'RollRequest' | 'RollConfirm' | 'RollDecline'
   | string
 
+/**
+ * Union of what the history endpoint (MessageHistoryDto) and the live hub (MessageDto)
+ * send. The hub payload is the narrower of the two, so the whisper fields are optional.
+ */
 export interface Message {
   id: string
   sessionId: string
@@ -17,12 +21,11 @@ export interface Message {
   type: MessageType
   metadata: Record<string, unknown> | null
   isOOC: boolean
-  whisperFromId: string | null
-  whisperToId: string | null
-  whisperTarget: string | null
-  isDeleted: boolean
   createdAt: string
-  playerDisplayName?: string
+  whisperFromId?: string | null
+  whisperToId?: string | null
+  whisperTarget?: string | null
+  playerDisplayName?: string | null
 }
 
 export interface MessagePage {

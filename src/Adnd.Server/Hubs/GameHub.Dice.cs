@@ -8,8 +8,7 @@ public partial class GameHub
 {
     public async Task RollDice(Guid gameId, string formula, bool isSecret = false)
     {
-        var userId = CurrentUserId;
-        var player = await db.Players.FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId);
+        var player = await RequireMemberAsync(gameId);
         var session = await ResolveGameSessionAsync(gameId);
 
         var result = diceEngine.Roll(formula);
@@ -19,7 +18,7 @@ public partial class GameHub
         var msg = new Message
         {
             SessionId = session.Id,
-            PlayerId = player?.Id,
+            PlayerId = player.Id,
             Content = content,
             Type = "DiceRoll",
             CreatedAt = DateTimeOffset.UtcNow
@@ -27,13 +26,13 @@ public partial class GameHub
         db.Messages.Add(msg);
         await db.SaveChangesAsync();
 
-        var dto = new MessageDto(msg.Id, session.Id, player?.Id, content, "DiceRoll", false, msg.CreatedAt, metadata);
+        var dto = new MessageDto(msg.Id, session.Id, player.Id, content, "DiceRoll", false, msg.CreatedAt, metadata);
         if (isSecret)
             await Clients.Caller.SendCoreAsync("NewMessage", [dto]);
         else
             await BroadcastToGameAsync(gameId, "NewMessage", dto);
 
-        await PublishAsync(new DiceRolled(gameId, player?.Id, formula, result.Total, result.Breakdown));
+        await PublishAsync(new DiceRolled(gameId, player.Id, formula, result.Total, result.Breakdown));
     }
 
     public async Task RollSkillCheck(Guid gameId, string skillId, int dc, bool isSecret = false)

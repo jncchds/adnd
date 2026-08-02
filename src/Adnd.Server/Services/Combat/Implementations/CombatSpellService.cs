@@ -51,8 +51,8 @@ public sealed class CombatSpellService(AppDbContext db, CombatEventLogger logger
         var character = await db.Characters.FindAsync([characterId], ct);
         if (character is null) return;
 
-        var slots = character.SpellSlots.ValueKind != JsonValueKind.Undefined
-            ? JsonSerializer.Deserialize<Dictionary<string, SpellSlotLevel>>(character.SpellSlots.GetRawText())
+        var slots = character.SpellSlots.ValueKind == JsonValueKind.Object
+            ? JsonSerializer.Deserialize<Dictionary<string, SpellSlotLevel>>(character.SpellSlots.GetRawText(), SlotJson)
               ?? new()
             : new Dictionary<string, SpellSlotLevel>();
 
@@ -60,9 +60,21 @@ public sealed class CombatSpellService(AppDbContext db, CombatEventLogger logger
         if (slots.TryGetValue(key, out var slot) && slot.Remaining > 0)
         {
             slots[key] = slot with { Remaining = slot.Remaining - 1 };
-            character.SpellSlots = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(slots));
+            character.SpellSlots = JsonSerializer.SerializeToElement(slots, SlotJson);
         }
     }
+
+    /// <summary>
+    /// Slots are stored camelCase ({"1":{"total":4,"remaining":3}}) but the record's
+    /// parameters are PascalCase. JsonSerializerOptions.Default is case-SENSITIVE, so
+    /// without this every slot deserialized to (0, 0): the remaining-count check never
+    /// passed and casters effectively had unlimited spells.
+    /// </summary>
+    private static readonly JsonSerializerOptions SlotJson = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     private record SpellSlotLevel(int Total, int Remaining);
 }

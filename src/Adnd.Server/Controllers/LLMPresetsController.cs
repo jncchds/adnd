@@ -20,12 +20,7 @@ public class LLMPresetsController(
     {
         var userId = userIdProvider.GetUserId();
         var result = await presets.GetUserPresetsAsync(userId);
-        foreach (var p in result)
-        {
-            p.ApiKey = null;
-            p.DecryptedApiKey = p.DecryptedApiKey is not null ? "***" : null;
-        }
-        return Ok(result);
+        return Ok(result.Select(LLMPresetDto.From));
     }
 
     [HttpPost]
@@ -35,8 +30,7 @@ public class LLMPresetsController(
         {
             var userId = userIdProvider.GetUserId();
             var preset = await presets.CreateAsync(userId, dto);
-            preset.ApiKey = null;
-            return CreatedAtAction(nameof(GetById), new { id = preset.Id }, preset);
+            return CreatedAtAction(nameof(GetById), new { id = preset.Id }, LLMPresetDto.From(preset));
         }
         catch (InvalidOperationException ex)
         {
@@ -51,8 +45,7 @@ public class LLMPresetsController(
         {
             var userId = userIdProvider.GetUserId();
             var preset = await presets.GetByIdAsync(id, userId);
-            preset.ApiKey = null;
-            return Ok(preset);
+            return Ok(LLMPresetDto.From(preset));
         }
         catch (KeyNotFoundException ex)
         {
@@ -67,8 +60,7 @@ public class LLMPresetsController(
         {
             var userId = userIdProvider.GetUserId();
             var preset = await presets.UpdateAsync(id, userId, dto);
-            preset.ApiKey = null;
-            return Ok(preset);
+            return Ok(LLMPresetDto.From(preset));
         }
         catch (KeyNotFoundException ex)
         {
@@ -110,14 +102,43 @@ public class LLMPresetsController(
         }
     }
 
-    [HttpPost("{id:guid}/test")]
-    public async Task<IActionResult> TestConnection(Guid id)
+    [HttpPost("models")]
+    public async Task<IActionResult> QueryModels([FromBody] QueryModelsDto dto, CancellationToken ct)
+    {
+        try
+        {
+            var models = await presets.QueryModelsAsync(dto, ct);
+            return Ok(models);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpGet("{id:guid}/models")]
+    public async Task<IActionResult> ListModels(Guid id, CancellationToken ct)
     {
         try
         {
             var userId = userIdProvider.GetUserId();
-            var result = await presets.TestConnectionAsync(id, userId);
-            return Ok(new { result });
+            var models = await presets.ListModelsAsync(id, userId, ct);
+            return Ok(models);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:guid}/test")]
+    public async Task<IActionResult> TestConnection(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            var userId = userIdProvider.GetUserId();
+            var status = await presets.TestConnectionAsync(id, userId, ct);
+            return Ok(status);
         }
         catch (KeyNotFoundException ex)
         {

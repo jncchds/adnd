@@ -42,18 +42,18 @@ export default function CharacterSheetPage() {
   if (error) return <Box sx={{ p: 3 }}><Alert severity="error">{error}</Alert></Box>
   if (!character) return <Box sx={{ p: 3 }}><Typography>Character not found</Typography></Box>
 
-  const attrs = (character.attributes ?? {}) as Record<string, number>
-  const skills = (character.skills ?? {}) as Record<string, unknown>
-  const inventory = (character.inventory ?? []) as unknown[]
-  const spells = (character.spells ?? {}) as Record<string, unknown>
+  const attrs = character.attributes ?? {}
+  const skills = character.skills as Record<string, unknown> ?? {}
+  const inventory = character.inventory ?? []
+  const spells = character.spells as Record<string, unknown> ?? {}
 
   return (
     <Box sx={{ p: 3, maxWidth: 900, mx: 'auto' }}>
       {/* Header */}
       <Box sx={{ mb: 3 }}>
-        <Typography variant="h4" fontWeight={700}>{String(character.name ?? 'Character')}</Typography>
+        <Typography variant="h4" fontWeight={700}>{character.name}</Typography>
         <Typography variant="subtitle1" color="text.secondary">
-          Level {String(character.level ?? 1)} {String(character.class ?? '')} — HP: {String(character.currentHP ?? 0)}/{String(character.maxHP ?? 0)}
+          Level {character.level} {character.class} — HP: {character.currentHP}/{character.maxHP}
         </Typography>
       </Box>
 
@@ -80,19 +80,19 @@ export default function CharacterSheetPage() {
             <Grid size={{ xs: 6, sm: 3 }}>
               <Paper sx={{ p: 1.5, textAlign: 'center' }}>
                 <Typography variant="caption" color="text.secondary">HP</Typography>
-                <Typography variant="h6">{String(character.currentHP ?? 0)}/{String(character.maxHP ?? 0)}</Typography>
+                <Typography variant="h6">{character.currentHP}/{character.maxHP}</Typography>
               </Paper>
             </Grid>
             <Grid size={{ xs: 6, sm: 3 }}>
               <Paper sx={{ p: 1.5, textAlign: 'center' }}>
                 <Typography variant="caption" color="text.secondary">Level</Typography>
-                <Typography variant="h6">{String(character.level ?? 1)}</Typography>
+                <Typography variant="h6">{character.level}</Typography>
               </Paper>
             </Grid>
             <Grid size={{ xs: 6, sm: 3 }}>
               <Paper sx={{ p: 1.5, textAlign: 'center' }}>
                 <Typography variant="caption" color="text.secondary">Prof. Bonus</Typography>
-                <Typography variant="h6">+{String(character.proficiencyBonus ?? 2)}</Typography>
+                <Typography variant="h6">+{character.proficiencyBonus}</Typography>
               </Paper>
             </Grid>
           </Grid>
@@ -145,18 +145,18 @@ export default function CharacterSheetPage() {
       {/* Background */}
       {tab === 4 && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <TextField label="Background" value={String(character.background ?? '')}
+          <TextField label="Background Description" value={character.background ?? ''}
             onChange={e => setCharacter(c => c ? { ...c, background: e.target.value } : c)}
             fullWidth multiline rows={2} />
-          <TextField label="Traits" value={String((character.backgroundTraits ?? '') as string)}
-            onChange={e => setCharacter(c => c ? { ...c, backgroundTraits: e.target.value } : c)}
+          <TextField label="Background Skills" value={character.backgroundSkills ?? ''}
+            onChange={e => setCharacter(c => c ? { ...c, backgroundSkills: e.target.value } : c)}
+            fullWidth />
+          <TextField label="Background Features" value={character.backgroundFeatures ?? ''}
+            onChange={e => setCharacter(c => c ? { ...c, backgroundFeatures: e.target.value } : c)}
             fullWidth multiline rows={2} />
-          <TextField label="Bonds" value={String((character.backgroundBonds ?? '') as string)}
-            onChange={e => setCharacter(c => c ? { ...c, backgroundBonds: e.target.value } : c)}
-            fullWidth multiline rows={2} />
-          <TextField label="Flaws" value={String((character.backgroundFlaws ?? '') as string)}
-            onChange={e => setCharacter(c => c ? { ...c, backgroundFlaws: e.target.value } : c)}
-            fullWidth multiline rows={2} />
+          <TextField label="Backstory" value={character.backstory ?? ''}
+            onChange={e => setCharacter(c => c ? { ...c, backstory: e.target.value } : c)}
+            fullWidth multiline rows={4} />
           <Button variant="contained" onClick={save} disabled={saving} sx={{ alignSelf: 'flex-start' }}>
             Save Background
           </Button>
@@ -170,7 +170,7 @@ export default function CharacterSheetPage() {
             label="Custom Fields (JSON)"
             value={JSON.stringify(character.customFields ?? {}, null, 2)}
             onChange={e => {
-              try { setCharacter(c => c ? { ...c, customFields: JSON.parse(e.target.value) } : c) }
+              try { setCharacter(c => c ? { ...c, customFields: JSON.parse(e.target.value) as Record<string, unknown> } : c) }
               catch { /* invalid JSON, ignore */ }
             }}
             fullWidth multiline rows={10} sx={{ fontFamily: 'monospace' }}

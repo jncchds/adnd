@@ -17,7 +17,6 @@ export interface LLMPreset {
   embeddingEndpointUrl: string | null
   isActive: boolean
   isDefault: boolean
-  extraParams: Record<string, unknown> | null
   createdAt: string
   updatedAt: string
 }

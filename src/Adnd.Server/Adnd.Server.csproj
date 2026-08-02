@@ -23,6 +23,7 @@
     <!-- Wolverine durable messaging -->
     <PackageReference Include="WolverineFx" Version="6.22.0" />
     <PackageReference Include="WolverineFx.Postgresql" Version="6.22.0" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.22.0" />
 
     <!-- Background jobs -->
     <PackageReference Include="Hangfire.AspNetCore" Version="1.8.24" />

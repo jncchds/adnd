@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Adnd.Server.Data;
+using Adnd.Server.Dtos;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
@@ -80,23 +82,46 @@ public class PlotWeaverHandler(IPlotWeaver plotWeaver, ILogger<PlotWeaverHandler
     }
 }
 
-public class AgentCallFailedHandler(AppDbContext db, IDeadLetterQueue dlq, ILogger<AgentCallFailedHandler> logger)
+/// <summary>
+/// Decides whether a failed step is retried or abandoned. Terminal state is owned by
+/// AgentSaga (via AgentCallAbandoned) so that exactly one component writes it — previously
+/// this handler and the saga wrote AgentCall.Status with contradictory semantics from two
+/// DbContexts, and no retry was ever actually issued.
+/// </summary>
+public class AgentCallFailedHandler(AppDbContext db, IDeadLetterQueue dlq, IEventBus eventBus, ILogger<AgentCallFailedHandler> logger)
 {
     public async Task HandleAsync(AgentCallFailed msg)
     {
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
-        if (call != null)
+        if (call == null) return;
+
+        dlq.RecordFailure(msg.AgentCallId);
+
+        if (dlq.ShouldRetry(msg.AgentCallId))
         {
-            dlq.RecordFailure(msg.AgentCallId);
-            if (!dlq.ShouldRetry(msg.AgentCallId))
+            string systemPrompt = "", userPrompt = "";
+            if (!string.IsNullOrEmpty(call.Input))
             {
-                call.Status = AgentCallStatus.Failed;
-                call.Error = msg.Error;
-                call.CurrentStep = (int)SagaStep.Failed;
-                await db.SaveChangesAsync();
+                try
+                {
+                    var opts = JsonSerializer.Deserialize<GMDispatchOptions>(call.Input);
+                    systemPrompt = opts?.SystemPrompt ?? "";
+                    userPrompt = opts?.UserPrompt ?? "";
+                }
+                catch (JsonException) { /* falls through to abandon below */ }
             }
-            logger.LogError("AgentCall {AgentCallId} failed: {Error}", msg.AgentCallId, msg.Error);
+
+            if (!string.IsNullOrWhiteSpace(systemPrompt) || !string.IsNullOrWhiteSpace(userPrompt))
+            {
+                logger.LogWarning("AgentCall {AgentCallId} failed ({Error}); retrying dispatch", msg.AgentCallId, msg.Error);
+                await eventBus.PublishAsync(new LLMDispatchRequested(msg.AgentCallId, msg.GameId, systemPrompt, userPrompt));
+                return;
+            }
         }
+
+        logger.LogError("AgentCall {AgentCallId} abandoned after retries: {Error}", msg.AgentCallId, msg.Error);
+        dlq.Clear(msg.AgentCallId);
+        await eventBus.PublishAsync(new AgentCallAbandoned(msg.AgentCallId, msg.GameId, msg.Error));
     }
 }
 

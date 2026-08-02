@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Box, Typography, Paper, TextField, Button, Select, MenuItem,
+  Box, Typography, Paper, Button, Select, MenuItem,
   FormControl, InputLabel, Alert, CircularProgress, Divider,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material'
 import { useGame } from '../api/hooks/useGame'
 import { api } from '../api/client'
@@ -10,6 +11,7 @@ import type { LLMPreset } from '../types'
 
 export default function GameSettingsPage() {
   const { id: gameId } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { game, refresh } = useGame(gameId ?? null)
   const [presets, setPresets] = useState<LLMPreset[]>([])
   const [llmPresetId, setLlmPresetId] = useState('')
@@ -17,6 +19,8 @@ export default function GameSettingsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => { api.llmPresets.list().then(setPresets).catch(() => {}) }, [])
   useEffect(() => { if (game) setLlmPresetId(game.llmPresetId ?? '') }, [game])
@@ -34,11 +38,21 @@ export default function GameSettingsPage() {
     finally { setSaving(false) }
   }
 
+  const handleDelete = async () => {
+    if (!gameId) return
+    setDeleting(true)
+    try {
+      await api.games.archive(gameId)
+      navigate('/dashboard')
+    } catch (e) { setError((e as Error).message) }
+    finally { setDeleting(false) }
+  }
+
   const genInvite = async () => {
     if (!gameId) return
     try {
-      const { code } = await api.games.generateInvite(gameId)
-      setInviteCode(code)
+      const { inviteCode } = await api.games.generateInvite(gameId)
+      setInviteCode(inviteCode)
     } catch (e) { setError((e as Error).message) }
   }
 
@@ -80,6 +94,38 @@ export default function GameSettingsPage() {
           </Typography>
         )}
       </Paper>
+
+      <Paper sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'error.main' }}>
+        <Typography variant="subtitle2" fontWeight={600} color="error" sx={{ mb: 1 }}>Danger Zone</Typography>
+        <Divider sx={{ mb: 2 }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+          <Box>
+            <Typography variant="body2" fontWeight={500}>Archive this game</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Stops all GM processing and hides the game from everyone's list. This cannot be undone.
+            </Typography>
+          </Box>
+          <Button variant="outlined" color="error" sx={{ flexShrink: 0 }} onClick={() => setDeleteOpen(true)}>
+            Archive Game
+          </Button>
+        </Box>
+      </Paper>
+
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
+        <DialogTitle>Archive "{game.name}"?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            This will stop all GM processing and hide the game from everyone's list.
+            The game will remain accessible in the archived games list (read-only).
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDelete} disabled={deleting}>
+            {deleting ? <CircularProgress size={18} /> : 'Archive Game'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

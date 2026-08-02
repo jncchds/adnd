@@ -13,12 +13,37 @@ public interface IWhisperService
 
 public class WhisperService(AppDbContext db) : IWhisperService
 {
+    /// <summary>
+    /// Whispers visible to one player: the ones they sent and the ones addressed to them.
+    /// The playerId argument used to be ignored entirely, so this returned every private
+    /// message in the session to anyone who asked.
+    /// </summary>
     public async Task<List<Whisper>> GetWhisperHistoryAsync(Guid sessionId, Guid playerId)
-        => await db.Whispers
+    {
+        var whispers = await db.Whispers
+            .AsNoTracking()
             .Where(w => w.SessionId == sessionId)
             .OrderByDescending(w => w.CreatedAt)
-            .Take(50)
+            .Take(200)
             .ToListAsync();
+
+        // TargetPlayerIds is a jsonb array, so the recipient test is applied in memory.
+        return whispers
+            .Where(w => w.FromPlayerId == playerId || IsAddressedTo(w, playerId))
+            .Take(50)
+            .ToList();
+    }
+
+    private static bool IsAddressedTo(Whisper whisper, Guid playerId)
+    {
+        if (whisper.TargetPlayerIds.ValueKind != JsonValueKind.Array) return false;
+
+        foreach (var element in whisper.TargetPlayerIds.EnumerateArray())
+        {
+            if (element.TryGetGuid(out var id) && id == playerId) return true;
+        }
+        return false;
+    }
 
     public async Task<Whisper> CreateWhisperAsync(Guid sessionId, Guid? fromPlayerId, WhisperType type, string content, List<Guid> targetPlayerIds)
     {

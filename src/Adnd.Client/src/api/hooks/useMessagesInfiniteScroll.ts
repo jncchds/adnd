@@ -6,12 +6,14 @@ export function useMessagesInfiniteScroll(sessionId: string | null) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const cursorRef = useRef<string | null>(null)
   const seenIds = useRef(new Set<string>())
 
   const loadInitial = useCallback(async () => {
     if (!sessionId) return
     setLoading(true)
+    setError(null)
     cursorRef.current = null
     seenIds.current.clear()
     try {
@@ -21,7 +23,9 @@ export function useMessagesInfiniteScroll(sessionId: string | null) {
       setMessages(unique)
       setHasMore(page.hasMore)
       cursorRef.current = page.nextCursor
-    } catch { /* handled silently */ } finally {
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
       setLoading(false)
     }
   }, [sessionId])
@@ -29,6 +33,7 @@ export function useMessagesInfiniteScroll(sessionId: string | null) {
   const loadOlder = useCallback(async () => {
     if (!sessionId || loading || !hasMore) return
     setLoading(true)
+    setError(null)
     try {
       const page = await api.games.getMessages(sessionId, cursorRef.current ?? undefined)
       const unique = page.items.filter(m => !seenIds.current.has(m.id))
@@ -36,7 +41,9 @@ export function useMessagesInfiniteScroll(sessionId: string | null) {
       setMessages(prev => [...unique, ...prev])
       setHasMore(page.hasMore)
       cursorRef.current = page.nextCursor
-    } catch { /* handled silently */ } finally {
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
       setLoading(false)
     }
   }, [sessionId, loading, hasMore])
@@ -47,5 +54,5 @@ export function useMessagesInfiniteScroll(sessionId: string | null) {
     setMessages(prev => [...prev, msg])
   }, [])
 
-  return { messages, loading, hasMore, loadInitial, loadOlder, appendLive }
+  return { messages, loading, hasMore, error, loadInitial, loadOlder, appendLive }
 }

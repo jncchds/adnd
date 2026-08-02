@@ -1,14 +1,22 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace Adnd.Server.Services.Llm;
 
 public class GoogleAIStudioLLMProvider(
     string apiKey,
     string model,
-    HttpClient httpClient) : BaseLLMProvider
+    string? embeddingModel,
+    HttpClient httpClient,
+    ILogger<GoogleAIStudioLLMProvider> logger) : BaseLLMProvider
 {
     private const string BaseUrl = "https://generativelanguage.googleapis.com/v1beta/models";
+    private const string DefaultEmbeddingModel = "text-embedding-004";
+
+    // The preset's embedding model was ignored entirely and this was pinned.
+    private readonly string _embeddingModel =
+        string.IsNullOrWhiteSpace(embeddingModel) ? DefaultEmbeddingModel : embeddingModel;
 
     public override string ProviderId => "google";
     public override string EndpointUrl => BaseUrl;
@@ -37,7 +45,7 @@ public class GoogleAIStudioLLMProvider(
 
     private async Task<LLMToolCallResult> SendRequestAsync(string targetModel, string systemPrompt, string userPrompt, List<ToolDefinition>? tools, LLMOptions opts, CancellationToken ct)
     {
-        var url = $"{BaseUrl}/{targetModel}:generateContent?key={apiKey}";
+        var url = $"{BaseUrl}/{targetModel}:generateContent";
 
         var generationConfig = new Dictionary<string, object>
         {
@@ -49,6 +57,12 @@ public class GoogleAIStudioLLMProvider(
         var thinkingBudget = GetThinkingBudget(opts.ReasoningEffort);
         if (thinkingBudget > 0)
             generationConfig["thinkingConfig"] = new { thinkingBudget };
+        if (opts.JsonMode)
+        {
+            generationConfig["responseMimeType"] = "application/json";
+            if (opts.JsonSchema.HasValue)
+                generationConfig["responseSchema"] = opts.JsonSchema.Value;
+        }
 
         var bodyObj = new Dictionary<string, object>
         {
@@ -80,6 +94,7 @@ public class GoogleAIStudioLLMProvider(
 
         var json = JsonSerializer.Serialize(bodyObj);
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
+        req.Headers.Add("x-goog-api-key", apiKey);
         req.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
         using var res = await httpClient.SendAsync(req, ct);
@@ -91,9 +106,37 @@ public class GoogleAIStudioLLMProvider(
 
         ExtractUsage(root);
 
-        var candidate = root.GetProperty("candidates")[0];
-        var content = candidate.GetProperty("content");
-        var parts = content.GetProperty("parts");
+        // Gemini returns HTTP 200 with no "candidates" when a prompt is safety-blocked —
+        // routine for combat and horror content in a TTRPG — and a candidate can also come
+        // back with no "parts" when it hits MAX_TOKENS. Both used to throw
+        // KeyNotFoundException out of the provider.
+        if (!root.TryGetProperty("candidates", out var candidates) ||
+            candidates.ValueKind != JsonValueKind.Array ||
+            candidates.GetArrayLength() == 0)
+        {
+            var blockReason = root.TryGetProperty("promptFeedback", out var feedback) &&
+                              feedback.TryGetProperty("blockReason", out var reason)
+                ? reason.GetString()
+                : null;
+
+            throw new InvalidOperationException(blockReason is not null
+                ? $"Google AI Studio blocked the prompt (reason: {blockReason})."
+                : "Google AI Studio returned no candidates.");
+        }
+
+        var candidate = candidates[0];
+
+        if (!candidate.TryGetProperty("content", out var content) ||
+            !content.TryGetProperty("parts", out var parts) ||
+            parts.ValueKind != JsonValueKind.Array)
+        {
+            var finishReason = candidate.TryGetProperty("finishReason", out var fr) ? fr.GetString() : null;
+
+            // MAX_TOKENS with no parts means the model produced nothing usable.
+            throw new InvalidOperationException(finishReason is not null
+                ? $"Google AI Studio returned no content (finishReason: {finishReason})."
+                : "Google AI Studio returned no content.");
+        }
 
         string? narrativeText = null;
         var toolCalls = new List<ToolCall>();
@@ -120,15 +163,15 @@ public class GoogleAIStudioLLMProvider(
 
     public override async Task<float[]> GetEmbeddingAsync(string text, CancellationToken ct)
     {
-        var embeddingModel = "text-embedding-004";
-        var url = $"{BaseUrl}/{embeddingModel}:embedContent?key={apiKey}";
+        var url = $"{BaseUrl}/{_embeddingModel}:embedContent";
         var body = new
         {
-            model = $"models/{embeddingModel}",
+            model = $"models/{_embeddingModel}",
             content = new { parts = new[] { new { text } } }
         };
         var json = JsonSerializer.Serialize(body);
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
+        req.Headers.Add("x-goog-api-key", apiKey);
         req.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
         using var res = await httpClient.SendAsync(req, ct);
@@ -140,12 +183,39 @@ public class GoogleAIStudioLLMProvider(
         return values.EnumerateArray().Select(e => e.GetSingle()).ToArray();
     }
 
+    public override async Task<IReadOnlyList<string>> ListModelsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var url = $"{BaseUrl}";
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Add("x-goog-api-key", apiKey);
+            using var res = await httpClient.SendAsync(req, ct);
+            res.EnsureSuccessStatusCode();
+            var json = await res.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("models", out var models))
+                return [];
+            return models.EnumerateArray()
+                .Select(m => m.TryGetProperty("name", out var n) ? n.GetString()?.Replace("models/", "") : null)
+                .OfType<string>()
+                .OrderBy(n => n)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "GoogleAIStudioLLMProvider: failed to list models");
+            return [];
+        }
+    }
+
     public override async Task<bool> IsAvailableAsync(CancellationToken ct)
     {
         try
         {
-            var url = $"{BaseUrl}?key={apiKey}";
+            var url = $"{BaseUrl}";
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Add("x-goog-api-key", apiKey);
             using var res = await httpClient.SendAsync(req, ct);
             return res.IsSuccessStatusCode;
         }
@@ -159,8 +229,9 @@ public class GoogleAIStudioLLMProvider(
     {
         try
         {
-            var url = $"{BaseUrl}?key={apiKey}";
+            var url = $"{BaseUrl}";
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Add("x-goog-api-key", apiKey);
             using var res = await httpClient.SendAsync(req, ct);
             return new ProviderStatus(res.IsSuccessStatusCode, model, res.IsSuccessStatusCode ? null : res.ReasonPhrase);
         }

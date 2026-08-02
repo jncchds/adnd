@@ -33,10 +33,18 @@ Edit `.env` and fill in:
 | Variable | Description |
 |----------|-------------|
 | `POSTGRES_PASSWORD` | PostgreSQL password |
-| `JWT_SECRET_KEY` | JWT signing key (min 32 characters) |
+| `JWT_SECRET_KEY` | JWT signing key, min 32 bytes — generate with `openssl rand -base64 48`. The app refuses to start on a placeholder or a short key. |
 | `JWT_ISSUER` | JWT issuer string (e.g. `adnd-server`) |
 | `JWT_AUDIENCE` | JWT audience string (e.g. `adnd-client`) |
 | `ENCRYPTION_MASTER_KEY` | AES-256-GCM key — generate with `openssl rand -base64 32` |
+
+Optional settings (see `.env.example` for the full list):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SECURITY__ALLOW_PRIVATE_LLM_ENDPOINTS` | `true` | Permits LLM presets to target private/LAN addresses, which self-hosted Ollama and LM Studio need. Set `false` when untrusted users can register. |
+| `SWAGGER__ENABLED` | Development only | Swagger UI cannot sit behind bearer auth, so it is not served in Production unless you opt in. |
+| `HANGFIRE__DASHBOARD_ENABLED` | `false` | The `/hangfire` dashboard. Off by default; pair with `HANGFIRE__DASHBOARD_ALLOWED_IPS`. |
 
 ### 2. Start the stack
 
@@ -99,10 +107,10 @@ Browser (React 19 + MUI)
 | Path | Description |
 |------|-------------|
 | `http://localhost:5010` | React SPA |
-| `http://localhost:5010/swagger` | API documentation |
-| `http://localhost:5010/health` | Liveness check |
-| `http://localhost:5010/health/ready` | Readiness check (includes LLM + pgvector) |
-| `http://localhost:5010/hangfire` | Background job dashboard |
+| `http://localhost:5010/swagger` | API documentation — Development only unless `SWAGGER__ENABLED=true` |
+| `http://localhost:5010/health` | Liveness check (database only, so an LLM outage cannot restart-loop the container) |
+| `http://localhost:5010/health/ready` | Readiness check — also probes the configured LLM provider and pgvector |
+| `http://localhost:5010/hangfire` | Background job dashboard — requires `HANGFIRE__DASHBOARD_ENABLED=true` |
 
 ## Tech Stack
 

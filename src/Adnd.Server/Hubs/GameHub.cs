@@ -20,8 +20,54 @@ public partial class GameHub(
 {
     protected static readonly ConcurrentDictionary<string, string> _playerConnections = new();
 
-    protected Guid CurrentUserId =>
-        Guid.Parse(Context.User!.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    /// <summary>
+    /// Thrown when a hub method is called against a game the caller is not part of.
+    /// SignalR surfaces the message to the caller and aborts the invocation.
+    /// </summary>
+    protected sealed class HubForbiddenException(string message) : HubException(message);
+
+    protected Guid CurrentUserId
+    {
+        get
+        {
+            // Both null-forgiving operators here used to be load-bearing: a token without a
+            // parseable nameid faulted OnConnectedAsync instead of failing cleanly.
+            var raw = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(raw, out var id)
+                ? id
+                : throw new HubException("Invalid or missing user identity.");
+        }
+    }
+
+    /// <summary>
+    /// Every hub method must call this before touching a game. Only JoinGameGroup used to
+    /// verify membership, and Clients.Group() does not require the caller to be in the
+    /// group — so any authenticated user could post, whisper as the GM, drive combat, or
+    /// spend another user's LLM budget in a game they had nothing to do with.
+    /// </summary>
+    protected async Task<Player> RequireMemberAsync(Guid gameId)
+    {
+        var userId = CurrentUserId;
+        var player = await db.Players.FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId);
+        return player ?? throw new HubForbiddenException("You are not a member of this game.");
+    }
+
+    /// <summary>GM-only actions: narration, GM whispers, combat control.</summary>
+    protected async Task<Player> RequireCreatorAsync(Guid gameId)
+    {
+        var player = await RequireMemberAsync(gameId);
+        if (player.Role != PlayerRole.Creator)
+            throw new HubForbiddenException("Only the Game Master can perform this action.");
+        return player;
+    }
+
+    /// <summary>Confirms the combat belongs to the game before acting on it.</summary>
+    protected async Task<Combat> RequireCombatInGameAsync(Guid gameId, Guid combatId)
+    {
+        var combat = await db.Combats.Include(c => c.Participants)
+            .FirstOrDefaultAsync(c => c.Id == combatId && c.GameId == gameId);
+        return combat ?? throw new HubForbiddenException("Combat does not belong to this game.");
+    }
 
     public override async Task OnConnectedAsync()
     {

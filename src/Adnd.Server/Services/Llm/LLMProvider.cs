@@ -13,6 +13,8 @@ public record LLMOptions
     public float FrequencyPenalty { get; init; }
     public float PresencePenalty { get; init; }
     public bool Stream { get; init; }
+    public bool JsonMode { get; init; }
+    public JsonElement? JsonSchema { get; init; }
     public int? TimeoutMs { get; init; }
     public string ReasoningEffort { get; init; } = "none";
     public Dictionary<string, object> ExtraParams { get; init; } = new();
@@ -34,6 +36,7 @@ public interface ILLMProvider
     Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct);
     Task<LLMToolCallResult> CompleteWithToolsAsync(string systemPrompt, string userPrompt, IEnumerable<ToolDefinition> tools, LLMOptions opts, CancellationToken ct);
     Task<float[]> GetEmbeddingAsync(string text, CancellationToken ct);
+    Task<IReadOnlyList<string>> ListModelsAsync(CancellationToken ct);
     Task<bool> IsAvailableAsync(CancellationToken ct);
     Task<ProviderStatus> GetStatusAsync(CancellationToken ct);
 }
@@ -81,7 +84,7 @@ public abstract class BaseLLMProvider : ILLMProvider
 
         var augmentedSystem = $"{systemPrompt}\n\nAvailable tools (respond with JSON array of tool calls or plain text if no tool needed):\n{toolJson}\n\nTo call tools respond with a JSON array: [{{\"id\":\"call_1\",\"name\":\"tool_name\",\"arguments\":{{}}}}]\nIf no tool call is needed, respond with plain text only.";
 
-        var response = await CompleteAsyncCore(augmentedSystem, userPrompt, opts, ct);
+        var response = await CompleteAsyncCore(augmentedSystem, userPrompt, opts with { JsonMode = true }, ct);
 
         var toolCalls = ParseToolCallsFromResponse(response);
         var narrativeText = toolCalls.Count > 0 ? null : response;
@@ -91,7 +94,9 @@ public abstract class BaseLLMProvider : ILLMProvider
 
     private static List<ToolCall> ParseToolCallsFromResponse(string response)
     {
-        if (!JsonExtract.TryExtractArray(response, out var array))
+        // Restrict wrapped arrays to tool-call property names so an unrelated array in a
+        // JSON narrative response isn't mistaken for a list of tool calls.
+        if (!JsonExtract.TryExtractArray(response, out var array, "toolCalls", "tool_calls", "tools", "calls"))
             return [];
 
         var result = new List<ToolCall>();
@@ -113,6 +118,8 @@ public abstract class BaseLLMProvider : ILLMProvider
     }
 
     public abstract Task<float[]> GetEmbeddingAsync(string text, CancellationToken ct);
+    public virtual Task<IReadOnlyList<string>> ListModelsAsync(CancellationToken ct)
+        => Task.FromResult<IReadOnlyList<string>>([]);
     public abstract Task<bool> IsAvailableAsync(CancellationToken ct);
     public abstract Task<ProviderStatus> GetStatusAsync(CancellationToken ct);
 }

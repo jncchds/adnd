@@ -44,7 +44,22 @@ public class ApiKeyEncryptionService : IApiKeyEncryptionService
 
     public string Decrypt(string ciphertext)
     {
-        var data = Convert.FromBase64String(ciphertext);
+        byte[] data;
+        try
+        {
+            data = Convert.FromBase64String(ciphertext);
+        }
+        catch (FormatException ex)
+        {
+            throw new InvalidOperationException("Stored API key is not valid base64.", ex);
+        }
+
+        // Layout is nonce(12) ‖ tag(16) ‖ ciphertext. Slicing a shorter buffer threw
+        // ArgumentOutOfRangeException, surfacing as an unhandled 500 rather than a
+        // clear error about corrupt or wrongly-keyed data.
+        if (data.Length < 28)
+            throw new InvalidOperationException("Stored API key is malformed or truncated.");
+
         var nonce = data[..12];
         var tag = data[12..28];
         var encryptedData = data[28..];

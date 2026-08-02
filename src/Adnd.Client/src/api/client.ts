@@ -1,6 +1,6 @@
 import type {
   AuthResponse, LoginRequest, RegisterRequest, User,
-  Game, GameCreateRequest, Player, GameSession, NPC,
+  Game, GameCreateRequest, Player, GameSession, NPC, Character, CreateCharacterRequest,
   LLMPreset, LLMPresetCreate, LLMPresetUpdate, ProviderStatus, LLMInteractionLog,
   Message, MessagePage,
   AgentCall, ToolCall,
@@ -29,6 +29,12 @@ class APIClient {
     localStorage.removeItem(REFRESH_KEY)
   }
 
+  /**
+   * Endpoints where a 401 means "those credentials are wrong", not "your session expired".
+   * Redirecting on these threw away the error before the login form could display it.
+   */
+  private static readonly AUTH_PATHS = ['/auth/login', '/auth/register', '/auth/refresh']
+
   private async request<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
     const token = this.getToken()
     const headers: Record<string, string> = {
@@ -39,7 +45,9 @@ class APIClient {
 
     const res = await fetch(`${this.baseUrl}${path}`, { ...options, headers })
 
-    if (res.status === 401 && retry) {
+    const isAuthPath = APIClient.AUTH_PATHS.some(p => path.startsWith(p))
+
+    if (res.status === 401 && retry && !isAuthPath) {
       const refreshed = await this.tryRefresh()
       if (refreshed) return this.request<T>(path, options, false)
       this.clearTokens()
@@ -49,13 +57,24 @@ class APIClient {
 
     if (res.status === 429) throw new Error('Rate limit exceeded. Please slow down.')
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => res.statusText)
-      throw new Error(body || `HTTP ${res.status}`)
-    }
+    if (!res.ok) throw new Error(await this.extractError(res))
 
     if (res.status === 204) return undefined as T
     return res.json()
+  }
+
+  /** Controllers return `{ error: "..." }`; surface that rather than raw JSON. */
+  private async extractError(res: Response): Promise<string> {
+    const body = await res.text().catch(() => '')
+    if (!body) return res.statusText || `HTTP ${res.status}`
+    try {
+      const parsed = JSON.parse(body)
+      if (typeof parsed?.error === 'string') return parsed.error
+      if (typeof parsed?.title === 'string') return parsed.title
+    } catch {
+      // Not JSON — fall through and use the raw text.
+    }
+    return body
   }
 
   private async tryRefresh(): Promise<boolean> {
@@ -81,9 +100,6 @@ class APIClient {
   private put<T>(path: string, body?: unknown) {
     return this.request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
   }
-  private patch<T>(path: string, body?: unknown) {
-    return this.request<T>(path, { method: 'PATCH', body: JSON.stringify(body) })
-  }
   private delete<T>(path: string) { return this.request<T>(path, { method: 'DELETE' }) }
 
   // Auth
@@ -101,19 +117,24 @@ class APIClient {
   // Games
   games = {
     list: () => this.get<Game[]>('/games'),
+    listArchived: () => this.get<Game[]>('/games/archived'),
     get: (id: string) => this.get<Game>(`/games/${id}`),
     create: (data: GameCreateRequest) => this.post<Game>('/games', data),
     update: (id: string, data: Partial<GameCreateRequest>) => this.put<Game>(`/games/${id}`, data),
     delete: (id: string) => this.delete<void>(`/games/${id}`),
     start: (id: string) => this.post<void>(`/games/${id}/start`),
     archive: (id: string) => this.post<void>(`/games/${id}/archive`),
-    generateInvite: (id: string) => this.post<{ code: string }>(`/games/${id}/invite`),
-    joinByCode: (code: string) => this.post<Game>('/games/join', { code }),
-    join: (id: string) => this.post<void>(`/games/${id}/join`),
-    leave: (id: string) => this.post<void>(`/games/${id}/leave`),
+    // Server returns { inviteCode }, not { code } — reading the wrong field meant the GM
+    // saw nothing after generating an invite.
+    generateInvite: (id: string) => this.post<{ inviteCode: string }>(`/games/${id}/invite`),
+    // Body must match JoinByCodeRequest(InviteCode, CharacterName); sending { code } bound
+    // InviteCode to null, so joining a game was impossible.
+    joinByCode: (inviteCode: string, characterName: string) =>
+      this.post<Game>('/games/join', { inviteCode, characterName }),
+    leave: (id: string, playerId: string) => this.delete<void>(`/games/${id}/players/${playerId}`),
     getPlayers: (id: string) => this.get<Player[]>(`/games/${id}/players`),
     promotePlayer: (id: string, playerId: string, role: string) =>
-      this.patch<void>(`/games/${id}/players/${playerId}/role`, { role }),
+      this.post<void>(`/games/${id}/players/${playerId}/promote`, { role }),
     getSessions: (id: string) => this.get<GameSession[]>(`/games/${id}/sessions`),
     gmStatus: (id: string) => this.get<GMStatusResponse>(`/gmstatus/${id}`),
     pauseGM: (id: string) => this.post<void>(`/gmstatus/${id}/pause`),
@@ -143,6 +164,8 @@ class APIClient {
     setDefault: (id: string) => this.post<void>(`/llmpresets/${id}/set-default`),
     test: (id: string) => this.post<ProviderStatus>(`/llmpresets/${id}/test`),
     listModels: (id: string) => this.get<string[]>(`/llmpresets/${id}/models`),
+    queryModels: (providerType: string, endpointUrl?: string, apiKey?: string) =>
+      this.post<string[]>('/llmpresets/models', { providerType, endpointUrl, apiKey }),
   }
 
   // LLM Logs
@@ -160,17 +183,20 @@ class APIClient {
 
   // Agent calls
   agentCalls = {
-    list: (gameId: string) => this.get<AgentCall[]>(`/agentframework?gameId=${gameId}`),
-    get: (id: string) => this.get<AgentCall>(`/agentframework/${id}`),
-    pending: (gameId: string) => this.get<AgentCall[]>(`/agentframework/pending?gameId=${gameId}`),
+    list: (gameId: string) => this.get<AgentCall[]>(`/agentcalls?gameId=${gameId}`),
+    get: (id: string) => this.get<AgentCall>(`/agentcalls/${id}`),
+    pending: (gameId: string) => this.get<AgentCall[]>(`/agentcalls/pending?gameId=${gameId}`),
   }
 
   // Tool calls
   toolCalls = {
     pending: (gameId: string) => this.get<ToolCall[]>(`/gmtools/pending?gameId=${gameId}`),
     confirm: (id: string) => this.post<void>(`/gmtools/${id}/confirm`),
-    execute: (gameId: string, toolName: string, args: Record<string, unknown>) =>
-      this.post<unknown>(`/gmtools/execute`, { gameId, toolName, arguments: args }),
+    decline: (id: string, reason?: string) =>
+      this.post<void>(`/gmtools/${id}/decline`, { reason }),
+    // sessionId is required by GMToolExecuteRequest; omitting it bound Guid.Empty.
+    execute: (gameId: string, sessionId: string, toolName: string, args: Record<string, unknown>) =>
+      this.post<unknown>('/gmtools/execute', { gameId, sessionId, toolName, arguments: args }),
     list: (category?: string) =>
       this.get<unknown[]>(`/gmtools${category ? `?category=${category}` : ''}`),
   }
@@ -198,67 +224,66 @@ class APIClient {
 
   // Characters
   characters = {
-    get: (id: string) => this.get<Record<string, unknown>>(`/characters/${id}`),
-    create: (data: Record<string, unknown>) => this.post<Record<string, unknown>>('/characters', data),
-    update: (id: string, data: Record<string, unknown>) =>
-      this.put<Record<string, unknown>>(`/characters/${id}`, data),
-    getForPlayer: (gameId: string, playerId: string) =>
-      this.get<Record<string, unknown>>(`/characters?gameId=${gameId}&playerId=${playerId}`),
+    get: (id: string) => this.get<Character>(`/characters/${id}`),
+    getMy: (gameId: string) => this.get<Character>(`/characters/my?gameId=${gameId}`),
+    listForGame: (gameId: string) => this.get<Character[]>(`/characters?gameId=${gameId}`),
+    create: (data: CreateCharacterRequest) => this.post<Character>('/characters', data),
+    update: (id: string, data: Partial<Character>) => this.put<Character>(`/characters/${id}`, data),
   }
 
-  // Prompt templates
+  // Prompt templates — server route is /quickwins/templates
   promptTemplates = {
     list: (gameId?: string) =>
-      this.get<PromptTemplate[]>(`/quickwins/prompt-templates${gameId ? `?gameId=${gameId}` : ''}`),
+      this.get<PromptTemplate[]>(`/quickwins/templates${gameId ? `?gameId=${gameId}` : ''}`),
     create: (data: Partial<PromptTemplate>) =>
-      this.post<PromptTemplate>('/quickwins/prompt-templates', data),
+      this.post<PromptTemplate>('/quickwins/templates', data),
     update: (id: string, data: Partial<PromptTemplate>) =>
-      this.put<PromptTemplate>(`/quickwins/prompt-templates/${id}`, data),
-    delete: (id: string) => this.delete<void>(`/quickwins/prompt-templates/${id}`),
-    getDefault: (type: string) =>
-      this.get<PromptTemplate>(`/quickwins/prompt-templates/default?type=${type}`),
+      this.put<PromptTemplate>(`/quickwins/templates/${id}`, data),
+    delete: (id: string) => this.delete<void>(`/quickwins/templates/${id}`),
   }
 
-  // Game templates
+  // Game templates — server route is /quickwins/gametemplates
   gameTemplates = {
-    list: () => this.get<GameTemplate[]>('/quickwins/game-templates'),
-    create: (data: Partial<GameTemplate>) => this.post<GameTemplate>('/quickwins/game-templates', data),
+    list: () => this.get<GameTemplate[]>('/quickwins/gametemplates'),
+    create: (data: Partial<GameTemplate>) => this.post<GameTemplate>('/quickwins/gametemplates', data),
     update: (id: string, data: Partial<GameTemplate>) =>
-      this.put<GameTemplate>(`/quickwins/game-templates/${id}`, data),
-    delete: (id: string) => this.delete<void>(`/quickwins/game-templates/${id}`),
+      this.put<GameTemplate>(`/quickwins/gametemplates/${id}`, data),
+    delete: (id: string) => this.delete<void>(`/quickwins/gametemplates/${id}`),
   }
 
-  // Session notes
+  // Session notes — server route is /quickwins/notes
   sessionNotes = {
-    list: (gameId: string) => this.get<SessionNote[]>(`/quickwins/session-notes?gameId=${gameId}`),
-    create: (data: Partial<SessionNote>) => this.post<SessionNote>('/quickwins/session-notes', data),
+    list: (gameId: string) => this.get<SessionNote[]>(`/quickwins/notes?gameId=${gameId}`),
+    create: (data: Partial<SessionNote>) => this.post<SessionNote>('/quickwins/notes', data),
     update: (id: string, data: Partial<SessionNote>) =>
-      this.put<SessionNote>(`/quickwins/session-notes/${id}`, data),
-    delete: (id: string) => this.delete<void>(`/quickwins/session-notes/${id}`),
+      this.put<SessionNote>(`/quickwins/notes/${id}`, data),
+    delete: (id: string) => this.delete<void>(`/quickwins/notes/${id}`),
   }
 
-  // Manual LLM triggers
+  // Manual LLM triggers. Routes carry no {gameId} segment — the game is in the body,
+  // as LLMTriggerRequest(GameId, SessionId, Context).
   triggers = {
-    narrate: (gameId: string, prompt: string) =>
-      this.post<void>(`/llmtrigger/${gameId}/narrate`, { prompt }),
-    suggest: (gameId: string) => this.post<void>(`/llmtrigger/${gameId}/suggest`),
-    consistency: (gameId: string) => this.post<ConsistencyReport>(`/llmtrigger/${gameId}/consistency`),
-    generateThreads: (gameId: string) => this.post<void>(`/llmtrigger/${gameId}/generate-threads`),
-    sessionSummary: (gameId: string) => this.post<string>(`/llmtrigger/${gameId}/session-summary`),
+    narrate: (gameId: string, context?: string) =>
+      this.post<void>('/llmtrigger/narrate', { gameId, context }),
+    suggest: (gameId: string) => this.post<void>('/llmtrigger/suggest', { gameId }),
+    consistency: (gameId: string) =>
+      this.post<ConsistencyReport>('/llmtrigger/consistency', { gameId }),
+    generateThreads: (gameId: string) =>
+      this.post<void>('/llmtrigger/generate-threads', { gameId }),
+    sessionSummary: (gameId: string, sessionId?: string) =>
+      this.post<string>('/llmtrigger/session-summary', { gameId, sessionId }),
   }
 
   // Systems
   systems = {
     list: () => this.get<{ id: string; name: string }[]>('/systems'),
-    getCustom: (gameId: string) => this.get<unknown>(`/systems/custom/${gameId}`),
-    createCustom: (gameId: string, definition: unknown) =>
-      this.post<unknown>(`/systems/custom/${gameId}`, definition),
+    get: (id: string) => this.get<unknown>(`/systems/${id}`),
   }
 
-  // Dice
+  // Dice — server route is /dice/history
   dice = {
     history: (gameId: string, page = 1) =>
-      this.get<{ items: Message[]; total: number }>(`/dicehistory?gameId=${gameId}&page=${page}`),
+      this.get<{ items: Message[]; total: number }>(`/dice/history?gameId=${gameId}&page=${page}`),
     myRolls: (gameId: string) => this.get<Message[]>(`/dice/my-rolls?gameId=${gameId}`),
   }
 
@@ -275,7 +300,7 @@ class APIClient {
     updateGameState: (gameId: string, state: string) =>
       this.put<void>(`/gamestate/${gameId}`, { state }),
     generateRecap: (gameId: string) =>
-      this.post<string>(`/llmtrigger/${gameId}/session-summary`),
+      this.post<string>('/llmtrigger/session-summary', { gameId }),
   }
 }
 

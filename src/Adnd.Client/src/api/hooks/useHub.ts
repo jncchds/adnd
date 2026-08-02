@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState } from 'react'
+import { useRef, useCallback, useMemo, useState } from 'react'
 import * as signalR from '@microsoft/signalr'
 import { api } from '../client'
 
@@ -46,21 +46,32 @@ export function useGameHub() {
   }, [])
 
   const disconnect = useCallback(async () => {
-    if (connectionRef.current) {
-      await connectionRef.current.stop()
-      connectionRef.current = null
-      setState({ isConnected: false, error: null })
+    const connection = connectionRef.current
+    if (!connection) return
+
+    // Clear the ref before awaiting stop(), and only if it still points at the connection
+    // we are stopping. Under StrictMode the effect re-runs and assigns a NEW connection
+    // while stop() is in flight; nulling unconditionally afterwards discarded that new
+    // connection, leaving invoke() throwing "Hub not connected" over a live socket.
+    if (connectionRef.current === connection) connectionRef.current = null
+
+    try {
+      await connection.stop()
+    } finally {
+      setState(s => (connectionRef.current === null ? { isConnected: false, error: null } : s))
     }
   }, [])
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const on = useCallback((event: string, handler: (...args: any[]) => void) => {
-    connectionRef.current?.on(event, handler)
+  // `unknown[]` rather than `any[]`: callers still declare the payload type they expect,
+  // but TypeScript no longer silently accepts a mismatched handler signature. (The repo
+  // carries eslint-disable comments for no-explicit-any but has no eslint installed, so
+  // nothing was actually enforcing this.)
+  const on = useCallback((event: string, handler: (...args: never[]) => void) => {
+    connectionRef.current?.on(event, handler as (...args: unknown[]) => void)
   }, [])
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const off = useCallback((event: string, handler?: (...args: any[]) => void) => {
-    if (handler) connectionRef.current?.off(event, handler)
+  const off = useCallback((event: string, handler?: (...args: never[]) => void) => {
+    if (handler) connectionRef.current?.off(event, handler as (...args: unknown[]) => void)
     else connectionRef.current?.off(event)
   }, [])
 
@@ -84,7 +95,13 @@ export function useGameHub() {
     })
   }, [])
 
-  return { ...state, connect, disconnect, on, off, invoke, waitForConnection }
+  // Memoized so the returned object is referentially stable. It used to be a fresh literal
+  // on every render, so effects depending on `hub` tore down and re-registered every
+  // SignalR handler on each keystroke.
+  return useMemo(
+    () => ({ ...state, connect, disconnect, on, off, invoke, waitForConnection }),
+    [state, connect, disconnect, on, off, invoke, waitForConnection],
+  )
 }
 
 export type GameHub = ReturnType<typeof useGameHub>

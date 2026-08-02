@@ -1,6 +1,7 @@
 using Adnd.Server.Data;
 using Adnd.Server.Services.Llm;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Adnd.Server.Services;
 
@@ -12,7 +13,8 @@ public interface IEmbeddingService
 public class EmbeddingService(
     AppDbContext db,
     IApiKeyEncryptionService encryption,
-    ILLMProviderFactory factory) : IEmbeddingService
+    ILLMProviderFactory factory,
+    ILogger<EmbeddingService> logger) : IEmbeddingService
 {
     public async Task<float[]> GetEmbeddingAsync(string text, Guid gameId, CancellationToken ct = default)
     {
@@ -32,8 +34,9 @@ public class EmbeddingService(
             var provider = factory.CreateFromPreset(preset);
             return await provider.GetEmbeddingAsync(text, ct);
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogWarning(ex, "Embedding failed for game {GameId}; RAG will proceed without vector", gameId);
             return [];
         }
     }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Adnd.Server.Data;
@@ -33,6 +34,7 @@ public class RAGService(
     // Static cache shared across all scoped instances; 60-minute TTL
     private static readonly ConcurrentDictionary<string, (float[] Embedding, DateTimeOffset CachedAt)> _embeddingCache = new();
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(60);
+    private const int MaxCacheEntries = 5000;
 
     public async Task<string> GeneratePlotContextAsync(Guid gameId, CancellationToken ct = default)
     {
@@ -163,7 +165,7 @@ public class RAGService(
 
     public async Task<ConsistencyReport> CheckPlotConsistencyAsync(Guid gameId, CancellationToken ct = default)
     {
-        var (provider, opts) = await GetProviderAsync(gameId, temperature: 0.3f, maxTokens: 512, ct);
+        var (provider, opts) = await GetProviderAsync(gameId, temperature: 0.3f, maxTokens: 512, ct, jsonMode: true, jsonSchema: JsonSchemas.Object);
         if (provider is null)
             return new ConsistencyReport(true, [], "No LLM preset configured.");
 
@@ -187,7 +189,7 @@ public class RAGService(
 
     public async Task<PlotContinuation> SuggestContinuationAsync(Guid gameId, CancellationToken ct = default)
     {
-        var (provider, opts) = await GetProviderAsync(gameId, temperature: 0.8f, maxTokens: 512, ct);
+        var (provider, opts) = await GetProviderAsync(gameId, temperature: 0.8f, maxTokens: 512, ct, jsonMode: true, jsonSchema: JsonSchemas.Object);
         if (provider is null)
             return new PlotContinuation("No LLM preset configured.", []);
 
@@ -251,7 +253,7 @@ public class RAGService(
 
     private async Task<float[]> GetCachedEmbeddingAsync(string text, Guid gameId, CancellationToken ct)
     {
-        var cacheKey = $"{gameId}:{text.GetHashCode()}";
+        var cacheKey = $"{gameId}:{ContentHash(text)}";
 
         if (_embeddingCache.TryGetValue(cacheKey, out var cached))
         {
@@ -262,13 +264,52 @@ public class RAGService(
 
         var embedding = await embeddingService.GetEmbeddingAsync(text, gameId, ct);
         if (embedding.Length > 0)
+        {
+            EvictIfOversized();
             _embeddingCache[cacheKey] = (embedding, DateTimeOffset.UtcNow);
+        }
 
         return embedding;
     }
 
+    /// <summary>
+    /// SHA-256 of the text. string.GetHashCode() is a 32-bit, per-process-randomized hash,
+    /// so two different messages in the same game could collide and silently receive each
+    /// other's embedding vector — poisoning similarity search with no visible error.
+    /// </summary>
+    private static string ContentHash(string text)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+
+    /// <summary>
+    /// Entries were only ever removed when a stale key happened to be read again, so a
+    /// long-running server accumulated every embedding it had ever computed. Drop expired
+    /// entries once the cache grows past its bound, then the oldest if that isn't enough.
+    /// </summary>
+    private static void EvictIfOversized()
+    {
+        if (_embeddingCache.Count < MaxCacheEntries) return;
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var (key, value) in _embeddingCache)
+        {
+            if (now - value.CachedAt >= CacheTtl)
+                _embeddingCache.TryRemove(key, out _);
+        }
+
+        if (_embeddingCache.Count < MaxCacheEntries) return;
+
+        foreach (var key in _embeddingCache
+                     .OrderBy(kvp => kvp.Value.CachedAt)
+                     .Take(_embeddingCache.Count - MaxCacheEntries + 1)
+                     .Select(kvp => kvp.Key))
+        {
+            _embeddingCache.TryRemove(key, out _);
+        }
+    }
+
     private async Task<(ILLMProvider? Provider, LLMOptions Opts)> GetProviderAsync(
-        Guid gameId, float temperature, int maxTokens, CancellationToken ct)
+        Guid gameId, float temperature, int maxTokens, CancellationToken ct,
+        bool jsonMode = false, System.Text.Json.JsonElement? jsonSchema = null)
     {
         var game = await db.Games
             .Include(g => g.LLMPreset)
@@ -286,7 +327,9 @@ public class RAGService(
             Model = preset.BaseModel,
             Temperature = temperature,
             MaxTokens = maxTokens,
-            TopP = preset.TopP
+            TopP = preset.TopP,
+            JsonMode = jsonMode,
+            JsonSchema = jsonSchema
         };
 
         return (factory.CreateFromPreset(preset), opts);

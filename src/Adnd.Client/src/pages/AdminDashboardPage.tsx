@@ -55,8 +55,8 @@ export default function AdminDashboardPage() {
   const genInvite = async () => {
     if (!gameId) return
     try {
-      const { code } = await api.games.generateInvite(gameId)
-      setInvite(code)
+      const { inviteCode } = await api.games.generateInvite(gameId)
+      setInvite(inviteCode)
     } catch (e) { setError((e as Error).message) }
   }
 
@@ -69,6 +69,7 @@ export default function AdminDashboardPage() {
     { label: 'Consistency', path: `/admin/${gameId}/consistency` },
     { label: 'LLM Logs', path: `/admin/${gameId}/llm-logs` },
     { label: 'Agent Calls', path: `/admin/${gameId}/agent-calls` },
+    { label: 'Settings', path: `/admin/${gameId}/settings` },
   ]
 
   return (

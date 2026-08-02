@@ -142,6 +142,9 @@ namespace Adnd.Server.Migrations
                     b.Property<string>("BackgroundSkills")
                         .HasColumnType("text");
 
+                    b.Property<string>("Backstory")
+                        .HasColumnType("text");
+
                     b.Property<string>("Class")
                         .IsRequired()
                         .HasColumnType("text");
@@ -442,6 +445,9 @@ namespace Adnd.Server.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("AgentCallId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Arguments")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -451,6 +457,9 @@ namespace Adnd.Server.Migrations
 
                     b.Property<Guid>("GameId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("RequiresConfirmation")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Result")
                         .IsRequired()
@@ -463,6 +472,12 @@ namespace Adnd.Server.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("TargetPlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ToolIndex")
                         .HasColumnType("integer");
 
                     b.Property<string>("ToolName")
@@ -996,6 +1011,9 @@ namespace Adnd.Server.Migrations
                     b.Property<float>("RelevanceScore")
                         .HasColumnType("real");
 
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -1121,6 +1139,10 @@ namespace Adnd.Server.Migrations
 
                     b.Property<int>("CurrentToolIndex")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ToolCalls")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("ToolResults")
                         .IsRequired()

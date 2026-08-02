@@ -21,6 +21,14 @@ public class GamesController(
         return Ok(result);
     }
 
+    [HttpGet("archived")]
+    public async Task<IActionResult> GetArchivedGames()
+    {
+        var userId = userIdProvider.GetUserId();
+        var result = await games.GetArchivedUserGamesAsync(userId);
+        return Ok(result);
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateGameDto dto)
     {
@@ -181,7 +189,7 @@ public class GamesController(
         {
             var userId = userIdProvider.GetUserId();
             var players = await games.GetPlayersAsync(id, userId);
-            return Ok(players);
+            return Ok(players.Select(PlayerDto.From));
         }
         catch (KeyNotFoundException ex)
         {
@@ -224,6 +232,27 @@ public class GamesController(
             var userId = userIdProvider.GetUserId();
             await games.KickPlayerAsync(id, playerId, userId);
             return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>Sessions for a game, newest first. Members only.</summary>
+    [HttpGet("{id:guid}/sessions")]
+    public async Task<IActionResult> GetSessions(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            var userId = userIdProvider.GetUserId();
+            var sessions = await games.GetSessionsAsync(id, userId, ct);
+            return Ok(sessions.Select(s => new GameSessionDto(
+                s.Id, s.GameId, s.Title, s.Description, s.Status, s.CreatedAt, s.ClosedAt)));
         }
         catch (KeyNotFoundException ex)
         {

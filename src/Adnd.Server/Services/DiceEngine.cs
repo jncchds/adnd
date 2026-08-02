@@ -22,8 +22,17 @@ public partial class DiceEngine : IDiceEngine
     [GeneratedRegex(@"(\d+)d(\d+)((?:k[hl]|d[hl])\d+)?", RegexOptions.IgnoreCase)]
     private static partial Regex DicePartPattern();
 
+    private const int MaxDiceCount = 1000;
+    private const int MaxDiceSides = 1000;
+    private const int MaxFormulaLength = 200;
+
     public DiceResult Roll(string formula)
     {
+        if (string.IsNullOrWhiteSpace(formula))
+            throw new ArgumentException("A dice formula is required.");
+        if (formula.Length > MaxFormulaLength)
+            throw new ArgumentException($"Dice formula must be {MaxFormulaLength} characters or fewer.");
+
         var normalized = formula.Replace(" ", "").ToLower();
         if (!normalized.StartsWith('-') && !normalized.StartsWith('+'))
             normalized = "+" + normalized;
@@ -42,8 +51,15 @@ public partial class DiceEngine : IDiceEngine
             if (body.Contains('d'))
             {
                 var dm = DicePartPattern().Match(body);
-                var count = int.Parse(dm.Groups[1].Value);
-                var sides = int.Parse(dm.Groups[2].Value);
+
+                // Bounded before allocation. These come straight from a user-supplied
+                // formula, so "999999999d20" used to allocate ~4 GB, and a longer digit
+                // string threw OverflowException out of int.Parse.
+                if (!int.TryParse(dm.Groups[1].Value, out var count) || count is < 1 or > MaxDiceCount)
+                    throw new ArgumentException($"Dice count must be between 1 and {MaxDiceCount}.");
+                if (!int.TryParse(dm.Groups[2].Value, out var sides) || sides is < 2 or > MaxDiceSides)
+                    throw new ArgumentException($"Dice sides must be between 2 and {MaxDiceSides}.");
+
                 var modStr = dm.Groups[3].Value;
 
                 var rolls = new int[count];

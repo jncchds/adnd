@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
+import type { Character } from '../../types'
 import { api } from '../client'
 
 export function useCharacter(characterId: string | null) {
-  const [character, setCharacter] = useState<Record<string, unknown> | null>(null)
+  const [character, setCharacter] = useState<Character | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

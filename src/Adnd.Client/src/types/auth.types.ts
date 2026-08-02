@@ -1,9 +1,8 @@
+/** Matches UserDto(Id, Email, DisplayName) — the API sends nothing else. */
 export interface User {
   id: string
   email: string
   displayName: string
-  createdAt: string
-  lastLoginAt: string | null
 }
 
 export interface AuthResponse {

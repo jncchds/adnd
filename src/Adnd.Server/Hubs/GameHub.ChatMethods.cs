@@ -9,36 +9,47 @@ public partial class GameHub
 {
     public async Task SendMessage(Guid gameId, string content, bool isOOC = false)
     {
-        var userId = CurrentUserId;
-        var player = await db.Players.FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId);
+        var player = await RequireMemberAsync(gameId);
         var session = await ResolveGameSessionAsync(gameId);
 
-        await PersistGameEventAsync(session.Id, content, isOOC ? "OOC" : "Chat", player?.Id, isOOC);
-
-        var msg = await db.Messages.OrderByDescending(m => m.CreatedAt)
-            .FirstOrDefaultAsync(m => m.SessionId == session.Id);
-        if (msg != null)
+        // Build the entity here rather than re-querying "newest message in the session"
+        // afterwards, which could return a concurrently-inserted message from someone else.
+        var msg = new Message
         {
-            var dto = new MessageDto(msg.Id, msg.SessionId, msg.PlayerId, msg.Content, msg.Type, msg.IsOOC, msg.CreatedAt, null);
-            await BroadcastToGameAsync(gameId, "NewMessage", dto);
-        }
+            SessionId = session.Id,
+            PlayerId = player.Id,
+            Content = content,
+            Type = isOOC ? "OOC" : "Chat",
+            IsOOC = isOOC,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.Messages.Add(msg);
+        await db.SaveChangesAsync();
 
-        await PublishAsync(new MessageSent(gameId, session.Id, player?.Id, content, isOOC ? "OOC" : "Chat"));
+        var dto = new MessageDto(msg.Id, msg.SessionId, msg.PlayerId, msg.Content, msg.Type, msg.IsOOC, msg.CreatedAt, null);
+        await BroadcastToGameAsync(gameId, "NewMessage", dto);
+
+        await PublishAsync(new MessageSent(gameId, session.Id, player.Id, content, msg.Type));
     }
 
     public async Task SendWhisper(Guid gameId, Guid targetPlayerId, string content)
     {
-        var userId = CurrentUserId;
-        var player = await db.Players.FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId);
+        var player = await RequireMemberAsync(gameId);
+
+        // The target must be in the same game, or this becomes a cross-game message channel.
+        var targetPlayer = await db.Players
+            .FirstOrDefaultAsync(p => p.Id == targetPlayerId && p.GameId == gameId)
+            ?? throw new HubForbiddenException("Target player is not in this game.");
+
         var session = await ResolveGameSessionAsync(gameId);
 
         var msg = new Message
         {
             SessionId = session.Id,
-            PlayerId = player?.Id,
+            PlayerId = player.Id,
             Content = content,
             Type = "Whisper",
-            WhisperFromId = player?.Id,
+            WhisperFromId = player.Id,
             WhisperToId = targetPlayerId,
             CreatedAt = DateTimeOffset.UtcNow
         };
@@ -47,16 +58,7 @@ public partial class GameHub
 
         var dto = new MessageDto(msg.Id, msg.SessionId, msg.PlayerId, msg.Content, msg.Type, false, msg.CreatedAt, null);
         await Clients.Caller.SendCoreAsync("NewMessage", [dto]);
-
-        var targetPlayer = await db.Players.Include(p => p.User).FirstOrDefaultAsync(p => p.Id == targetPlayerId);
-        if (targetPlayer != null)
-        {
-            var targetConns = _playerConnections
-                .Where(kvp => kvp.Value == targetPlayer.UserId.ToString())
-                .Select(kvp => kvp.Key).ToList();
-            if (targetConns.Count > 0)
-                await Clients.Clients(targetConns).SendCoreAsync("NewMessage", [dto]);
-        }
+        await Clients.User(targetPlayer.UserId.ToString()).SendCoreAsync("NewMessage", [dto]);
     }
 
     public async Task SendOOCMessage(Guid gameId, string content)

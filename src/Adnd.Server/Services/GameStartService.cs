@@ -1,5 +1,7 @@
 using Adnd.Server.Data;
+using Adnd.Server.Hubs;
 using Adnd.Server.Models;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -15,7 +17,7 @@ public class GameStartService(
     ISessionManagementService sessions,
     IPlotWeaver plotWeaver,
     INarrativeGenerationFactory narrativeFactory,
-    IAgentBus agentBus,
+    IHubContext<GameHub> hub,
     ILogger<GameStartService> logger) : IGameStartService
 {
     public async Task StartGameAsync(Guid gameId, CancellationToken ct = default)
@@ -58,19 +60,24 @@ public class GameStartService(
             }
         }
 
-        // Queue opening narration via AgentBus
-        var call = new AgentCall
+        // Generate and broadcast opening narration directly
+        logger.LogInformation("Generating opening narration for game {GameId}", gameId);
+        var narration = await narrativeFactory.GenerateOpeningNarrationAsync(gameId, ct);
+        if (!string.IsNullOrEmpty(narration))
         {
-            GameId = gameId,
-            SessionId = session.Id,
-            FromAgent = AgentType.System,
-            ToAgent = AgentType.GM,
-            Action = AgentAction.OpenNarrative,
-            Input = "Generate the opening narration for this game."
-        };
+            var msg = new Message
+            {
+                SessionId = session.Id,
+                Content = narration,
+                Type = "GM",
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            db.Messages.Add(msg);
+            await db.SaveChangesAsync(ct);
 
-        await agentBus.SendCallAsync(call);
-        logger.LogInformation("Opening narration queued for game {GameId}", gameId);
+            var dto = new MessageDto(msg.Id, msg.SessionId, null, msg.Content, msg.Type, false, msg.CreatedAt, null);
+            await hub.Clients.Group(gameId.ToString()).SendAsync("NewMessage", dto, ct);
+        }
     }
 
     private async Task SeedPromptTemplatesAsync(Guid gameId, CancellationToken ct)

@@ -20,7 +20,11 @@ function LogRow({ log, onDelete }: { log: LLMInteractionLog; onDelete: () => voi
         <TableCell><Typography variant="caption">{new Date(log.startedAt).toLocaleString()}</Typography></TableCell>
         <TableCell><Chip label={log.model} size="small" /></TableCell>
         <TableCell><Typography variant="caption">{log.presetName}</Typography></TableCell>
-        <TableCell align="right">{log.totalTokens.toLocaleString()}</TableCell>
+        <TableCell align="right">
+          <Typography variant="caption" component="span" color="text.secondary">{log.promptTokens.toLocaleString()}↑</Typography>
+          {' '}
+          <Typography variant="caption" component="span">{log.completionTokens.toLocaleString()}↓</Typography>
+        </TableCell>
         <TableCell align="right">{log.durationMs}ms</TableCell>
         <TableCell>
           <Tooltip title="Delete">
@@ -36,7 +40,7 @@ function LogRow({ log, onDelete }: { log: LLMInteractionLog; onDelete: () => voi
             <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
               <Box>
                 <Typography variant="caption" color="text.secondary" fontWeight={600}>System Prompt</Typography>
-                <Paper sx={{ p: 1, mt: 0.5, bgcolor: 'action.hover', maxHeight: 150, overflow: 'auto' }}>
+                <Paper sx={{ p: 1, mt: 0.5, bgcolor: 'action.hover', maxHeight: 200, overflow: 'auto' }}>
                   <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
                     {log.systemPrompt}
                   </Typography>
@@ -44,7 +48,7 @@ function LogRow({ log, onDelete }: { log: LLMInteractionLog; onDelete: () => voi
               </Box>
               <Box>
                 <Typography variant="caption" color="text.secondary" fontWeight={600}>User Prompt</Typography>
-                <Paper sx={{ p: 1, mt: 0.5, bgcolor: 'action.hover', maxHeight: 100, overflow: 'auto' }}>
+                <Paper sx={{ p: 1, mt: 0.5, bgcolor: 'action.hover', maxHeight: 200, overflow: 'auto' }}>
                   <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
                     {log.userPrompt}
                   </Typography>
@@ -52,15 +56,15 @@ function LogRow({ log, onDelete }: { log: LLMInteractionLog; onDelete: () => voi
               </Box>
               <Box>
                 <Typography variant="caption" color="text.secondary" fontWeight={600}>Response</Typography>
-                <Paper sx={{ p: 1, mt: 0.5, bgcolor: 'rgba(124,58,237,0.05)', maxHeight: 200, overflow: 'auto' }}>
+                <Paper sx={{ p: 1, mt: 0.5, bgcolor: 'rgba(124,58,237,0.05)', maxHeight: 400, overflow: 'auto' }}>
                   <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
                     {log.response}
                   </Typography>
                 </Paper>
               </Box>
               <Typography variant="caption" color="text.secondary">
-                Tokens: {log.promptTokens} prompt + {log.completionTokens} completion = {log.totalTokens} total
-                {' · '}{log.endpointUrl}
+                {log.promptTokens.toLocaleString()} prompt + {log.completionTokens.toLocaleString()} completion = {log.totalTokens.toLocaleString()} total tokens
+                {' · '}{log.durationMs}ms{' · '}{log.endpointUrl}
               </Typography>
             </Box>
           </Collapse>
@@ -121,7 +125,7 @@ export default function AdminLLMLogsPage() {
               <TableCell>Time</TableCell>
               <TableCell>Model</TableCell>
               <TableCell>Preset</TableCell>
-              <TableCell align="right">Tokens</TableCell>
+              <TableCell align="right">In↑ Out↓</TableCell>
               <TableCell align="right">Duration</TableCell>
               <TableCell />
             </TableRow>

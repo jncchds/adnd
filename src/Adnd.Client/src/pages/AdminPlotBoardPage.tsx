@@ -8,7 +8,7 @@ import {
 import { Add as AddIcon, Refresh as RefreshIcon, Delete as DeleteIcon } from '@mui/icons-material'
 import { usePlotThreads } from '../api/hooks/usePlotWeaver'
 import { api } from '../api/client'
-import type { PlotThread, PlotThreadCategory, PlotThreadStatus } from '../types'
+import type { PlotThreadCategory, PlotThreadStatus } from '../types'
 
 const CATEGORIES: PlotThreadCategory[] = ['General', 'Faction', 'Mystery', 'Personal', 'Threat', 'WorldEvent', 'Relationship']
 const STATUS_COLORS: Record<PlotThreadStatus, 'default' | 'success' | 'error'> = {

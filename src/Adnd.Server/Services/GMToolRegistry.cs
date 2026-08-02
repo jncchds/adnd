@@ -19,6 +19,24 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine) : IGMToolRe
     private static JsonElement Schema(string json)
         => JsonSerializer.Deserialize<JsonElement>(json);
 
+    /// <summary>
+    /// Reads a GUID argument without throwing. Tool arguments are produced by an LLM, so
+    /// a missing property or a non-GUID string is an expected input, not an exception —
+    /// Guid.Parse used to blow up the whole tool call on either.
+    /// </summary>
+    private static bool TryGetGuid(JsonElement arguments, string property, out Guid value)
+    {
+        value = Guid.Empty;
+        if (arguments.ValueKind != JsonValueKind.Object) return false;
+        if (!arguments.TryGetProperty(property, out var element)) return false;
+
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => Guid.TryParse(element.GetString(), out value),
+            _ => false
+        };
+    }
+
     public IEnumerable<ToolDefinition> GetToolDefinitions() =>
     [
         new("narrate", "Output narrative text to players",
@@ -76,8 +94,14 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine) : IGMToolRe
 
             case "queryCharacter":
             {
-                var charId = Guid.Parse(arguments.GetProperty("characterId").GetString()!);
-                var character = await db.Characters.FindAsync([charId], ct);
+                // Ids here come from LLM-generated arguments, so they may be hallucinated,
+                // malformed, or belong to a different game. Parse defensively and scope
+                // the lookup to this game.
+                if (!TryGetGuid(arguments, "characterId", out var charId))
+                    return "Invalid characterId";
+
+                var character = await db.Characters
+                    .FirstOrDefaultAsync(c => c.Id == charId && c.Player.GameId == gameId, ct);
                 if (character == null) return "Character not found";
                 return JsonSerializer.Serialize(new
                 {
@@ -113,15 +137,27 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine) : IGMToolRe
             case "sendWhisper":
             {
                 var content = arguments.GetProperty("content").GetString() ?? string.Empty;
+
+                // targetPlayerId is declared required in this tool's schema but was never
+                // read, so WhisperToId stayed null and the whisper was invisible to every
+                // player — including the one it was meant for.
+                if (!TryGetGuid(arguments, "targetPlayerId", out var targetPlayerId))
+                    return "Invalid or missing targetPlayerId";
+
+                var target = await db.Players
+                    .FirstOrDefaultAsync(p => p.Id == targetPlayerId && p.GameId == gameId, ct);
+                if (target == null) return "Target player not found in this game";
+
                 db.Messages.Add(new Message
                 {
                     SessionId = sessionId,
                     Content = content,
                     Type = "Whisper",
+                    WhisperToId = target.Id,
                     CreatedAt = DateTimeOffset.UtcNow
                 });
                 await db.SaveChangesAsync(ct);
-                return "Whisper sent";
+                return $"Whisper sent to {target.CharacterName}";
             }
 
             case "startCombat":
@@ -140,7 +176,14 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine) : IGMToolRe
 
             case "addCombatParticipant":
             {
-                var combatId = Guid.Parse(arguments.GetProperty("combatId").GetString()!);
+                if (!TryGetGuid(arguments, "combatId", out var combatId))
+                    return "Invalid combatId";
+
+                // The combat must belong to this game, or the GM agent could write into
+                // another table's encounter via a hallucinated id.
+                if (!await db.Combats.AnyAsync(c => c.Id == combatId && c.GameId == gameId, ct))
+                    return "Combat not found in this game";
+
                 var displayName = arguments.GetProperty("displayName").GetString() ?? string.Empty;
                 var hp = arguments.GetProperty("hp").GetInt32();
                 var ac = arguments.GetProperty("ac").GetInt32();

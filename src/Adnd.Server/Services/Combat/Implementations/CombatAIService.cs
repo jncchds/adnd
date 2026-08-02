@@ -3,11 +3,12 @@ using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services.Llm;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using CombatEntity = Adnd.Server.Models.Combat;
 
 namespace Adnd.Server.Services.Combat;
 
-public sealed class CombatAIService(AppDbContext db, ILLMProviderFactory llmProviderFactory) : ICombatAIService
+public sealed class CombatAIService(AppDbContext db, ILLMProviderFactory llmProviderFactory, ILogger<CombatAIService> logger) : ICombatAIService
 {
     public async Task<List<AICombatSuggestion>> GetSuggestionsAsync(
         Guid combatId,
@@ -44,7 +45,9 @@ public sealed class CombatAIService(AppDbContext db, ILLMProviderFactory llmProv
             {
                 Model = game.LLMPreset.BaseModel,
                 Temperature = 0.7f,
-                MaxTokens = 1024
+                MaxTokens = 1024,
+                JsonMode = true,
+                JsonSchema = JsonSchemas.Array
             };
 
             var response = await provider.CompleteAsync(systemPrompt, context, opts, ct);
@@ -67,9 +70,9 @@ public sealed class CombatAIService(AppDbContext db, ILLMProviderFactory llmProv
                 return suggestions;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // LLM failure — return empty suggestions gracefully
+            logger.LogWarning(ex, "CombatAI suggestion failed for combat {CombatId} in game {GameId}", combatId, gameId);
         }
 
         return [];

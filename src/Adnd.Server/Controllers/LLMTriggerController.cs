@@ -1,19 +1,32 @@
+using System.Text.Json;
+using Adnd.Server.Dtos;
 using Adnd.Server.Models;
 using Adnd.Server.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Adnd.Server.Controllers;
 
 public record LLMTriggerRequest(Guid GameId, Guid? SessionId, string? Context);
 
-[ApiController]
 [Route("api/llmtrigger")]
-[Authorize]
-public class LLMTriggerController(IAgentBus agentBus) : ControllerBase
+public class LLMTriggerController(
+    IAgentBus agentBus,
+    IGameAuthorizationService auth,
+    IUserIdProvider userIdProvider) : GameScopedController(auth, userIdProvider)
 {
     private async Task<IActionResult> QueueCall(LLMTriggerRequest req, AgentAction action)
     {
+        // Every one of these queues a billable LLM call. Without a membership check any
+        // authenticated user could spend another user's API budget and inject narration
+        // into their game.
+        if (await RequireCreator(req.GameId) is { } failure) return failure;
+
+        // Input must be serialized GMDispatchOptions — the dispatch handler deserializes
+        // it, and a bare context string would abort the call as malformed.
+        var options = new GMDispatchOptions(
+            SystemPrompt: $"You are the AI Game Master. Perform the '{action}' action for this session.",
+            UserPrompt: req.Context ?? $"Perform the {action} action.");
+
         var call = new AgentCall
         {
             GameId = req.GameId,
@@ -21,7 +34,7 @@ public class LLMTriggerController(IAgentBus agentBus) : ControllerBase
             FromAgent = AgentType.GM,
             ToAgent = AgentType.LLM,
             Action = action,
-            Input = req.Context
+            Input = JsonSerializer.Serialize(options)
         };
         var queued = await agentBus.SendCallAsync(call);
         return Accepted(new { agentCallId = queued.Id });

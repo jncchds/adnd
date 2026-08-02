@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Adnd.Server.Data;
@@ -21,7 +22,8 @@ public class PlotWeaver(
     ILLMProviderFactory factory,
     IApiKeyEncryptionService encryption,
     IEmbeddingService embeddingService,
-    ILogger<PlotWeaver> logger) : IPlotWeaver
+    ILogger<PlotWeaver> logger,
+    ILLMInteractionLogger llmLogger) : IPlotWeaver
 {
     public async Task ReviewAndAdaptAsync(Guid gameId, CancellationToken ct = default)
     {
@@ -46,15 +48,15 @@ public class PlotWeaver(
 
         if (!await HasInitialThreadsAsync(gameId, ct))
         {
-            await GenerateInitialThreadsAsync(gameId, game.PlotSeed, provider, preset, ct);
+            await GenerateInitialThreadsAsync(gameId, game.CreatorId, game.PlotSeed, provider, preset, ct);
         }
         else
         {
-            await AdaptExistingThreadsAsync(gameId, context, provider, preset, ct);
-            await SpawnMilestonesAsync(gameId, context, provider, preset, ct);
+            await AdaptExistingThreadsAsync(gameId, game.CreatorId, context, provider, preset, ct);
+            await SpawnMilestonesAsync(gameId, game.CreatorId, context, provider, preset, ct);
         }
 
-        await DetectOpportunitiesAsync(gameId, context, provider, preset, ct);
+        await DetectOpportunitiesAsync(gameId, game.CreatorId, context, provider, preset, ct);
     }
 
     public async Task<bool> HasInitialThreadsAsync(Guid gameId, CancellationToken ct = default)
@@ -62,7 +64,7 @@ public class PlotWeaver(
 
     // ── PlotThreadGenerationStrategy ─────────────────────────────────────────
 
-    private async Task GenerateInitialThreadsAsync(Guid gameId, string? plotSeed, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
+    private async Task GenerateInitialThreadsAsync(Guid gameId, Guid creatorId, string? plotSeed, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
     {
         var prompt = new StringBuilder();
         if (!string.IsNullOrEmpty(plotSeed))
@@ -70,14 +72,17 @@ public class PlotWeaver(
         prompt.AppendLine("Generate 2-4 compelling TTRPG plot threads for this game. Each should be narratively interesting and interconnected where possible.");
         prompt.AppendLine("Respond with a JSON array: [{\"title\": \"...\", \"description\": \"...\", \"category\": \"General|Faction|Mystery|Personal|Threat|WorldEvent|Relationship\", \"nextMilestone\": \"...\", \"foreshadowing\": \"...\"}]");
 
-        var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.9f, MaxTokens = 1024 };
-        var response = await provider.CompleteAsync("You are a creative TTRPG game master. Generate compelling plot threads.", prompt.ToString(), opts, ct);
+        const string system = "You are a creative TTRPG game master. Generate compelling plot threads.";
+        var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.9f, MaxTokens = 2048, JsonMode = true, JsonSchema = JsonSchemas.Array };
+        var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset, system, prompt.ToString(), opts, ct);
 
         if (!JsonExtract.TryExtractArray(response, out var arr))
         {
-            logger.LogWarning("PlotWeaver: failed to extract JSON array from thread generation response for game {GameId}", gameId);
+            logger.LogWarning("PlotWeaver: failed to extract JSON array from thread generation response for game {GameId}. Raw response: {Response}", gameId, response);
             return;
         }
+
+        var existingTitles = await GetActiveThreadTitlesAsync(gameId, ct);
 
         var added = 0;
         foreach (var item in arr.EnumerateArray())
@@ -86,7 +91,8 @@ public class PlotWeaver(
             var title = item.TryGetProperty("title", out var t) ? t.GetString() : null;
             if (string.IsNullOrEmpty(title)) continue;
 
-            if (await HasSimilarThreadAsync(gameId, title, ct)) continue;
+            if (IsSimilarToAny(existingTitles, title)) continue;
+            existingTitles.Add(title);
 
             var description = item.TryGetProperty("description", out var d) ? d.GetString() : null;
             var categoryStr = item.TryGetProperty("category", out var c) ? c.GetString() : "General";
@@ -138,7 +144,7 @@ public class PlotWeaver(
 
     // ── PlotThreadAdaptationStrategy ─────────────────────────────────────────
 
-    private async Task AdaptExistingThreadsAsync(Guid gameId, string context, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
+    private async Task AdaptExistingThreadsAsync(Guid gameId, Guid creatorId, string context, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
     {
         var threads = await db.PlotThreads
             .Where(t => t.GameId == gameId && t.Status == PlotThreadStatus.Active)
@@ -150,10 +156,15 @@ public class PlotWeaver(
         var threadList = string.Join("\n", threads.Select(t => $"- ID:{t.Id} Title:{t.Title} Momentum:{t.Momentum:F1}"));
         var prompt = $"{context}\n\nActive threads:\n{threadList}\n\nFor each thread, assess how recent events affect it. Respond with JSON array: [{{\"id\": \"guid\", \"momentum\": float(-10 to 10), \"adaptationNote\": \"...\", \"newMilestone\": \"...\"}}]";
 
-        var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.7f, MaxTokens = 1024 };
-        var response = await provider.CompleteAsync("You are a TTRPG narrative AI. Adapt plot threads based on recent events.", prompt, opts, ct);
+        const string system = "You are a TTRPG narrative AI. Adapt plot threads based on recent events.";
+        var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.7f, MaxTokens = 2048, JsonMode = true, JsonSchema = JsonSchemas.Array };
+        var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset, system, prompt, opts, ct);
 
-        if (!JsonExtract.TryExtractArray(response, out var arr)) return;
+        if (!JsonExtract.TryExtractArray(response, out var arr))
+        {
+            logger.LogWarning("PlotWeaver: failed to extract JSON array from thread adaptation response for game {GameId}. Raw: {Response}", gameId, response);
+            return;
+        }
 
         foreach (var item in arr.EnumerateArray())
         {
@@ -179,7 +190,7 @@ public class PlotWeaver(
 
     // ── PlotMilestoneSpawningStrategy ────────────────────────────────────────
 
-    private async Task SpawnMilestonesAsync(Guid gameId, string context, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
+    private async Task SpawnMilestonesAsync(Guid gameId, Guid creatorId, string context, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
     {
         var highMomentumThreads = await db.PlotThreads
             .Where(t => t.GameId == gameId && t.Status == PlotThreadStatus.Active && t.Momentum >= 5f)
@@ -187,14 +198,19 @@ public class PlotWeaver(
 
         if (highMomentumThreads.Count == 0) return;
 
+        const string system = "You are a TTRPG game master spawning plot milestones.";
         foreach (var thread in highMomentumThreads)
         {
             var prompt = $"Plot thread: {thread.Title}\nDescription: {thread.Description}\nCurrent momentum: {thread.Momentum}\n\nSpawn a compelling milestone event for this thread. Respond with JSON: {{\"title\": \"...\", \"description\": \"...\"}}";
 
-            var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.8f, MaxTokens = 256 };
-            var response = await provider.CompleteAsync("You are a TTRPG game master spawning plot milestones.", prompt, opts, ct);
+            var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.8f, MaxTokens = 512, JsonMode = true, JsonSchema = JsonSchemas.Object };
+            var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset, system, prompt, opts, ct);
 
-            if (!JsonExtract.TryExtractObject(response, out var obj)) continue;
+            if (!JsonExtract.TryExtractObject(response, out var obj))
+            {
+                logger.LogWarning("PlotWeaver: failed to extract JSON object from milestone spawn response for thread {ThreadId} in game {GameId}. Raw: {Response}", thread.Id, gameId, response);
+                continue;
+            }
 
             var title = obj.TryGetProperty("title", out var t) ? t.GetString() : null;
             var description = obj.TryGetProperty("description", out var d) ? d.GetString() : null;
@@ -214,16 +230,23 @@ public class PlotWeaver(
 
     // ── PlotOpportunityDetectionStrategy ─────────────────────────────────────
 
-    private async Task DetectOpportunitiesAsync(Guid gameId, string context, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
+    private async Task DetectOpportunitiesAsync(Guid gameId, Guid creatorId, string context, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(context)) return;
 
         var prompt = $"{context}\n\nIdentify 1-2 story opportunities that could create new plot threads. Respond with JSON array: [{{\"title\": \"...\", \"description\": \"...\", \"category\": \"General|Faction|Mystery|Personal|Threat|WorldEvent|Relationship\"}}]";
 
-        var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.85f, MaxTokens = 512 };
-        var response = await provider.CompleteAsync("You are a TTRPG game master identifying story opportunities.", prompt, opts, ct);
+        const string system = "You are a TTRPG game master identifying story opportunities.";
+        var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.85f, MaxTokens = 1024, JsonMode = true, JsonSchema = JsonSchemas.Array };
+        var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset, system, prompt, opts, ct);
 
-        if (!JsonExtract.TryExtractArray(response, out var arr)) return;
+        if (!JsonExtract.TryExtractArray(response, out var arr))
+        {
+            logger.LogWarning("PlotWeaver: failed to extract JSON array from opportunity detection response for game {GameId}. Raw: {Response}", gameId, response);
+            return;
+        }
+
+        var existingTitles = await GetActiveThreadTitlesAsync(gameId, ct);
 
         var added = 0;
         foreach (var item in arr.EnumerateArray())
@@ -232,7 +255,8 @@ public class PlotWeaver(
             var title = item.TryGetProperty("title", out var t) ? t.GetString() : null;
             if (string.IsNullOrEmpty(title)) continue;
 
-            if (await HasSimilarThreadAsync(gameId, title, ct)) continue;
+            if (IsSimilarToAny(existingTitles, title)) continue;
+            existingTitles.Add(title);
 
             var description = item.TryGetProperty("description", out var d) ? d.GetString() : null;
             var categoryStr = item.TryGetProperty("category", out var c) ? c.GetString() : "General";
@@ -258,16 +282,59 @@ public class PlotWeaver(
 
     // ── Support methods ────────────────────────────────────────────────────────
 
-    private async Task<bool> HasSimilarThreadAsync(Guid gameId, string title, CancellationToken ct)
+    private async Task<string> CompleteAndLogAsync(
+        Guid gameId, Guid creatorId, ILLMProvider provider, LLMPreset preset,
+        string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
     {
-        var existing = await db.PlotThreads
+        string response = "";
+        Exception? llmError = null;
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            response = await provider.CompleteAsync(systemPrompt, userPrompt, opts, ct);
+            sw.Stop();
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            llmError = ex;
+            response = $"[ERROR] {ex.Message}";
+        }
+        finally
+        {
+            try
+            {
+                await llmLogger.LogAsync(creatorId, gameId, systemPrompt, userPrompt,
+                    response, provider.GetTokenUsage(), sw.ElapsedMilliseconds,
+                    preset.Name, preset.EndpointUrl ?? provider.EndpointUrl, preset.BaseModel);
+            }
+            catch (Exception logEx)
+            {
+                logger.LogWarning(logEx, "Failed to write LLM interaction log for game {GameId}", gameId);
+            }
+        }
+        if (llmError != null)
+            throw llmError;
+        return response;
+    }
+
+    /// <summary>
+    /// Loads the active thread titles once. The similarity check is called per candidate
+    /// thread, and re-running this query inside that loop was a straightforward N+1.
+    /// </summary>
+    private Task<List<string>> GetActiveThreadTitlesAsync(Guid gameId, CancellationToken ct)
+        => db.PlotThreads
+            .AsNoTracking()
             .Where(t => t.GameId == gameId && t.Status == PlotThreadStatus.Active)
             .Select(t => t.Title)
             .ToListAsync(ct);
 
+    /// <summary>Jaccard similarity over title words; ≥0.5 counts as a duplicate.</summary>
+    private static bool IsSimilarToAny(IEnumerable<string> existingTitles, string title)
+    {
         var newWords = new HashSet<string>(title.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
-        foreach (var existingTitle in existing)
+        foreach (var existingTitle in existingTitles)
         {
             var existingWords = new HashSet<string>(existingTitle.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries));
             var intersection = newWords.Intersect(existingWords).Count();
@@ -281,21 +348,33 @@ public class PlotWeaver(
 
     private async Task ArchiveOldThreadsAsync(Guid gameId, CancellationToken ct)
     {
-        var cutoff = DateTimeOffset.UtcNow.AddDays(-30);
-        var staleThreads = await db.PlotThreads
+        var now = DateTimeOffset.UtcNow;
+        var cutoff = now.AddDays(-30);
+
+        // Backfill ResolvedAt for threads that reached a terminal state before this field
+        // existed, so they start ageing from now rather than being archived immediately.
+        var missingTimestamp = await db.PlotThreads
             .Where(t => t.GameId == gameId &&
-                        (t.Status == PlotThreadStatus.Resolved || t.Status == PlotThreadStatus.Abandoned))
+                        (t.Status == PlotThreadStatus.Resolved || t.Status == PlotThreadStatus.Abandoned) &&
+                        t.ResolvedAt == null)
             .ToListAsync(ct);
 
-        // PlotThread doesn't have an UpdatedAt, so we just soft-delete resolved threads older conceptually
-        // In practice, we mark them deleted if they've been in resolved/abandoned state
+        foreach (var thread in missingTimestamp)
+            thread.ResolvedAt = now;
+
+        var staleThreads = await db.PlotThreads
+            .Where(t => t.GameId == gameId &&
+                        (t.Status == PlotThreadStatus.Resolved || t.Status == PlotThreadStatus.Abandoned) &&
+                        t.ResolvedAt != null && t.ResolvedAt < cutoff)
+            .ToListAsync(ct);
+
         foreach (var thread in staleThreads)
         {
             thread.IsDeleted = true;
-            thread.DeletedAt = DateTimeOffset.UtcNow;
+            thread.DeletedAt = now;
         }
 
-        if (staleThreads.Count > 0)
+        if (staleThreads.Count > 0 || missingTimestamp.Count > 0)
             await db.SaveChangesAsync(ct);
     }
 }

@@ -20,6 +20,8 @@ export interface Game {
   currentSessionId: string | null
   createdAt: string
   updatedAt: string
+  isDeleted?: boolean
+  deletedAt?: string | null
 }
 
 export interface Player {
@@ -30,7 +32,8 @@ export interface Player {
   role: PlayerRole
   status: PlayerStatus
   isConnected: boolean
-  displayName?: string
+  /** Projected from the linked User by PlayerDto — always present. */
+  displayName: string
 }
 
 export interface GameSession {
@@ -54,6 +57,42 @@ export interface NPC {
   attitude?: 'Friendly' | 'Neutral' | 'Unfriendly' | 'Hostile'
   faction?: string | null
   isDeleted: boolean
+}
+
+export interface Character {
+  id: string
+  playerId: string
+  name: string
+  class: string
+  level: number
+  proficiencyBonus: number
+  currentHP: number
+  maxHP: number
+  attributes: Record<string, number>
+  skills: Record<string, unknown>
+  inventory: unknown[]
+  spells: unknown
+  conditions: unknown[]
+  customFields: Record<string, unknown>
+  spellSlots: unknown
+  background: string | null
+  backgroundSkills: string | null
+  backgroundProficiencies: string | null
+  backgroundFeatures: string | null
+  backstory: string | null
+  spellcastingAbility: string | null
+  spellSaveDC: number
+  spellAttackBonus: number
+  isDeleted: boolean
+}
+
+export interface CreateCharacterRequest {
+  gameId: string
+  name: string
+  class: string
+  background: string
+  backstory?: string
+  attributes?: Record<string, number>
 }
 
 export interface GameCreateRequest {

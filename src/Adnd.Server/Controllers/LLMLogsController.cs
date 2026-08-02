@@ -11,12 +11,14 @@ namespace Adnd.Server.Controllers;
 [Authorize]
 public class LLMLogsController(AppDbContext db, IUserIdProvider userIdProvider) : ControllerBase
 {
-    /// <summary>List LLM interaction logs for the current user.</summary>
+    /// <summary>List LLM interaction logs for the current user (paginated).</summary>
     [HttpGet]
     public async Task<IActionResult> List(
         [FromQuery] Guid? gameId,
         [FromQuery] string? presetName,
-        CancellationToken ct)
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
     {
         var userId = userIdProvider.GetUserId();
 
@@ -28,11 +30,14 @@ public class LLMLogsController(AppDbContext db, IUserIdProvider userIdProvider) 
         if (!string.IsNullOrEmpty(presetName))
             query = query.Where(l => l.PresetName == presetName);
 
-        var logs = await query
+        var total = await query.CountAsync(ct);
+        var items = await query
             .OrderByDescending(l => l.StartedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync(ct);
 
-        return Ok(logs);
+        return Ok(new { items, total });
     }
 
     /// <summary>Get a single LLM interaction log by ID.</summary>
@@ -59,6 +64,19 @@ public class LLMLogsController(AppDbContext db, IUserIdProvider userIdProvider) 
         db.LLMInteractionLogs.Remove(log);
         await db.SaveChangesAsync(ct);
         return NoContent();
+    }
+
+    /// <summary>Delete all logs for a specific game.</summary>
+    [HttpDelete("game/{gameId:guid}")]
+    public async Task<IActionResult> DeleteByGame(Guid gameId, CancellationToken ct)
+    {
+        var userId = userIdProvider.GetUserId();
+        var logs = await db.LLMInteractionLogs
+            .Where(l => l.UserId == userId && l.OriginGameId == gameId)
+            .ToListAsync(ct);
+        db.LLMInteractionLogs.RemoveRange(logs);
+        await db.SaveChangesAsync(ct);
+        return Ok(new { deleted = logs.Count });
     }
 
     /// <summary>Bulk delete LLM interaction logs older than a given date.</summary>

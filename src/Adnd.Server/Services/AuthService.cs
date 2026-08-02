@@ -9,7 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Adnd.Server.Services;
 
-public record AuthResult(string AccessToken, string RefreshToken, UserDto User);
+public record AuthResult(string Token, string RefreshToken, UserDto User);
 public record UserDto(Guid Id, string Email, string DisplayName);
 
 public interface IAuthService
@@ -32,16 +32,21 @@ public class AuthService(AppDbContext db, IConfiguration configuration) : IAuthS
     private readonly string _audience = configuration["JwtSettings:Audience"]
         ?? throw new InvalidOperationException("JwtSettings:Audience not configured.");
 
+    /// <summary>Trim as well as lower-case, so " A@b.com" and "a@b.com" are one account.</summary>
+    private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
+
     public async Task<AuthResult> RegisterAsync(string email, string password, string displayName)
     {
-        if (await db.Users.AnyAsync(u => u.Email == email.ToLowerInvariant()))
+        var normalized = NormalizeEmail(email);
+
+        if (await db.Users.AnyAsync(u => u.Email == normalized))
             throw new InvalidOperationException("Email already registered.");
 
         var user = new User
         {
-            Email = email.ToLowerInvariant(),
+            Email = normalized,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
-            DisplayName = displayName,
+            DisplayName = displayName.Trim(),
             LastLoginAt = DateTimeOffset.UtcNow
         };
         db.Users.Add(user);
@@ -52,7 +57,8 @@ public class AuthService(AppDbContext db, IConfiguration configuration) : IAuthS
 
     public async Task<AuthResult> LoginAsync(string email, string password)
     {
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email.ToLowerInvariant());
+        var normalized = NormalizeEmail(email);
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == normalized);
         if (user is null || !BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
             throw new UnauthorizedAccessException("Invalid email or password.");
 
@@ -66,15 +72,30 @@ public class AuthService(AppDbContext db, IConfiguration configuration) : IAuthS
     {
         var token = await db.RefreshTokens
             .Include(r => r.User)
-            .FirstOrDefaultAsync(r => r.Token == refreshToken && !r.IsRevoked);
+            .FirstOrDefaultAsync(r => r.Token == refreshToken);
 
         if (token is null || token.ExpiresAt < DateTimeOffset.UtcNow)
             throw new UnauthorizedAccessException("Refresh token is invalid or expired.");
+
+        // Reuse detection: presenting an already-revoked token means it leaked, so revoke
+        // every token for that user rather than just rejecting this one request.
+        if (token.IsRevoked)
+        {
+            await RevokeAllForUserAsync(token.UserId);
+            throw new UnauthorizedAccessException("Refresh token has already been used.");
+        }
 
         token.IsRevoked = true;
         await db.SaveChangesAsync();
 
         return await IssueTokensAsync(token.User);
+    }
+
+    private async Task RevokeAllForUserAsync(Guid userId)
+    {
+        await db.RefreshTokens
+            .Where(r => r.UserId == userId && !r.IsRevoked)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.IsRevoked, true));
     }
 
     public async Task LogoutAsync(string refreshToken)
@@ -104,6 +125,10 @@ public class AuthService(AppDbContext db, IConfiguration configuration) : IAuthS
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
         await db.SaveChangesAsync();
+
+        // Changing a password is usually a response to compromise, so evict every other
+        // session. Previously the attacker's 30-day refresh token kept working.
+        await RevokeAllForUserAsync(userId);
     }
 
     public async Task UpdateDisplayNameAsync(Guid userId, string displayName)

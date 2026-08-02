@@ -1,20 +1,20 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Box, Typography, Paper, Button, Stepper, Step, StepLabel,
+  Box, Typography, Button, Stepper, Step, StepLabel,
   TextField, Grid, CircularProgress, Alert, Card, CardActionArea, CardContent,
 } from '@mui/material'
 import { api } from '../api/client'
 
 const BACKGROUNDS = [
-  { id: 'Acolyte', desc: 'Temple servant. Skills: Insight, Religion. Features: Shelter of the Faithful.' },
-  { id: 'Criminal', desc: 'Life of crime. Skills: Deception, Stealth. Features: Criminal Contact.' },
-  { id: 'Soldier', desc: 'Military veteran. Skills: Athletics, Intimidation. Features: Military Rank.' },
-  { id: 'Sage', desc: 'Scholar and researcher. Skills: Arcana, History. Features: Researcher.' },
-  { id: 'Gladiator', desc: 'Arena fighter. Skills: Athletics, Performance. Features: By Popular Demand.' },
-  { id: 'Folk Hero', desc: 'Humble origin, heroic destiny. Skills: Animal Handling, Survival. Features: Rustic Hospitality.' },
-  { id: 'Urchin', desc: 'City streets survivor. Skills: Sleight of Hand, Stealth. Features: City Secrets.' },
-  { id: 'Noble', desc: 'Aristocratic blood. Skills: History, Persuasion. Features: Position of Privilege.' },
+  { id: 'acolyte', label: 'Acolyte', desc: 'Temple servant. Skills: Insight, Religion. Feature: Shelter of the Faithful.' },
+  { id: 'criminal', label: 'Criminal', desc: 'Life of crime. Skills: Deception, Stealth. Feature: Criminal Contact.' },
+  { id: 'soldier', label: 'Soldier', desc: 'Military veteran. Skills: Athletics, Intimidation. Feature: Military Rank.' },
+  { id: 'sage', label: 'Sage', desc: 'Scholar and researcher. Skills: Arcana, History. Feature: Researcher.' },
+  { id: 'gladiator', label: 'Gladiator', desc: 'Arena fighter. Skills: Athletics, Performance. Feature: By Popular Demand.' },
+  { id: 'folkhero', label: 'Folk Hero', desc: 'Humble origin, heroic destiny. Skills: Animal Handling, Survival. Feature: Rustic Hospitality.' },
+  { id: 'urchin', label: 'Urchin', desc: 'City streets survivor. Skills: Sleight of Hand, Stealth. Feature: City Secrets.' },
+  { id: 'noble', label: 'Noble', desc: 'Aristocratic blood. Skills: History, Persuasion. Feature: Position of Privilege.' },
 ]
 
 const ATTRS = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA']
@@ -39,10 +39,9 @@ export default function CharacterCreateWizard() {
     setError(null)
     try {
       const char = await api.characters.create({
-        gameId, name, class: characterClass, level: 1,
+        gameId, name, class: characterClass,
         background, attributes: attrs,
-        backstory,
-        currentHP: 10, maxHP: 10, proficiencyBonus: 2,
+        backstory: backstory || undefined,
       })
       navigate(`/character/${char.id}`)
     } catch (e) { setError((e as Error).message) }
@@ -67,7 +66,7 @@ export default function CharacterCreateWizard() {
                 <Card sx={{ border: background === bg.id ? '2px solid' : '1px solid', borderColor: background === bg.id ? 'primary.main' : 'divider' }}>
                   <CardActionArea onClick={() => setBackground(bg.id)}>
                     <CardContent>
-                      <Typography variant="subtitle2" fontWeight={600}>{bg.id}</Typography>
+                      <Typography variant="subtitle2" fontWeight={600}>{bg.label}</Typography>
                       <Typography variant="body2" color="text.secondary">{bg.desc}</Typography>
                     </CardContent>
                   </CardActionArea>

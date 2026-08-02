@@ -1,4 +1,6 @@
+using System.Net.Http.Headers;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using OpenAI;
 using OpenAI.Chat;
 using OpenAI.Embeddings;
@@ -9,7 +11,9 @@ public class OpenAILLMProvider(
     string apiKey,
     string model,
     string? endpointUrl,
-    string? embeddingModel) : BaseLLMProvider
+    string? embeddingModel,
+    HttpClient httpClient,
+    ILogger<OpenAILLMProvider> logger) : BaseLLMProvider
 {
     public override string ProviderId => "openai";
     public override string EndpointUrl => endpointUrl ?? "https://api.openai.com/v1";
@@ -49,6 +53,12 @@ public class OpenAILLMProvider(
         {
             MaxOutputTokenCount = opts.MaxTokens
         };
+        if (opts.JsonMode)
+        {
+            completionOptions.ResponseFormat = opts.JsonSchema.HasValue
+                ? ChatResponseFormat.CreateJsonSchemaFormat("response", BinaryData.FromString(opts.JsonSchema.Value.GetRawText()), jsonSchemaIsStrict: false)
+                : ChatResponseFormat.CreateJsonObjectFormat();
+        }
 
         var result = await chatClient.CompleteChatAsync(messages, completionOptions, ct);
         var completion = result.Value;
@@ -113,6 +123,32 @@ public class OpenAILLMProvider(
         var embeddingClient = CreateEmbeddingClient(targetModel);
         var result = await embeddingClient.GenerateEmbeddingAsync(text, cancellationToken: ct);
         return result.Value.ToFloats().ToArray();
+    }
+
+    public override async Task<IReadOnlyList<string>> ListModelsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var baseUrl = endpointUrl ?? "https://api.openai.com/v1";
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/models");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            using var res = await httpClient.SendAsync(req, ct);
+            res.EnsureSuccessStatusCode();
+            var json = await res.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("data", out var data))
+                return [];
+            return data.EnumerateArray()
+                .Select(m => m.TryGetProperty("id", out var id) ? id.GetString() : null)
+                .OfType<string>()
+                .OrderBy(n => n)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "OpenAILLMProvider: failed to list models from {EndpointUrl}", endpointUrl ?? "https://api.openai.com/v1");
+            return [];
+        }
     }
 
     public override async Task<bool> IsAvailableAsync(CancellationToken ct)

@@ -1,6 +1,7 @@
 using Adnd.Server.Data;
 using Adnd.Server.Dtos;
 using Adnd.Server.Models;
+using Adnd.Server.Services.Llm;
 using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Services;
@@ -13,10 +14,16 @@ public interface ILLMPresetService
     Task<LLMPreset> UpdateAsync(Guid id, Guid userId, UpdateLLMPresetDto dto);
     Task DeleteAsync(Guid id, Guid userId);
     Task SetDefaultAsync(Guid id, Guid userId);
-    Task<string> TestConnectionAsync(Guid id, Guid userId);
+    Task<ProviderStatus> TestConnectionAsync(Guid id, Guid userId, CancellationToken ct = default);
+    Task<IReadOnlyList<string>> ListModelsAsync(Guid id, Guid userId, CancellationToken ct = default);
+    Task<IReadOnlyList<string>> QueryModelsAsync(QueryModelsDto dto, CancellationToken ct = default);
 }
 
-public class LLMPresetService(AppDbContext db, IApiKeyEncryptionService encryption) : ILLMPresetService
+public class LLMPresetService(
+    AppDbContext db,
+    IApiKeyEncryptionService encryption,
+    ILLMProviderFactory providerFactory,
+    IOutboundUrlGuard urlGuard) : ILLMPresetService
 {
     public async Task<List<LLMPreset>> GetUserPresetsAsync(Guid userId)
     {
@@ -68,6 +75,10 @@ public class LLMPresetService(AppDbContext db, IApiKeyEncryptionService encrypti
         db.LLMPresets.Add(preset);
         await db.SaveChangesAsync();
 
+        // Honour the "set as default" toggle — it was accepted by the UI and silently dropped.
+        if (dto.IsDefault)
+            await SetDefaultAsync(preset.Id, userId);
+
         preset.DecryptedApiKey = dto.ApiKey;
         return preset;
     }
@@ -96,6 +107,9 @@ public class LLMPresetService(AppDbContext db, IApiKeyEncryptionService encrypti
         preset.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync();
+
+        if (dto.IsDefault == true)
+            await SetDefaultAsync(preset.Id, userId);
 
         if (preset.ApiKey is not null)
             preset.DecryptedApiKey = encryption.Decrypt(preset.ApiKey);
@@ -129,12 +143,58 @@ public class LLMPresetService(AppDbContext db, IApiKeyEncryptionService encrypti
         await db.SaveChangesAsync();
     }
 
-    public async Task<string> TestConnectionAsync(Guid id, Guid userId)
+    /// <summary>
+    /// Actually probes the provider. This used to just check the row existed and return "ok",
+    /// so the UI reported every misconfigured preset as reachable.
+    /// </summary>
+    public async Task<ProviderStatus> TestConnectionAsync(Guid id, Guid userId, CancellationToken ct = default)
     {
-        var exists = await db.LLMPresets.AnyAsync(p => p.Id == id && p.UserId == userId);
-        if (!exists)
-            throw new KeyNotFoundException($"LLM preset {id} not found.");
+        var preset = await LoadDecryptedAsync(id, userId);
+        var provider = providerFactory.CreateFromPreset(preset);
 
-        return "ok";
+        try
+        {
+            return await provider.GetStatusAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            return new ProviderStatus(false, preset.BaseModel, ex.Message);
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> ListModelsAsync(Guid id, Guid userId, CancellationToken ct = default)
+    {
+        var preset = await LoadDecryptedAsync(id, userId);
+        var provider = providerFactory.CreateFromPreset(preset);
+        return await provider.ListModelsAsync(ct);
+    }
+
+    public Task<IReadOnlyList<string>> QueryModelsAsync(QueryModelsDto dto, CancellationToken ct = default)
+    {
+        // The endpoint is fully caller-supplied, so it must be validated before the server
+        // will fetch it — otherwise this is an SSRF primitive into the Docker network.
+        urlGuard.EnsureAllowed(dto.EndpointUrl);
+
+        var preset = new LLMPreset
+        {
+            ProviderType = dto.ProviderType,
+            EndpointUrl = dto.EndpointUrl,
+            DecryptedApiKey = dto.ApiKey,
+            BaseModel = string.Empty,
+        };
+        var provider = providerFactory.CreateFromPreset(preset);
+        return provider.ListModelsAsync(ct);
+    }
+
+    private async Task<LLMPreset> LoadDecryptedAsync(Guid id, Guid userId)
+    {
+        var preset = await db.LLMPresets
+            .FirstOrDefaultAsync(p => p.Id == id && p.UserId == userId)
+            ?? throw new KeyNotFoundException($"LLM preset {id} not found.");
+
+        if (preset.ApiKey is not null)
+            preset.DecryptedApiKey = encryption.Decrypt(preset.ApiKey);
+
+        return preset;
     }
 }

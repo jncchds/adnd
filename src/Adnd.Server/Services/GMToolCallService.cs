@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
+using Microsoft.Extensions.Logging;
 
 namespace Adnd.Server.Services;
 
@@ -9,7 +10,7 @@ public interface IGMToolCallService
     Task<GMToolCall> RecordAndExecuteAsync(Guid gameId, Guid sessionId, string toolName, JsonElement arguments, CancellationToken ct);
 }
 
-public class GMToolCallService(AppDbContext db, IGMToolRegistry toolRegistry) : IGMToolCallService
+public class GMToolCallService(AppDbContext db, IGMToolRegistry toolRegistry, ILogger<GMToolCallService> logger) : IGMToolCallService
 {
     public async Task<GMToolCall> RecordAndExecuteAsync(Guid gameId, Guid sessionId, string toolName, JsonElement arguments, CancellationToken ct)
     {
@@ -33,6 +34,7 @@ public class GMToolCallService(AppDbContext db, IGMToolRegistry toolRegistry) : 
         }
         catch (Exception ex)
         {
+            logger.LogError(ex, "GM tool '{ToolName}' failed for game {GameId}", toolName, gameId);
             resultText = $"Error: {ex.Message}";
             toolCall.Status = GMToolCallStatus.Failed;
         }

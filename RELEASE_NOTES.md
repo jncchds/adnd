@@ -1,5 +1,85 @@
 # Release Notes
 
+## v0.1.0 — 2026-08-02
+
+### Repair & Hardening Pass
+
+The scaffolded build had never been exercised end to end. This pass makes the core gameplay
+loop work and closes broad cross-tenant access on the API.
+
+**fix — GM agent loop (was entirely non-functional):**
+- `AgentSaga` could not correlate 4 of its 5 messages: Wolverine resolves saga identity from `Id`/`SagaId`/`AgentSagaId`, and the events carried only `AgentCallId`. Added `[SagaIdentity]`.
+- `CoordinatorHandler` read `AgentCall.Output` (narrative prose) and parsed it as the tool-call list inside a bare `catch {}`, so every tool after the first was silently dropped. Tool calls are now persisted on `ToolCallCoordinator.ToolCalls`.
+- `LLMDispatchHandler` passed an empty tool array, so the GM could never call a tool; now passes `IGMToolRegistry.GetToolDefinitions()`.
+- `ToolCount` was hardcoded `0` at every publish site, so the saga advanced while tools were still outstanding.
+- Confirmation-gated tools (`requestPlayerRoll`) dead-ended the saga until the 5-minute timeout; pending calls are now persisted and resumable via `ToolCallConfirmationResolved`.
+- Retry never retried and left calls `Running` forever while the saga wrote contradictory terminal state from a second `DbContext`. Split into `AgentCallFailed` (retry decision) and `AgentCallAbandoned` (saga-owned terminal).
+- Follow-up LLM calls were dispatched with empty system/user prompts, losing all GM persona and context.
+- Real `CancellationToken`s throughout; coordinator rows are cleaned up on completion.
+
+**fix — client/server contract:**
+- Every SignalR send passed an extra `sessionId`, shifting all arguments: chat, OOC and whispers were impossible. Corrected against the hub signatures.
+- Combat events bound `DamageDto`/`ConditionDto` to `setCombat`, wiping `participants` and white-screening the page mid-fight; they now patch existing state.
+- ~20 client calls pointed at routes that do not exist (`/dicehistory`, `/quickwins/prompt-templates`, `/llmtrigger/{gameId}/...`, and others).
+- `joinByCode` sent `{ code }` against `JoinByCodeRequest(InviteCode, CharacterName)` — joining a game was impossible. Invite generation read `code` instead of `inviteCode`, so the GM saw nothing.
+- Chat history never loaded: `loadInitial` ran against a mount-time closure where `sessionId` was still null.
+- `useGameHub.disconnect()` nulled the ref after an `await`, discarding the StrictMode-remounted connection and leaving `invoke` throwing over a live socket.
+- 401 handling redirected on failed logins, discarding the error; error bodies now surface `{ error }` instead of raw JSON.
+- Replaced silent `catch {}` in every data hook with real error state; added a route-level `ErrorBoundary`.
+
+**feat — endpoints the UI already called but that did not exist:**
+- `GET /api/games/sessions/{sessionId}/messages` (cursor-paged, whisper-filtered)
+- `GET /api/gmtools/pending`, `POST /api/gmtools/{id}/confirm`, `POST /api/gmtools/{id}/decline`
+- `GET /api/games/{id}/sessions`
+- `PATCH /api/characters/{id}/adjust` (GM-only level/HP changes)
+
+**feat — Game Admin navigation:**
+- Game and Game Admin are now separate sidebar sections; Admin is entered from the Game nav and exited via "Back to Game". All eight admin pages are reachable — seven previously had routes but no navigation at all.
+
+**security:**
+- `GET /api/games/{id}/players` returned every member's BCrypt hash and email (`[JsonIgnore]` + `PlayerDto`).
+- `GET/POST/PUT /api/llmpresets/{id}` returned provider API keys in cleartext (`[JsonIgnore]` + `LLMPresetDto`).
+- `GET /api/llm/providers` returned every user's presets and echoed upstream error bodies.
+- Systemic IDOR: ~14 controllers accepted a caller-supplied id with no membership check. Added a fail-closed `GameScopedController` base and applied it throughout.
+- SignalR hub had one membership check in total (`JoinGameGroup`); every other method trusted the client's `gameId`. Added member/creator checks and combat-to-game scoping.
+- JWT signing key: the `OVERRIDE_IN_ENVIRONMENT` placeholder is long enough for HS256, so a missing env var booted the app signing tokens with a value published in the repo. Now rejected at startup, with a 32-byte floor.
+- SSRF on `POST /api/llmpresets/models` via a fully caller-controlled endpoint (`OutboundUrlGuard`; permissive to private ranges by default since self-hosted inference is the normal case, cloud-metadata always blocked).
+- Rate limiters used `AddFixedWindowLimiter`, giving one bucket for the whole process — 10 requests could lock every user out of login. Now partitioned per user/IP, with `ForwardedHeaders` actually configured.
+- `UseStaticFiles` ran before the security-headers middleware, so `/` and all assets shipped unprotected and unthrottled. Added CSP.
+- Swagger is no longer served anonymously in Production; Hangfire dashboard has an explicit authorization filter instead of relying on Hangfire's local-requests-only default (which trusts any same-host proxy).
+- Mass assignment: EF entities bound directly from request bodies in NPCs, Plots, QuickWins and Characters (a client-authoritative character sheet). Replaced with DTOs.
+- Password change now revokes all sessions; refresh-token reuse revokes the whole family; registration validates email and password length.
+- Invite codes use `RandomNumberGenerator` instead of `Random.Shared`.
+- Dice formulas are bounded — `999999999d20` allocated ~4 GB.
+- Removed `Include Error Detail=true` from the production connection string and added a global exception handler.
+
+**fix — silent data corruption:**
+- Spell slots were never consumed: case-sensitive deserialization made every slot read as `(0,0)`, so casters had unlimited spells.
+- Combat grid rewrote `Combat.Notes` with only the grid, destroying any other key, and threw on non-grid keys.
+- `MilestoneEvents` value comparer compared by `Count`, so milestone status edits were invisible to the change tracker.
+- PlotWeaver computed a 30-day cutoff and never used it, soft-deleting every resolved thread on the next pass. Added `PlotThread.ResolvedAt`.
+- RAG embedding cache keyed on `string.GetHashCode()` — collisions returned the wrong vector; cache also grew unbounded.
+- `SendMessage` re-queried "newest message in session" after insert and could broadcast someone else's message.
+- The `sendWhisper` GM tool never read `targetPlayerId`, so whispers reached nobody.
+- GM tools accepted LLM-supplied ids without scoping them to the game.
+- Death saves never reset on stabilisation, so a later failure still counted toward death.
+- `PreviousTurn` clamped at 0 and never decremented the round.
+
+**perf / robustness:**
+- `OllamaLLMProvider` built a new `OllamaApiClient` per call and never disposed it — a socket leak; now uses the pooled `HttpClient` like every other provider.
+- Google provider threw `KeyNotFoundException` on safety-blocked prompts (HTTP 200 with no `candidates`) — routine for TTRPG combat content — and on `MAX_TOKENS` responses. API key moved from the query string to `x-goog-api-key`.
+- OpenAI-compatible provider threw opaquely on gateways that return `200 OK` with an `{"error":...}` body.
+- Embedding model was hardcoded (Google) or sent empty (OpenAI-compatible), silently disabling RAG.
+- `JsonExtract.TryExtractArray` returned the first array-valued property whatever its name, so a JSON narrative could be parsed as tool calls.
+- `LlmProvidersHealthCheck` counted table rows rather than probing; `/health` and `/health/ready` were identical, so an LLM outage failed liveness.
+- N+1 queries in initiative rolling and PlotWeaver duplicate detection.
+
+**chore:**
+- Deleted the unreferenced `Services/Llm/*Strategy.cs` layer and `HandlerRegistry` (a singleton caching root-provider services — a latent captive `DbContext`).
+- Added `IDesignTimeDbContextFactory` so `dotnet ef` no longer boots the full host.
+- Moved the EF CLI out of the shared build stage; added a container `HEALTHCHECK` and `restart: unless-stopped`.
+- Migrations: `AgentLoopToolCallState`, `PlotThreadResolvedAt`.
+
 ## v0.1.0 — 2026-07-26
 
 ### Phase 9 — Polish + Production Hardening

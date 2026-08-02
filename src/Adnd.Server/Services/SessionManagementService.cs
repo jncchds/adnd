@@ -20,8 +20,23 @@ public class SessionManagementService(AppDbContext db) : ISessionManagementServi
             .FirstOrDefaultAsync(g => g.Id == gameId)
             ?? throw new KeyNotFoundException($"Game {gameId} not found.");
 
-        if (game.CurrentSession is not null)
+        // Only reuse the pointed-at session if it is still open. A closed CurrentSession
+        // used to be handed out anyway, so hub messages landed in a closed session while
+        // GM narration went to a different, arbitrarily-chosen active one.
+        if (game.CurrentSession is { Status: GameSessionStatus.Active })
             return game.CurrentSession;
+
+        var existingActive = await db.GameSessions
+            .Where(s => s.GameId == gameId && s.Status == GameSessionStatus.Active)
+            .OrderByDescending(s => s.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (existingActive is not null)
+        {
+            game.CurrentSessionId = existingActive.Id;
+            await db.SaveChangesAsync();
+            return existingActive;
+        }
 
         var session = new GameSession
         {
@@ -43,7 +58,14 @@ public class SessionManagementService(AppDbContext db) : ISessionManagementServi
             .Include(g => g.CurrentSession)
             .FirstOrDefaultAsync(g => g.Id == gameId);
 
-        return game?.CurrentSession;
+        if (game is null) return null;
+        if (game.CurrentSession is { Status: GameSessionStatus.Active })
+            return game.CurrentSession;
+
+        return await db.GameSessions
+            .Where(s => s.GameId == gameId && s.Status == GameSessionStatus.Active)
+            .OrderByDescending(s => s.CreatedAt)
+            .FirstOrDefaultAsync();
     }
 
     public async Task CloseSessionAsync(Guid sessionId)

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, TextField, Button, IconButton, Chip, CircularProgress,
   Select, MenuItem, FormControl, Paper, Divider, Alert, Collapse,
@@ -7,7 +7,7 @@ import {
 } from '@mui/material'
 import {
   Send as SendIcon, ExpandLess, ExpandMore, Shield as ShieldIcon,
-  Favorite as HPIcon, Warning as DeathIcon, SmartToy as GMIcon,
+  Warning as DeathIcon, SmartToy as GMIcon, Person as CharIcon,
 } from '@mui/icons-material'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -17,7 +17,11 @@ import { useGameHub } from '../api/hooks/useHub'
 import { useMessagesInfiniteScroll } from '../api/hooks/useMessagesInfiniteScroll'
 import { useToolCalls } from '../api/hooks/useToolCalls'
 import { useAuth } from '../context/AuthContext'
-import type { Message, Combat, CombatParticipant, Player } from '../types'
+import { api } from '../api/client'
+import type {
+  Message, Combat, Player, Character,
+  DamageEvent, HealEvent, ConditionEvent,
+} from '../types'
 
 type ReceiverType = 'All' | 'GM' | string
 
@@ -190,8 +194,19 @@ function ToolCallBanner({ gameId }: { gameId: string }) {
 export default function GameChatPage() {
   const { id: gameId } = useParams<{ id: string }>()
   const { user } = useAuth()
-  const { game } = useGame(gameId ?? null)
+  const navigate = useNavigate()
+  const { game, loading: gameLoading } = useGame(gameId ?? null)
   const { players } = usePlayers(gameId ?? null)
+  const [myCharacter, setMyCharacter] = useState<Character | null | undefined>(undefined)
+  const isCreator = !!game && !!user && game.creatorId === user.id
+
+  useEffect(() => {
+    if (!gameId || gameLoading) return
+    if (isCreator) { setMyCharacter(null); return }
+    api.characters.getMy(gameId)
+      .then(c => setMyCharacter(c ?? null))
+      .catch(() => setMyCharacter(null))
+  }, [gameId, gameLoading, isCreator])
   const hub = useGameHub()
   const { messages, loading: msgsLoading, hasMore, loadInitial, loadOlder, appendLive } = useMessagesInfiniteScroll(game?.currentSessionId ?? null)
   const [combat, setCombat] = useState<Combat | null>(null)
@@ -200,17 +215,23 @@ export default function GameChatPage() {
   const [receiver, setReceiver] = useState<ReceiverType>('All')
   const [gmThinking, setGmThinking] = useState(false)
   const [gmError, setGmError] = useState<string | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const isAtBottom = useRef(true)
 
   useEffect(() => {
     if (!gameId) return
-    hub.connect(gameId).then(() => {
-      loadInitial()
-    })
-    return () => { hub.disconnect() }
+    hub.connect(gameId).catch(() => { /* surfaced via hub.error */ })
+    return () => { hub.disconnect().catch(() => { /* unmounting anyway */ }) }
   }, [gameId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keyed on the session, not the game. loadInitial used to be called with the closure
+  // captured at mount, when currentSessionId was still null, so it always no-opped and
+  // nothing ever re-triggered it — the chat log stayed permanently empty.
+  useEffect(() => {
+    if (game?.currentSessionId) loadInitial()
+  }, [game?.currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handleNewMessage = (msg: Message) => {
@@ -223,30 +244,64 @@ export default function GameChatPage() {
     const handleCombatStarted = (c: Combat) => setCombat(c)
     const handleCombatEnded = () => setCombat(null)
     const handleTurnAdvanced = (c: Combat) => setCombat(c)
+    const handleError = (message: string) => setGmError(message)
+
+    // These events carry DamageDto / ConditionDto, NOT a Combat. Assigning them straight
+    // to setCombat wiped `participants`, and CombatPanel then threw on undefined —
+    // a white screen in the middle of a fight. Patch the existing state instead.
+    const handleDamage = (d: DamageEvent) =>
+      setCombat(prev => prev && prev.id === d.combatId
+        ? { ...prev, participants: prev.participants.map(p => p.id === d.targetId ? { ...p, hp: d.newHP } : p) }
+        : prev)
+
+    const handleHealed = (h: HealEvent) =>
+      setCombat(prev => prev && prev.id === h.combatId
+        ? { ...prev, participants: prev.participants.map(p => p.id === h.targetId ? { ...p, hp: h.newHP } : p) }
+        : prev)
+
+    const handleCondition = (c: ConditionEvent) =>
+      setCombat(prev => prev && prev.id === c.combatId
+        ? {
+            ...prev,
+            participants: prev.participants.map(p => {
+              if (p.id !== c.participantId) return p
+              const current = p.conditions ?? []
+              return {
+                ...p,
+                conditions: c.applied
+                  ? (current.includes(c.condition) ? current : [...current, c.condition])
+                  : current.filter(x => x !== c.condition),
+              }
+            }),
+          }
+        : prev)
 
     hub.on('NewMessage', handleNewMessage)
+    hub.on('Error', handleError)
     hub.on('GMThinking', handleGMThinking)
     hub.on('GMDoneThinking', handleGMDone)
     hub.on('GMError', handleGMError)
     hub.on('CombatStarted', handleCombatStarted)
     hub.on('CombatEnded', handleCombatEnded)
     hub.on('TurnAdvanced', handleTurnAdvanced)
-    const handleCombatUpdate = (c: Combat) => setCombat(c)
-    hub.on('CombatDamageDealt', handleCombatUpdate)
-    hub.on('CombatConditionApplied', handleCombatUpdate)
-    hub.on('CombatConditionRemoved', handleCombatUpdate)
+    hub.on('CombatDamageDealt', handleDamage)
+    hub.on('CombatHealed', handleHealed)
+    hub.on('CombatConditionApplied', handleCondition)
+    hub.on('CombatConditionRemoved', handleCondition)
 
     return () => {
       hub.off('NewMessage', handleNewMessage)
+      hub.off('Error', handleError)
       hub.off('GMThinking', handleGMThinking)
       hub.off('GMDoneThinking', handleGMDone)
       hub.off('GMError', handleGMError)
       hub.off('CombatStarted', handleCombatStarted)
       hub.off('CombatEnded', handleCombatEnded)
       hub.off('TurnAdvanced', handleTurnAdvanced)
-      hub.off('CombatDamageDealt', handleCombatUpdate)
-      hub.off('CombatConditionApplied', handleCombatUpdate)
-      hub.off('CombatConditionRemoved', handleCombatUpdate)
+      hub.off('CombatDamageDealt', handleDamage)
+      hub.off('CombatHealed', handleHealed)
+      hub.off('CombatConditionApplied', handleCondition)
+      hub.off('CombatConditionRemoved', handleCondition)
     }
   }, [hub, appendLive])
 
@@ -262,22 +317,34 @@ export default function GameChatPage() {
   }, [hasMore, msgsLoading, loadOlder])
 
   const send = async () => {
-    if (!input.trim() || !gameId || !game?.currentSessionId) return
+    if (!input.trim() || !gameId) return
     const content = input.trim()
     setInput('')
+    setSendError(null)
 
+    // Hub signatures take no sessionId — the server resolves the active session itself.
+    // Passing one shifted every argument by a position and made all four calls fail.
     try {
       if (receiver === 'GM') {
-        await hub.invoke('SendWhisper', gameId, game.currentSessionId, content, null)
+        // There is no "whisper the GM" hub method; the GM is the Creator player, so this
+        // is an ordinary whisper addressed to them.
+        const gm = players.find(p => p.role === 'Creator')
+        if (!gm) {
+          setInput(content)
+          setSendError('No Game Master found in this game.')
+          return
+        }
+        await hub.invoke('SendWhisper', gameId, gm.id, content)
       } else if (receiver !== 'All') {
-        await hub.invoke('SendWhisper', gameId, game.currentSessionId, content, receiver)
+        await hub.invoke('SendWhisper', gameId, receiver, content)
       } else if (isOOC) {
-        await hub.invoke('SendOOCMessage', gameId, game.currentSessionId, content)
+        await hub.invoke('SendOOCMessage', gameId, content)
       } else {
-        await hub.invoke('SendMessage', gameId, game.currentSessionId, content, false, 'All')
+        await hub.invoke('SendMessage', gameId, content, false)
       }
     } catch (e) {
       setInput(content)
+      setSendError((e as Error).message || 'Could not send message.')
     }
   }
 
@@ -303,6 +370,21 @@ export default function GameChatPage() {
       {gmError && (
         <Alert severity="error" onClose={() => setGmError(null)} sx={{ mx: 2 }}>
           {gmError}
+        </Alert>
+      )}
+
+      {/* Send failure — the message text is restored to the input so nothing is lost */}
+      {sendError && (
+        <Alert severity="error" onClose={() => setSendError(null)} sx={{ mx: 2 }}>
+          {sendError}
+        </Alert>
+      )}
+
+      {/* No character banner (players only) */}
+      {!isCreator && myCharacter === null && (
+        <Alert severity="warning" sx={{ mx: 2 }}
+          action={<Button size="small" color="inherit" onClick={() => navigate(`/character/create?gameId=${gameId}`)}>Create Character</Button>}>
+          You don't have a character in this game yet.
         </Alert>
       )}
 
@@ -376,6 +458,16 @@ export default function GameChatPage() {
           )}
           {game?.gmStatus === 'Paused' && (
             <Chip label="GM Paused" size="small" variant="outlined" sx={{ ml: 1 }} />
+          )}
+          {myCharacter && (
+            <Chip
+              icon={<CharIcon sx={{ fontSize: '14px !important' }} />}
+              label={myCharacter.name}
+              size="small"
+              variant="outlined"
+              onClick={() => navigate(`/character/${myCharacter.id}`)}
+              sx={{ ml: 1, cursor: 'pointer' }}
+            />
           )}
         </Box>
       </Box>

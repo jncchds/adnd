@@ -7,7 +7,7 @@ import {
 } from '@mui/material'
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Star as StarIcon,
-  StarBorder as StarBorderIcon, PlayArrow as TestIcon,
+  StarBorder as StarBorderIcon, PlayArrow as TestIcon, Sync as LoadModelsIcon,
 } from '@mui/icons-material'
 import { api } from '../api/client'
 import type { LLMPreset, LLMPresetCreate } from '../types'
@@ -32,6 +32,8 @@ export default function LLMPresetsPage() {
   const [error, setError] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -42,7 +44,7 @@ export default function LLMPresetsPage() {
 
   useEffect(() => { load() }, [])
 
-  const openCreate = () => { setEditing(null); setForm(emptyForm()); setTestResult(null); setOpen(true) }
+  const openCreate = () => { setEditing(null); setForm(emptyForm()); setTestResult(null); setAvailableModels([]); setOpen(true) }
   const openEdit = (p: LLMPreset) => {
     setEditing(p)
     setForm({
@@ -54,7 +56,19 @@ export default function LLMPresetsPage() {
       embeddingEndpointUrl: p.embeddingEndpointUrl ?? '', isDefault: p.isDefault,
     })
     setTestResult(null)
+    setAvailableModels([])
     setOpen(true)
+  }
+
+  const handleLoadModels = async () => {
+    setLoadingModels(true)
+    try {
+      const models = editing
+        ? await api.llmPresets.listModels(editing.id)
+        : await api.llmPresets.queryModels(form.providerType, form.endpointUrl, form.apiKey)
+      setAvailableModels(models)
+    } catch { /* silently ignore — endpoint or provider may not support listing */ }
+    finally { setLoadingModels(false) }
   }
 
   const handleSave = async () => {
@@ -151,8 +165,7 @@ export default function LLMPresetsPage() {
               </Select>
             </FormControl>
           </Box>
-          <TextField label="Base Model" value={form.baseModel} onChange={e => f('baseModel', e.target.value)} fullWidth
-            helperText="e.g. llama3.2, gpt-4o, gemini-2.0-flash" />
+
           {needsEndpoint && (
             <TextField label="Endpoint URL" value={form.endpointUrl} onChange={e => f('endpointUrl', e.target.value)} fullWidth
               helperText="e.g. http://localhost:11434 (Ollama) or http://localhost:1234/v1 (LM Studio)" />
@@ -161,6 +174,42 @@ export default function LLMPresetsPage() {
             <TextField label="API Key" value={form.apiKey} onChange={e => f('apiKey', e.target.value)} fullWidth
               type="password" helperText="Leave empty to keep existing key when editing" />
           )}
+
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+            <TextField
+              label="Base Model"
+              value={form.baseModel}
+              onChange={e => f('baseModel', e.target.value)}
+              fullWidth
+              helperText="e.g. llama3.2, gpt-4o, gemini-2.0-flash"
+            />
+            <Tooltip title="Load available models from the configured endpoint">
+              <span>
+                <IconButton onClick={handleLoadModels} disabled={loadingModels} sx={{ mt: 1 }}>
+                  {loadingModels ? <CircularProgress size={20} /> : <LoadModelsIcon />}
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Box>
+          {availableModels.length > 0 && (
+            <FormControl fullWidth size="small">
+              <InputLabel>Pick from available models</InputLabel>
+              <Select
+                label="Pick from available models"
+                value={form.baseModel}
+                onChange={e => f('baseModel', e.target.value)}
+              >
+                {availableModels.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+              </Select>
+            </FormControl>
+          )}
+
+          <TextField label="Embedding Model (optional)" value={form.embeddingModel}
+            onChange={e => f('embeddingModel', e.target.value)} fullWidth
+            helperText="Uses base model endpoint. Leave empty to skip embeddings." />
+
+          <Divider />
+
           <Box sx={{ display: 'flex', gap: 2 }}>
             <Box sx={{ flex: 1 }}>
               <Typography variant="caption" color="text.secondary">Temperature: {form.temperature}</Typography>
@@ -181,20 +230,16 @@ export default function LLMPresetsPage() {
               </Select>
             </FormControl>
           </Box>
-          <Divider />
-          <Typography variant="subtitle2">Embedding (optional)</Typography>
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField label="Embedding Model" value={form.embeddingModel} onChange={e => f('embeddingModel', e.target.value)} fullWidth />
-            <TextField label="Embedding Endpoint" value={form.embeddingEndpointUrl} onChange={e => f('embeddingEndpointUrl', e.target.value)} fullWidth />
+            <FormControlLabel
+              control={<Switch checked={form.isDefault} onChange={e => f('isDefault', e.target.checked)} />}
+              label="Set as default preset"
+            />
+            <FormControlLabel
+              control={<Switch checked={form.stream} onChange={e => f('stream', e.target.checked)} />}
+              label="Enable streaming"
+            />
           </Box>
-          <FormControlLabel
-            control={<Switch checked={form.isDefault} onChange={e => f('isDefault', e.target.checked)} />}
-            label="Set as default preset"
-          />
-          <FormControlLabel
-            control={<Switch checked={form.stream} onChange={e => f('stream', e.target.checked)} />}
-            label="Enable streaming"
-          />
         </DialogContent>
         <DialogActions>
           {editing && (

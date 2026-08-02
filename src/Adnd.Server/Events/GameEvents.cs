@@ -1,3 +1,5 @@
+using Wolverine.Persistence.Sagas;
+
 namespace Adnd.Server.Events;
 
 public record GameCreated(Guid GameId, string Name, Guid CreatorId) : IGameEvent;
@@ -61,12 +63,21 @@ public record PlotThreadUpdated(Guid GameId, Guid ThreadId) : IGameEvent;
 public record StorySwayed(Guid GameId, string Direction, int Intensity, string Content) : IGameEvent;
 public record GMActioned(Guid GameId, Guid AgentCallId, string Action) : IGameEvent;
 
-public record AgentCallQueued(Guid AgentCallId, Guid GameId);
+// AgentCall pipeline. Messages routed to AgentSaga must carry [SagaIdentity] on
+// AgentCallId — Wolverine otherwise only recognises a property named Id/SagaId/AgentSagaId
+// and cannot correlate the message back to its saga.
+public record AgentCallQueued([property: SagaIdentity] Guid AgentCallId, Guid GameId);
 public record LLMDispatchRequested(Guid AgentCallId, Guid GameId, string SystemPrompt, string UserPrompt);
-public record LLMResponseReceived(Guid AgentCallId, Guid GameId, string ResponseText, bool HasToolCalls, int ToolCount, string? RawJson);
+public record LLMResponseReceived([property: SagaIdentity] Guid AgentCallId, Guid GameId, string ResponseText, bool HasToolCalls, int ToolCount, string? RawJson);
 public record ToolCallRequested(Guid AgentCallId, Guid GameId, string ToolName, string ArgumentsJson, int ToolIndex);
-public record ToolCallCompleted(Guid AgentCallId, Guid GameId, string ToolName, string ResultJson, int ToolIndex, int TotalTools);
+public record ToolCallCompleted([property: SagaIdentity] Guid AgentCallId, Guid GameId, string ToolName, string ResultJson, int ToolIndex, int TotalTools);
 public record LLMFollowUpRequested(Guid AgentCallId, Guid GameId, string SystemPrompt, string UserPrompt, string ToolResultsSummary);
-public record NarrativeReady(Guid AgentCallId, Guid GameId, Guid SessionId, string NarrativeText);
+public record NarrativeReady([property: SagaIdentity] Guid AgentCallId, Guid GameId, Guid SessionId, string NarrativeText);
+
+/// <summary>A step failed. Not terminal — the DLQ handler decides whether to retry.</summary>
 public record AgentCallFailed(Guid AgentCallId, Guid GameId, string Error);
+
+/// <summary>Retries are exhausted. Terminal; the saga owns this transition.</summary>
+public record AgentCallAbandoned([property: SagaIdentity] Guid AgentCallId, Guid GameId, string Error);
 public record ToolCallWaitingConfirmation(Guid AgentCallId, Guid GameId, string ToolName, string ArgumentsJson, Guid? TargetPlayerId);
+public record ToolCallConfirmationResolved(Guid AgentCallId, Guid GameId, string ToolName, string ArgumentsJson, int ToolIndex, bool Approved, string? DeclineReason);

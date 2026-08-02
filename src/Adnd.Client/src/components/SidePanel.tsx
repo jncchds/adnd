@@ -7,21 +7,24 @@ import {
   Settings as SettingsIcon,
   Chat as ChatIcon,
   AdminPanelSettings as AdminIcon,
-  AccountTree as PlotIcon,
-  People as NpcIcon,
-  Person as CharIcon,
-  Troubleshoot as ConsistencyIcon,
-  DataObject as LogsIcon,
-  SmartToy as AgentIcon,
+  People as CharactersIcon,
   Brightness4 as DarkIcon,
   Brightness7 as LightIcon,
   ChevronLeft as CollapseIcon,
   ChevronRight as ExpandIcon,
   Logout as LogoutIcon,
+  ArrowBack as BackIcon,
+  Dashboard as OverviewIcon,
+  AccountTree as PlotIcon,
+  TheaterComedy as NPCIcon,
+  FactCheck as ConsistencyIcon,
+  Description as LogsIcon,
+  SmartToy as AgentIcon,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useColorMode } from '../main'
+import { useGame } from '../api/hooks/useGame'
 
 const SIDEBAR_W_EXPANDED = 220
 const SIDEBAR_W_COLLAPSED = 56
@@ -36,7 +39,8 @@ interface Props {
   collapsed: boolean
   onToggle: () => void
   gameId?: string
-  currentView?: string
+  /** Which sub-navigation to show. Game and Admin are separate sections. */
+  section?: 'game' | 'admin'
 }
 
 function NavBtn({ item, collapsed, active }: { item: NavItem; collapsed: boolean; active: boolean }) {
@@ -65,11 +69,15 @@ function NavBtn({ item, collapsed, active }: { item: NavItem; collapsed: boolean
   )
 }
 
-export default function SidePanel({ collapsed, onToggle, gameId, currentView }: Props) {
+export default function SidePanel({ collapsed, onToggle, gameId, section }: Props) {
   const { user, logout } = useAuth()
   const { mode, toggleColorMode } = useColorMode()
   const location = useLocation()
   const theme = useTheme()
+  const { game } = useGame(gameId ?? null)
+
+  const isCreator = !!game && !!user && game.creatorId === user.id
+  const inAdmin = section === 'admin' && !!gameId
 
   const mainNav: NavItem[] = [
     { label: 'Games', icon: <DiceIcon fontSize="small" />, path: '/dashboard' },
@@ -80,14 +88,25 @@ export default function SidePanel({ collapsed, onToggle, gameId, currentView }: 
 
   const gameNav: NavItem[] = gameId ? [
     { label: 'Chat', icon: <ChatIcon fontSize="small" />, path: `/game/${gameId}` },
-    { label: 'Admin', icon: <AdminIcon fontSize="small" />, path: `/admin/${gameId}` },
+    { label: 'Characters', icon: <CharactersIcon fontSize="small" />, path: `/game/${gameId}/characters` },
+    ...(isCreator ? [{ label: 'Admin', icon: <AdminIcon fontSize="small" />, path: `/admin/${gameId}` }] : []),
+  ] : []
+
+  // Every Game Admin page. These all had routes but no navigation — the only way to
+  // reach them was to type the URL.
+  const adminNav: NavItem[] = gameId ? [
+    { label: 'Overview', icon: <OverviewIcon fontSize="small" />, path: `/admin/${gameId}` },
     { label: 'Plot Board', icon: <PlotIcon fontSize="small" />, path: `/admin/${gameId}/plot-board` },
-    { label: 'NPCs', icon: <NpcIcon fontSize="small" />, path: `/admin/${gameId}/npcs` },
-    { label: 'Characters', icon: <CharIcon fontSize="small" />, path: `/admin/${gameId}/characters` },
+    { label: 'NPCs', icon: <NPCIcon fontSize="small" />, path: `/admin/${gameId}/npcs` },
+    { label: 'Characters', icon: <CharactersIcon fontSize="small" />, path: `/admin/${gameId}/characters` },
     { label: 'Consistency', icon: <ConsistencyIcon fontSize="small" />, path: `/admin/${gameId}/consistency` },
     { label: 'LLM Logs', icon: <LogsIcon fontSize="small" />, path: `/admin/${gameId}/llm-logs` },
     { label: 'Agent Calls', icon: <AgentIcon fontSize="small" />, path: `/admin/${gameId}/agent-calls` },
+    { label: 'Game Settings', icon: <SettingsIcon fontSize="small" />, path: `/admin/${gameId}/settings` },
   ] : []
+
+  const sectionNav = inAdmin ? adminNav : gameNav
+  const sectionLabel = inAdmin ? 'Game Admin' : 'Game'
 
   const sidebarBg = theme.palette.mode === 'dark' ? '#0e0b14' : '#f0ebff'
 
@@ -138,15 +157,31 @@ export default function SidePanel({ collapsed, onToggle, gameId, currentView }: 
           <NavBtn key={item.path} item={item} collapsed={collapsed} active={location.pathname === item.path} />
         ))}
 
-        {gameNav.length > 0 && (
+        {sectionNav.length > 0 && (
           <>
             <Divider sx={{ my: 0.5 }} />
+
             {!collapsed && (
-              <Typography variant="caption" color="text.secondary" sx={{ px: 1.5, textTransform: 'uppercase', letterSpacing: 1 }}>
-                {currentView ?? 'Game'}
+              <Typography
+                variant="caption"
+                color={inAdmin ? 'primary' : 'text.secondary'}
+                fontWeight={inAdmin ? 700 : 400}
+                sx={{ px: 1.5, textTransform: 'uppercase', letterSpacing: 1 }}
+              >
+                {sectionLabel}
               </Typography>
             )}
-            {gameNav.map(item => (
+
+            {/* Leaving admin returns to the game it belongs to, not the dashboard. */}
+            {inAdmin && (
+              <NavBtn
+                item={{ label: 'Back to Game', icon: <BackIcon fontSize="small" />, path: `/game/${gameId}` }}
+                collapsed={collapsed}
+                active={false}
+              />
+            )}
+
+            {sectionNav.map(item => (
               <NavBtn key={item.path} item={item} collapsed={collapsed} active={location.pathname === item.path} />
             ))}
           </>

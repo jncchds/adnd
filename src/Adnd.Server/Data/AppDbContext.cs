@@ -38,19 +38,24 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         base.OnModelCreating(modelBuilder);
 
         var jsonComparer = new ValueComparer<JsonElement>(
-            (a, b) => a.GetRawText() == b.GetRawText(),
-            v => v.GetRawText().GetHashCode(),
-            v => JsonSerializer.Deserialize<JsonElement>(v.GetRawText()));
+            (a, b) => (a.ValueKind == JsonValueKind.Undefined ? "null" : a.GetRawText()) ==
+                      (b.ValueKind == JsonValueKind.Undefined ? "null" : b.GetRawText()),
+            v => v.ValueKind == JsonValueKind.Undefined ? 0 : v.GetRawText().GetHashCode(),
+            v => v.ValueKind == JsonValueKind.Undefined ? default : JsonSerializer.Deserialize<JsonElement>(v.GetRawText()));
 
         var stringListComparer = new ValueComparer<List<string>>(
             (a, b) => a != null && b != null && a.SequenceEqual(b),
             v => v.Aggregate(0, (h, s) => HashCode.Combine(h, s.GetHashCode())),
             v => v.ToList());
 
+        // MilestoneEvent is a class, so a plain SequenceEqual would compare by reference and
+        // a Count-only comparison misses in-place edits entirely — flipping a milestone's
+        // Status used to be invisible to the change tracker and was never persisted.
+        // Compare and snapshot by serialized content instead.
         var milestoneListComparer = new ValueComparer<List<MilestoneEvent>>(
-            (a, b) => a != null && b != null && a.Count == b.Count,
-            v => v.Count.GetHashCode(),
-            v => v.ToList());
+            (a, b) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(b, (JsonSerializerOptions?)null),
+            v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
+            v => JsonSerializer.Deserialize<List<MilestoneEvent>>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null)) ?? new List<MilestoneEvent>());
 
         // ── Soft-delete global filters ──
         modelBuilder.Entity<Game>().HasQueryFilter(e => !e.IsDeleted);
@@ -74,8 +79,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<LLMPreset>()
             .Property(p => p.ExtraParams).HasColumnType("jsonb")
             .HasConversion(
-                v => v.GetRawText(),
-                v => JsonSerializer.Deserialize<JsonElement>(v))
+                v => v.ValueKind == JsonValueKind.Undefined ? "{}" : v.GetRawText(),
+                v => string.IsNullOrEmpty(v) ? JsonDocument.Parse("{}").RootElement : JsonSerializer.Deserialize<JsonElement>(v))
             .Metadata.SetValueComparer(jsonComparer);
         modelBuilder.Entity<LLMPreset>()
             .HasOne(p => p.User)
@@ -167,6 +172,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         // ── ToolCallCoordinator ──
         ConfigureJsonb<ToolCallCoordinator>(modelBuilder, t => t.ToolResults, jsonComparer);
+        ConfigureJsonb<ToolCallCoordinator>(modelBuilder, t => t.ToolCalls, jsonComparer);
 
         // ── Combat ──
         ConfigureJsonb<Combat>(modelBuilder, c => c.Notes, jsonComparer);
@@ -221,7 +227,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .Property(prop)
             .HasColumnType("jsonb")
             .HasConversion(
-                v => v.GetRawText(),
+                v => v.ValueKind == JsonValueKind.Undefined ? "null" : v.GetRawText(),
                 v => string.IsNullOrEmpty(v) ? default : JsonSerializer.Deserialize<JsonElement>(v))
             .Metadata.SetValueComparer(comparer);
     }

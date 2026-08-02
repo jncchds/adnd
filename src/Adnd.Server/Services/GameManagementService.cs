@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Adnd.Server.Data;
 using Adnd.Server.Dtos;
 using Adnd.Server.Models;
@@ -8,6 +9,7 @@ namespace Adnd.Server.Services;
 public interface IGameManagementService
 {
     Task<List<Game>> GetUserGamesAsync(Guid userId);
+    Task<List<Game>> GetArchivedUserGamesAsync(Guid userId);
     Task<Game> GetByIdAsync(Guid gameId, Guid userId);
     Task<Game> CreateAsync(Guid userId, CreateGameDto dto);
     Task<Game> UpdateAsync(Guid gameId, Guid userId, UpdateGameDto dto);
@@ -19,6 +21,7 @@ public interface IGameManagementService
     Task<List<Player>> GetPlayersAsync(Guid gameId, Guid userId);
     Task PromotePlayerAsync(Guid gameId, Guid targetPlayerId, PlayerRole newRole, Guid requesterId);
     Task KickPlayerAsync(Guid gameId, Guid targetPlayerId, Guid requesterId);
+    Task<List<GameSession>> GetSessionsAsync(Guid gameId, Guid userId, CancellationToken ct = default);
 }
 
 public class GameManagementService(
@@ -31,6 +34,16 @@ public class GameManagementService(
             .Include(g => g.Players)
             .Where(g => g.Players.Any(p => p.UserId == userId))
             .OrderBy(g => g.Name)
+            .ToListAsync();
+    }
+
+    public async Task<List<Game>> GetArchivedUserGamesAsync(Guid userId)
+    {
+        return await db.Games
+            .IgnoreQueryFilters()
+            .Include(g => g.Players)
+            .Where(g => g.IsDeleted && g.Players.Any(p => p.UserId == userId))
+            .OrderByDescending(g => g.DeletedAt)
             .ToListAsync();
     }
 
@@ -176,6 +189,17 @@ public class GameManagementService(
         await db.SaveChangesAsync();
     }
 
+    public async Task<List<GameSession>> GetSessionsAsync(Guid gameId, Guid userId, CancellationToken ct = default)
+    {
+        await auth.RequirePlayerAsync(gameId, userId);
+
+        return await db.GameSessions
+            .AsNoTracking()
+            .Where(s => s.GameId == gameId)
+            .OrderByDescending(s => s.CreatedAt)
+            .ToListAsync(ct);
+    }
+
     public async Task<List<Player>> GetPlayersAsync(Guid gameId, Guid userId)
     {
         await auth.RequirePlayerAsync(gameId, userId);
@@ -213,11 +237,13 @@ public class GameManagementService(
         await db.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Invite codes are a bearer credential for joining a game, so they must come from a
+    /// cryptographic RNG — Random.Shared is predictable from observed output.
+    /// </summary>
     private static string GenerateRandomCode(int length)
     {
         const string Chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-        return new string(Enumerable.Range(0, length)
-            .Select(_ => Chars[Random.Shared.Next(Chars.Length)])
-            .ToArray());
+        return RandomNumberGenerator.GetString(Chars, length);
     }
 }

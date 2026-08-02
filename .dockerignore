@@ -1,9 +1,13 @@
 .git
 .gitignore
+.env
+.env.*
+CLAUDE.md
 DESIGN_DOCUMENT.md
 PLAN.md
 RELEASE_NOTES.md
 README.md
+docker-compose*.yml
 src/Adnd.Client/node_modules/
 src/Adnd.Server/wwwroot/
 src/Adnd.Server/bin/

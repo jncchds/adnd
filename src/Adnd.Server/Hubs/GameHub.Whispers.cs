@@ -7,9 +7,7 @@ public partial class GameHub
 {
     public async Task<List<MessageDto>> GetWhisperHistory(Guid gameId)
     {
-        var userId = CurrentUserId;
-        var player = await db.Players.FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId);
-        if (player == null) return [];
+        var player = await RequireMemberAsync(gameId);
         var session = await ResolveGameSessionAsync(gameId);
         var whispers = await db.Messages
             .Where(m => m.SessionId == session.Id && m.Type == "Whisper" &&
@@ -22,24 +20,29 @@ public partial class GameHub
 
     public async Task SendGMWhisper(Guid gameId, Guid targetPlayerId, string content)
     {
+        // Speaking as the GM is creator-only — this had no check at all, so any
+        // authenticated user could impersonate the Game Master in any game.
+        var gm = await RequireCreatorAsync(gameId);
+
+        var target = await db.Players
+            .FirstOrDefaultAsync(p => p.Id == targetPlayerId && p.GameId == gameId)
+            ?? throw new HubForbiddenException("Target player is not in this game.");
+
         var session = await ResolveGameSessionAsync(gameId);
         var msg = new Message
         {
             SessionId = session.Id,
             Content = content,
             Type = "Whisper",
+            WhisperFromId = gm.Id,
             WhisperToId = targetPlayerId,
             CreatedAt = DateTimeOffset.UtcNow
         };
         db.Messages.Add(msg);
         await db.SaveChangesAsync();
-        var dto = new MessageDto(msg.Id, session.Id, null, content, "Whisper", false, msg.CreatedAt, null);
-        var target = await db.Players.Include(p => p.User).FirstOrDefaultAsync(p => p.Id == targetPlayerId);
-        if (target != null)
-        {
-            var conns = _playerConnections.Where(kvp => kvp.Value == target.UserId.ToString()).Select(kvp => kvp.Key).ToList();
-            if (conns.Count > 0) await Clients.Clients(conns).SendCoreAsync("NewMessage", [dto]);
-        }
+
+        var dto = new MessageDto(msg.Id, session.Id, gm.Id, content, "Whisper", false, msg.CreatedAt, null);
+        await Clients.User(target.UserId.ToString()).SendCoreAsync("NewMessage", [dto]);
         await Clients.Caller.SendCoreAsync("NewMessage", [dto]);
     }
 }

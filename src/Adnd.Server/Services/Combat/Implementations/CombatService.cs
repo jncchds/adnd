@@ -196,8 +196,19 @@ public sealed class CombatService(
         if (saves.Failures >= 3)
             dead = true;
 
-        participant.DeathSaveState = JsonSerializer.Deserialize<JsonElement>(
-            JsonSerializer.Serialize(new { successes = saves.Successes, failures = saves.Failures }));
+        // Three successes stabilises the character: the save sequence is over, so clear the
+        // tally. Writing successes=3 back left the counters live, so a later failure still
+        // counted toward death and further calls kept incrementing.
+        if (stable || dead)
+            saves = new DeathSaves(0, 0);
+
+        participant.DeathSaveState = JsonSerializer.SerializeToElement(new
+        {
+            successes = saves.Successes,
+            failures = saves.Failures,
+            isStable = stable,
+            isDead = dead
+        });
 
         logger.Log(
             participant.Combat,

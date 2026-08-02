@@ -1,6 +1,7 @@
 using Adnd.Server.Data;
 using Adnd.Server.Events;
 using Adnd.Server.Models;
+using Microsoft.EntityFrameworkCore;
 using Wolverine;
 
 namespace Adnd.Server.Services;
@@ -37,8 +38,6 @@ public class AgentSaga : Wolverine.Saga
     // Transition on LLM response — move to tool execution or await narrative
     public void Handle(LLMResponseReceived msg)
     {
-        if (msg.AgentCallId != AgentCallId) return;
-
         if (msg.HasToolCalls)
         {
             ToolsRemaining = msg.ToolCount;
@@ -53,41 +52,41 @@ public class AgentSaga : Wolverine.Saga
     // Count down remaining tool calls
     public void Handle(ToolCallCompleted msg)
     {
-        if (msg.AgentCallId != AgentCallId) return;
-
         ToolsRemaining = Math.Max(0, ToolsRemaining - 1);
         if (ToolsRemaining == 0)
             CurrentState = "LLMFollowUp";
     }
 
     // Narrative ready — saga is complete
-    public void Handle(NarrativeReady msg)
+    public async Task Handle(NarrativeReady msg, AppDbContext db)
     {
-        if (msg.AgentCallId != AgentCallId) return;
-
         CurrentState = "Completed";
+        await CleanUpCoordinatorAsync(db);
         MarkCompleted();
     }
 
-    // Agent call failed — mark saga done
-    public async Task Handle(AgentCallFailed msg, AppDbContext db)
+    // Retries exhausted — terminal. AgentCallFailed is deliberately NOT handled here;
+    // AgentCallFailedHandler owns the retry decision and publishes this when it gives up.
+    public async Task Handle(AgentCallAbandoned msg, AppDbContext db)
     {
-        if (msg.AgentCallId != AgentCallId) return;
-
         CurrentState = "Failed";
+
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
         if (call != null)
         {
             call.Status = AgentCallStatus.Failed;
             call.Error = msg.Error;
+            call.CurrentStep = (int)SagaStep.Failed;
             call.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync();
         }
 
+        await CleanUpCoordinatorAsync(db);
+        await db.SaveChangesAsync();
         MarkCompleted();
     }
 
-    // Timeout — fail stuck sagas
+    // Timeout — fail stuck sagas. Wolverine still delivers the scheduled message after the
+    // saga completes, so this must tolerate being called on an already-finished saga.
     public async Task Handle(SagaTimeout msg, AppDbContext db)
     {
         if (CurrentState is "Completed" or "Failed") return;
@@ -98,10 +97,23 @@ public class AgentSaga : Wolverine.Saga
         {
             call.Status = AgentCallStatus.Failed;
             call.Error = "Saga timed out after 5 minutes";
+            call.CurrentStep = (int)SagaStep.Failed;
             call.UpdatedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync();
         }
 
+        await CleanUpCoordinatorAsync(db);
+        await db.SaveChangesAsync();
         MarkCompleted();
+    }
+
+    /// <summary>Coordinator rows are per-agent-call scratch state and were never cleaned up.</summary>
+    private async Task CleanUpCoordinatorAsync(AppDbContext db)
+    {
+        var coordinators = await db.ToolCallCoordinators
+            .Where(c => c.AgentCallId == AgentCallId)
+            .ToListAsync();
+
+        if (coordinators.Count > 0)
+            db.ToolCallCoordinators.RemoveRange(coordinators);
     }
 }

@@ -65,18 +65,44 @@ public sealed class CombatGridService(AppDbContext db) : ICombatGridService
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Reads only the "grid" key out of Combat.Notes. This used to deserialize the entire
+    /// Notes object as Dictionary&lt;string, GridData&gt;, so any other key (GM notes, for
+    /// instance) threw a JsonException on every token move — and SaveNotes then rewrote
+    /// Notes with just the grid, silently destroying whatever else was in there.
+    /// </summary>
     private static Dictionary<string, GridData> ReadNotes(CombatEntity combat)
     {
-        if (combat.Notes.ValueKind == JsonValueKind.Undefined ||
-            combat.Notes.ValueKind == JsonValueKind.Null)
-            return new();
+        var result = new Dictionary<string, GridData>();
 
-        return JsonSerializer.Deserialize<Dictionary<string, GridData>>(combat.Notes.GetRawText())
-               ?? new();
+        if (combat.Notes.ValueKind != JsonValueKind.Object) return result;
+        if (!combat.Notes.TryGetProperty("grid", out var grid)) return result;
+
+        try
+        {
+            var data = JsonSerializer.Deserialize<GridData>(grid.GetRawText());
+            if (data is not null) result["grid"] = data;
+        }
+        catch (JsonException)
+        {
+            // Malformed grid data — treat as absent rather than failing the move.
+        }
+
+        return result;
     }
 
+    /// <summary>Merges the grid back in, preserving every other key in Notes.</summary>
     private static void SaveNotes(CombatEntity combat, Dictionary<string, GridData> notes)
-        => combat.Notes = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(notes));
+    {
+        var merged = combat.Notes.ValueKind == JsonValueKind.Object
+            ? JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(combat.Notes.GetRawText()) ?? []
+            : [];
+
+        foreach (var (key, value) in notes)
+            merged[key] = JsonSerializer.SerializeToElement(value);
+
+        combat.Notes = JsonSerializer.SerializeToElement(merged);
+    }
 
     private record Position(int X, int Y);
 

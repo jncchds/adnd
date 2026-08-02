@@ -3,7 +3,18 @@ import react from '@vitejs/plugin-react'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 
-const version = readFileSync(resolve(__dirname, '../../VERSION'), 'utf8').trim()
+// Falls back rather than throwing at config-load time. A missing VERSION file used to
+// fail the Docker build with a stack trace that gave no hint about the real cause.
+function readVersion(): string {
+  try {
+    return readFileSync(resolve(__dirname, '../../VERSION'), 'utf8').trim()
+  } catch {
+    console.warn('[vite] VERSION file not found; falling back to 0.0.0-dev')
+    return '0.0.0-dev'
+  }
+}
+
+const version = readVersion()
 
 export default defineConfig({
   plugins: [react()],

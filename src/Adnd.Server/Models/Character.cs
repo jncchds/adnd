@@ -31,6 +31,8 @@ public class Character : ISoftDelete
     public int SpellSaveDC { get; set; }
     public int SpellAttackBonus { get; set; }
 
+    public string? Backstory { get; set; }
+
     public bool IsDeleted { get; set; }
     public DateTimeOffset? DeletedAt { get; set; }
 

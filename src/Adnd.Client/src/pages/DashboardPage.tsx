@@ -4,10 +4,12 @@ import {
   Box, Typography, Button, Card, CardContent, CardActions, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Select, MenuItem, FormControl, InputLabel, CircularProgress, Alert,
-  IconButton, Tooltip,
+  IconButton, Tooltip, Collapse,
 } from '@mui/material'
-import { Add as AddIcon, Login as JoinIcon, PlayArrow as StartIcon, Archive as ArchiveIcon, Settings as SettingsIcon } from '@mui/icons-material'
+import { Add as AddIcon, Login as JoinIcon, PlayArrow as StartIcon, Archive as ArchiveIcon, Settings as SettingsIcon, ExpandMore, ExpandLess } from '@mui/icons-material'
+import type { Game } from '../types'
 import { useGames } from '../api/hooks/useGame'
+import { useAuth } from '../context/AuthContext'
 import { api } from '../api/client'
 import type { GameStatus, LLMPreset } from '../types'
 
@@ -24,10 +26,16 @@ const SYSTEMS = [
 
 export default function DashboardPage() {
   const { games, loading, error, refresh } = useGames()
+  const { user } = useAuth()
   const navigate = useNavigate()
+  const [archivedGames, setArchivedGames] = useState<Game[]>([])
+  const [archivedOpen, setArchivedOpen] = useState(false)
+  const [archivedLoading, setArchivedLoading] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [joinCode, setJoinCode] = useState('')
+  const [joinName, setJoinName] = useState('')
   const [joinError, setJoinError] = useState('')
+  const [joining, setJoining] = useState(false)
   const [presets, setPresets] = useState<LLMPreset[]>([])
   const [form, setForm] = useState({ name: '', systemId: 'dnd5e', language: 'English', plotSeed: '', llmPresetId: '' })
   const [creating, setCreating] = useState(false)
@@ -36,6 +44,12 @@ export default function DashboardPage() {
   useEffect(() => {
     if (createOpen) api.llmPresets.list().then(setPresets).catch(() => {})
   }, [createOpen])
+
+  useEffect(() => {
+    if (!archivedOpen) return
+    setArchivedLoading(true)
+    api.games.listArchived().then(setArchivedGames).catch(() => {}).finally(() => setArchivedLoading(false))
+  }, [archivedOpen])
 
   const handleCreate = async () => {
     if (!form.name.trim()) { setCreateError('Game name is required'); return }
@@ -61,13 +75,16 @@ export default function DashboardPage() {
   }
 
   const handleJoin = async () => {
-    if (!joinCode.trim()) return
+    if (!joinCode.trim() || !joinName.trim() || joining) return
     setJoinError('')
+    setJoining(true)
     try {
-      const game = await api.games.joinByCode(joinCode.trim())
+      const game = await api.games.joinByCode(joinCode.trim(), joinName.trim())
       navigate(`/game/${game.id}`)
     } catch (e) {
       setJoinError((e as Error).message)
+    } finally {
+      setJoining(false)
     }
   }
 
@@ -91,8 +108,8 @@ export default function DashboardPage() {
         </Button>
       </Box>
 
-      {/* Join by invite code */}
-      <Box sx={{ display: 'flex', gap: 1, mb: 3, maxWidth: 400 }}>
+      {/* Join by invite code. The server requires a character name alongside the code. */}
+      <Box sx={{ display: 'flex', gap: 1, mb: 3, maxWidth: 560, alignItems: 'flex-start' }}>
         <TextField
           size="small" label="Invite Code" value={joinCode}
           onChange={e => setJoinCode(e.target.value)}
@@ -100,8 +117,20 @@ export default function DashboardPage() {
           error={!!joinError} helperText={joinError}
           fullWidth
         />
-        <Button variant="outlined" startIcon={<JoinIcon />} onClick={handleJoin} sx={{ flexShrink: 0 }}>
-          Join
+        <TextField
+          size="small" label="Your Character Name" value={joinName}
+          onChange={e => setJoinName(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleJoin()}
+          fullWidth
+        />
+        <Button
+          variant="outlined"
+          startIcon={<JoinIcon />}
+          onClick={handleJoin}
+          disabled={joining || !joinCode.trim() || !joinName.trim()}
+          sx={{ flexShrink: 0 }}
+        >
+          {joining ? 'Joining…' : 'Join'}
         </Button>
       </Box>
 
@@ -113,7 +142,7 @@ export default function DashboardPage() {
           <Card
             key={game.id}
             sx={{ cursor: 'pointer', '&:hover': { boxShadow: 4 }, transition: 'box-shadow 0.15s' }}
-            onClick={() => navigate(game.status === 'Active' ? `/game/${game.id}` : `/admin/${game.id}`)}
+            onClick={() => navigate(`/game/${game.id}`)}
           >
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
@@ -140,14 +169,53 @@ export default function DashboardPage() {
                   </IconButton>
                 </Tooltip>
               )}
-              <Tooltip title="Settings">
-                <IconButton size="small" onClick={e => { e.stopPropagation(); navigate(`/game/${game.id}/settings`) }}>
-                  <SettingsIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              {game.creatorId === user?.id && (
+                <Tooltip title="Game Admin">
+                  <IconButton size="small" onClick={e => { e.stopPropagation(); navigate(`/admin/${game.id}`) }}>
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
             </CardActions>
           </Card>
         ))}
+      </Box>
+
+      {/* Archived games */}
+      <Box sx={{ mt: 4 }}>
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', mb: 1, userSelect: 'none' }}
+          onClick={() => setArchivedOpen(o => !o)}
+        >
+          <IconButton size="small">{archivedOpen ? <ExpandLess /> : <ExpandMore />}</IconButton>
+          <Typography variant="subtitle2" color="text.secondary">Archived Games</Typography>
+          {archivedLoading && <CircularProgress size={14} />}
+        </Box>
+        <Collapse in={archivedOpen}>
+          {archivedGames.length === 0 && !archivedLoading && (
+            <Typography variant="body2" color="text.secondary" sx={{ pl: 5 }}>No archived games.</Typography>
+          )}
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 2 }}>
+            {archivedGames.map(game => (
+              <Card key={game.id} sx={{ opacity: 0.7 }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
+                    <Typography variant="h6" fontWeight={600} noWrap>{game.name}</Typography>
+                    <Chip label="Archived" size="small" color="warning" />
+                  </Box>
+                  <Typography variant="body2" color="text.secondary">
+                    {SYSTEMS.find(s => s.id === game.systemId)?.name ?? game.systemId}
+                  </Typography>
+                  {game.deletedAt && (
+                    <Typography variant="caption" color="text.secondary">
+                      Archived {new Date(game.deletedAt).toLocaleDateString()}
+                    </Typography>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </Box>
+        </Collapse>
       </Box>
 
       {/* Create game dialog */}

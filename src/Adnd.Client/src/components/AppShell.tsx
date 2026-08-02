@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Box } from '@mui/material'
 import { Outlet, useParams, useLocation } from 'react-router-dom'
 import SidePanel from './SidePanel'
+import ErrorBoundary from './ErrorBoundary'
 
 export default function AppShell() {
   const stored = localStorage.getItem('adnd-sidebar')
@@ -9,12 +10,17 @@ export default function AppShell() {
   const params = useParams<{ id?: string }>()
   const location = useLocation()
 
-  const gameId = params.id
   const path = location.pathname
 
-  let currentView: string | undefined
-  if (path.includes('/admin/')) currentView = 'Admin'
-  else if (path.includes('/game/')) currentView = 'Game'
+  // Only /game/:id and /admin/:id carry a game id. useParams also matches /character/:id
+  // from this layout route, which previously made the sidebar fetch a game by character id
+  // and render game links pointing at a character.
+  const section: 'game' | 'admin' | undefined =
+    path.startsWith('/admin/') ? 'admin'
+      : path.startsWith('/game/') ? 'game'
+        : undefined
+
+  const gameId = section ? params.id : undefined
 
   const toggle = () => {
     setCollapsed(prev => {
@@ -26,9 +32,12 @@ export default function AppShell() {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <SidePanel collapsed={collapsed} onToggle={toggle} gameId={gameId} currentView={currentView} />
+      <SidePanel collapsed={collapsed} onToggle={toggle} gameId={gameId} section={section} />
       <Box sx={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-        <Outlet />
+        {/* Keyed on the route so navigating away clears a previous page's error. */}
+        <ErrorBoundary key={path}>
+          <Outlet />
+        </ErrorBoundary>
       </Box>
     </Box>
   )

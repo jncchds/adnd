@@ -12,6 +12,7 @@ services:
       retries: 10
     volumes:
       - adnd-data:/var/lib/postgresql/data
+    restart: unless-stopped
 
   app:
     build:
@@ -22,8 +23,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     environment:
-      ConnectionStrings__Default: "Host=postgres;Database=adnd;Username=adnd;Password=${POSTGRES_PASSWORD};Include Error Detail=true"
+      # No "Include Error Detail" here: it makes Npgsql embed parameter values and row
+      # data in exception messages, which then reach logs and error responses.
+      ConnectionStrings__Default: "Host=postgres;Database=adnd;Username=adnd;Password=${POSTGRES_PASSWORD}"
       JwtSettings__SecretKey: ${JWT_SECRET_KEY}
       JwtSettings__Issuer: ${JWT_ISSUER:-adnd-server}
       JwtSettings__Audience: ${JWT_AUDIENCE:-adnd-client}
@@ -44,11 +54,12 @@ services:
     build:
       context: .
       dockerfile: src/Adnd.Server/Dockerfile
-      target: build
+      target: sdk-tools
     volumes:
       - .:/repo
     working_dir: /repo
     environment:
+      # Detailed Npgsql errors are useful here — this profile is developer tooling only.
       ConnectionStrings__Default: "Host=postgres;Database=adnd;Username=adnd;Password=${POSTGRES_PASSWORD};Include Error Detail=true"
     depends_on:
       postgres:

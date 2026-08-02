@@ -1,5 +1,9 @@
+// These mirror the DTOs broadcast by GameHub (see Hubs/ResponseDTOs.cs), not the EF
+// entities. They previously described the entities, so most fields the UI read were
+// never actually on the wire and silently rendered as undefined.
+
 export type CombatStatus = 'Active' | 'Paused' | 'Finished'
-export type ParticipantType = 'Character' | 'NPC' | 'Player'
+export type ParticipantType = 'Character' | 'NPC' | 'Neutral'
 
 export interface DeathSaveState {
   successes: number
@@ -8,30 +12,24 @@ export interface DeathSaveState {
   isStable: boolean
 }
 
+/** ParticipantDto */
 export interface CombatParticipant {
   id: string
-  combatId: string
-  participantType: ParticipantType
-  characterId: string | null
-  npcId: string | null
-  playerId: string | null
   displayName: string
   initiative: number
-  initiativeCount: number
   hp: number
   maxHP: number
   ac: number
+  participantType: ParticipantType
   conditions: string[]
-  temporaryHP: Record<string, unknown> | null
-  savingThrows: Record<string, unknown> | null
-  deathSaveState: DeathSaveState | null
   actionsRemaining: number
   bonusActionsRemaining: number
   reactionsRemaining: number
   movementsRemaining: number
-  freeActions: number
+  deathSaveState: DeathSaveState | null
 }
 
+/** CombatDto */
 export interface Combat {
   id: string
   gameId: string
@@ -40,8 +38,30 @@ export interface Combat {
   status: CombatStatus
   currentRound: number
   currentTurnIndex: number
-  initiativeCount: number
   participants: CombatParticipant[]
-  createdAt: string
-  updatedAt: string
+}
+
+/** DamageDto */
+export interface DamageEvent {
+  combatId: string
+  targetId: string
+  amount: number
+  damageType: string
+  newHP: number
+}
+
+/** Anonymous payload broadcast by GameHub.HealParticipant */
+export interface HealEvent {
+  combatId: string
+  targetId: string
+  amount: number
+  newHP: number
+}
+
+/** ConditionDto */
+export interface ConditionEvent {
+  combatId: string
+  participantId: string
+  condition: string
+  applied: boolean
 }

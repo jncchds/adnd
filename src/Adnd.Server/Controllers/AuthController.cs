@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Adnd.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -94,8 +95,22 @@ public class AuthController(IAuthService authService, IUserIdProvider userIdProv
     }
 }
 
-public record RegisterRequest(string Email, string Password, string DisplayName);
-public record LoginRequest(string Email, string Password);
-public record RefreshRequest(string RefreshToken);
-public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
-public record UpdateDisplayNameRequest(string DisplayName);
+// Validation attributes plus [ApiController] give automatic 400s. Without these an empty
+// password and a non-email address registered successfully.
+public record RegisterRequest(
+    [property: Required, EmailAddress, MaxLength(256)] string Email,
+    [property: Required, MinLength(8), MaxLength(128)] string Password,
+    [property: Required, MinLength(1), MaxLength(64)] string DisplayName);
+
+public record LoginRequest(
+    [property: Required, EmailAddress] string Email,
+    [property: Required] string Password);
+
+public record RefreshRequest([property: Required] string RefreshToken);
+
+public record ChangePasswordRequest(
+    [property: Required] string CurrentPassword,
+    [property: Required, MinLength(8), MaxLength(128)] string NewPassword);
+
+public record UpdateDisplayNameRequest(
+    [property: Required, MinLength(1), MaxLength(64)] string DisplayName);
