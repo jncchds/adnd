@@ -146,7 +146,7 @@ public class RAGService(
 
     public async Task<string> GenerateSessionSummaryAsync(Guid gameId, Guid sessionId, CancellationToken ct = default)
     {
-        var (provider, opts, preset, creatorId) = await GetProviderAsync(gameId, temperature: 0.5f, maxTokens: 1024, ct);
+        var (provider, opts, preset, creatorId, languageDirective) = await GetProviderAsync(gameId, temperature: 0.5f, maxTokens: 1024, ct);
         if (provider is null)
             return "No LLM preset configured for this game.";
 
@@ -163,18 +163,18 @@ public class RAGService(
         var transcript = string.Join("\n", messages.Select(m =>
             $"{m.Player?.CharacterName ?? "GM"}: {m.Content}"));
 
-        const string system = "You are a narrative scribe. Write a concise 'previously on...' recap of the game session below. Write in past tense, 3-5 sentences, focusing on the most dramatically important moments.";
+        var system = WithLanguage("You are a narrative scribe. Write a concise 'previously on...' recap of the game session below. Write in past tense, 3-5 sentences, focusing on the most dramatically important moments.", languageDirective);
         return await CompleteAndLogAsync(gameId, creatorId, provider, preset!, system, transcript, opts, ct);
     }
 
     public async Task<ConsistencyReport> CheckPlotConsistencyAsync(Guid gameId, CancellationToken ct = default)
     {
-        var (provider, opts, preset, creatorId) = await GetProviderAsync(gameId, temperature: 0.3f, maxTokens: 512, ct, jsonMode: true, jsonSchema: JsonSchemas.Object);
+        var (provider, opts, preset, creatorId, languageDirective) = await GetProviderAsync(gameId, temperature: 0.3f, maxTokens: 512, ct, jsonMode: true, jsonSchema: JsonSchemas.Object);
         if (provider is null)
             return new ConsistencyReport(true, [], "No LLM preset configured.");
 
         var context = await GeneratePlotContextAsync(gameId, ct);
-        const string system = "You are a story consistency checker. Analyze the game state and identify any narrative contradictions or continuity issues. Respond with JSON: {\"isConsistent\": bool, \"issues\": [\"...\"], \"summary\": \"...\"}";
+        var system = WithLanguage("You are a story consistency checker. Analyze the game state and identify any narrative contradictions or continuity issues. Respond with JSON: {\"isConsistent\": bool, \"issues\": [\"...\"], \"summary\": \"...\"} — issues/summary follow the language instruction below.", languageDirective);
 
         var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset!, system, context, opts, ct);
 
@@ -193,12 +193,12 @@ public class RAGService(
 
     public async Task<PlotContinuation> SuggestContinuationAsync(Guid gameId, CancellationToken ct = default)
     {
-        var (provider, opts, preset, creatorId) = await GetProviderAsync(gameId, temperature: 0.8f, maxTokens: 512, ct, jsonMode: true, jsonSchema: JsonSchemas.Object);
+        var (provider, opts, preset, creatorId, languageDirective) = await GetProviderAsync(gameId, temperature: 0.8f, maxTokens: 512, ct, jsonMode: true, jsonSchema: JsonSchemas.Object);
         if (provider is null)
             return new PlotContinuation("No LLM preset configured.", []);
 
         var context = await GeneratePlotContextAsync(gameId, ct);
-        const string system = "You are a TTRPG game master advisor. Based on the current game state, suggest how the story could continue. Respond with JSON: {\"suggestion\": \"...\", \"possibleDirections\": [\"...\", \"...\", \"...\"]}";
+        var system = WithLanguage("You are a TTRPG game master advisor. Based on the current game state, suggest how the story could continue. Respond with JSON: {\"suggestion\": \"...\", \"possibleDirections\": [\"...\", \"...\", \"...\"]} — suggestion/possibleDirections follow the language instruction below.", languageDirective);
 
         var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset!, system, context, opts, ct);
 
@@ -311,7 +311,7 @@ public class RAGService(
         }
     }
 
-    private async Task<(ILLMProvider? Provider, LLMOptions Opts, LLMPreset? Preset, Guid CreatorId)> GetProviderAsync(
+    private async Task<(ILLMProvider? Provider, LLMOptions Opts, LLMPreset? Preset, Guid CreatorId, string? LanguageDirective)> GetProviderAsync(
         Guid gameId, float temperature, int maxTokens, CancellationToken ct,
         bool jsonMode = false, System.Text.Json.JsonElement? jsonSchema = null)
     {
@@ -320,7 +320,7 @@ public class RAGService(
             .FirstOrDefaultAsync(g => g.Id == gameId, ct);
 
         if (game?.LLMPreset is null)
-            return (null, default!, null, Guid.Empty);
+            return (null, default!, null, Guid.Empty, null);
 
         var preset = game.LLMPreset;
         if (preset.ApiKey is not null)
@@ -336,8 +336,11 @@ public class RAGService(
             JsonSchema = jsonSchema
         };
 
-        return (factory.CreateFromPreset(preset), opts, preset, game.CreatorId);
+        return (factory.CreateFromPreset(preset), opts, preset, game.CreatorId, game.LanguageDirective);
     }
+
+    private static string WithLanguage(string systemPrompt, string? languageDirective) =>
+        languageDirective is null ? systemPrompt : $"{systemPrompt} {languageDirective}";
 
     /// <summary>
     /// Wraps a provider call with two-phase LLM interaction logging (Pending → Completed/Failed)

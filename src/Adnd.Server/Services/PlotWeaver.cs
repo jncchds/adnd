@@ -48,31 +48,34 @@ public class PlotWeaver(
 
         if (!await HasInitialThreadsAsync(gameId, ct))
         {
-            await GenerateInitialThreadsAsync(gameId, game.CreatorId, game.PlotSeed, provider, preset, ct);
+            await GenerateInitialThreadsAsync(gameId, game.CreatorId, game.PlotSeed, provider, preset, game.LanguageDirective, ct);
         }
         else
         {
-            await AdaptExistingThreadsAsync(gameId, game.CreatorId, context, provider, preset, ct);
-            await SpawnMilestonesAsync(gameId, game.CreatorId, context, provider, preset, ct);
+            await AdaptExistingThreadsAsync(gameId, game.CreatorId, context, provider, preset, game.LanguageDirective, ct);
+            await SpawnMilestonesAsync(gameId, game.CreatorId, context, provider, preset, game.LanguageDirective, ct);
         }
 
-        await DetectOpportunitiesAsync(gameId, game.CreatorId, context, provider, preset, ct);
+        await DetectOpportunitiesAsync(gameId, game.CreatorId, context, provider, preset, game.LanguageDirective, ct);
     }
+
+    private static string WithLanguage(string systemPrompt, string? languageDirective) =>
+        languageDirective is null ? systemPrompt : $"{systemPrompt} {languageDirective}";
 
     public async Task<bool> HasInitialThreadsAsync(Guid gameId, CancellationToken ct = default)
         => await db.PlotThreads.AnyAsync(t => t.GameId == gameId && t.Status == PlotThreadStatus.Active, ct);
 
     // ── PlotThreadGenerationStrategy ─────────────────────────────────────────
 
-    private async Task GenerateInitialThreadsAsync(Guid gameId, Guid creatorId, string? plotSeed, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
+    private async Task GenerateInitialThreadsAsync(Guid gameId, Guid creatorId, string? plotSeed, ILLMProvider provider, LLMPreset preset, string? languageDirective, CancellationToken ct)
     {
         var prompt = new StringBuilder();
         if (!string.IsNullOrEmpty(plotSeed))
             prompt.AppendLine($"Plot seed: {plotSeed}");
         prompt.AppendLine("Generate 2-4 compelling TTRPG plot threads for this game. Each should be narratively interesting and interconnected where possible.");
-        prompt.AppendLine("Respond with a JSON array: [{\"title\": \"...\", \"description\": \"...\", \"category\": \"General|Faction|Mystery|Personal|Threat|WorldEvent|Relationship\", \"nextMilestone\": \"...\", \"foreshadowing\": \"...\"}]");
+        prompt.AppendLine("Respond with a JSON array: [{\"title\": \"...\", \"description\": \"...\", \"category\": \"General|Faction|Mystery|Personal|Threat|WorldEvent|Relationship\", \"nextMilestone\": \"...\", \"foreshadowing\": \"...\"}] — category values stay in English; title/description/nextMilestone/foreshadowing follow the language instruction below.");
 
-        const string system = "You are a creative TTRPG game master. Generate compelling plot threads.";
+        var system = WithLanguage("You are a creative TTRPG game master. Generate compelling plot threads.", languageDirective);
         var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.9f, MaxTokens = 2048, JsonMode = true, JsonSchema = JsonSchemas.Array };
         var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset, system, prompt.ToString(), opts, ct);
 
@@ -144,7 +147,7 @@ public class PlotWeaver(
 
     // ── PlotThreadAdaptationStrategy ─────────────────────────────────────────
 
-    private async Task AdaptExistingThreadsAsync(Guid gameId, Guid creatorId, string context, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
+    private async Task AdaptExistingThreadsAsync(Guid gameId, Guid creatorId, string context, ILLMProvider provider, LLMPreset preset, string? languageDirective, CancellationToken ct)
     {
         var threads = await db.PlotThreads
             .Where(t => t.GameId == gameId && t.Status == PlotThreadStatus.Active)
@@ -156,7 +159,7 @@ public class PlotWeaver(
         var threadList = string.Join("\n", threads.Select(t => $"- ID:{t.Id} Title:{t.Title} Momentum:{t.Momentum:F1}"));
         var prompt = $"{context}\n\nActive threads:\n{threadList}\n\nFor each thread, assess how recent events affect it. Respond with JSON array: [{{\"id\": \"guid\", \"momentum\": float(-10 to 10), \"adaptationNote\": \"...\", \"newMilestone\": \"...\"}}]";
 
-        const string system = "You are a TTRPG narrative AI. Adapt plot threads based on recent events.";
+        var system = WithLanguage("You are a TTRPG narrative AI. Adapt plot threads based on recent events.", languageDirective);
         var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.7f, MaxTokens = 2048, JsonMode = true, JsonSchema = JsonSchemas.Array };
         var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset, system, prompt, opts, ct);
 
@@ -190,7 +193,7 @@ public class PlotWeaver(
 
     // ── PlotMilestoneSpawningStrategy ────────────────────────────────────────
 
-    private async Task SpawnMilestonesAsync(Guid gameId, Guid creatorId, string context, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
+    private async Task SpawnMilestonesAsync(Guid gameId, Guid creatorId, string context, ILLMProvider provider, LLMPreset preset, string? languageDirective, CancellationToken ct)
     {
         var highMomentumThreads = await db.PlotThreads
             .Where(t => t.GameId == gameId && t.Status == PlotThreadStatus.Active && t.Momentum >= 5f)
@@ -198,7 +201,7 @@ public class PlotWeaver(
 
         if (highMomentumThreads.Count == 0) return;
 
-        const string system = "You are a TTRPG game master spawning plot milestones.";
+        var system = WithLanguage("You are a TTRPG game master spawning plot milestones.", languageDirective);
         foreach (var thread in highMomentumThreads)
         {
             var prompt = $"Plot thread: {thread.Title}\nDescription: {thread.Description}\nCurrent momentum: {thread.Momentum}\n\nSpawn a compelling milestone event for this thread. Respond with JSON: {{\"title\": \"...\", \"description\": \"...\"}}";
@@ -230,13 +233,13 @@ public class PlotWeaver(
 
     // ── PlotOpportunityDetectionStrategy ─────────────────────────────────────
 
-    private async Task DetectOpportunitiesAsync(Guid gameId, Guid creatorId, string context, ILLMProvider provider, LLMPreset preset, CancellationToken ct)
+    private async Task DetectOpportunitiesAsync(Guid gameId, Guid creatorId, string context, ILLMProvider provider, LLMPreset preset, string? languageDirective, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(context)) return;
 
-        var prompt = $"{context}\n\nIdentify 1-2 story opportunities that could create new plot threads. Respond with JSON array: [{{\"title\": \"...\", \"description\": \"...\", \"category\": \"General|Faction|Mystery|Personal|Threat|WorldEvent|Relationship\"}}]";
+        var prompt = $"{context}\n\nIdentify 1-2 story opportunities that could create new plot threads. Respond with JSON array: [{{\"title\": \"...\", \"description\": \"...\", \"category\": \"General|Faction|Mystery|Personal|Threat|WorldEvent|Relationship\"}}] — category values stay in English; title/description follow the language instruction below.";
 
-        const string system = "You are a TTRPG game master identifying story opportunities.";
+        var system = WithLanguage("You are a TTRPG game master identifying story opportunities.", languageDirective);
         var opts = new LLMOptions { Model = preset.BaseModel, Temperature = 0.85f, MaxTokens = 1024, JsonMode = true, JsonSchema = JsonSchemas.Array };
         var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset, system, prompt, opts, ct);
 
