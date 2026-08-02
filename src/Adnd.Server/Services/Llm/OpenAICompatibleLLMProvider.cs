@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace Adnd.Server.Services.Llm;
@@ -117,7 +118,54 @@ public class OpenAICompatibleLLMProvider(
             narrativeText = contentEl.GetString();
         }
 
+        // Observed live with LM Studio + Gemma: instead of using the structured tool_calls
+        // field, the model sometimes writes a tool call as literal trailing text —
+        // "<|tool_call|>call:startCombat({enemies:[\"X\"]})<|tool_call|>" — appended after
+        // real narration. Left alone that token is saved and shown to players verbatim, and
+        // the tool it names never actually runs (nothing downstream parses free text as a
+        // tool call). Extract and strip it so the intent still executes and players don't
+        // see the raw marker.
+        if (!string.IsNullOrEmpty(narrativeText))
+        {
+            var (cleaned, fallbackCalls) = ExtractFallbackToolCalls(narrativeText);
+            narrativeText = cleaned;
+            toolCalls.AddRange(fallbackCalls);
+        }
+
         return new LLMToolCallResult(narrativeText, toolCalls, GetTokenUsage(), ExtractReasoning(message));
+    }
+
+    private static readonly Regex FallbackToolCallPattern = new(
+        @"<\|tool_call\|>\s*call:(?<name>[A-Za-z_][A-Za-z0-9_]*)\((?<args>\{.*?\})\)\s*<\|tool_call\|>",
+        RegexOptions.Singleline | RegexOptions.Compiled);
+
+    // Bare (unquoted) object keys, e.g. {enemies:["X"]} — repairs the common informal-JSON
+    // shape models write for tool arguments so it can be parsed as real JSON. Only handles
+    // simple identifier keys; anything fancier is left for the JsonException catch below to drop.
+    private static readonly Regex BareKeyPattern = new(@"(?<=[{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", RegexOptions.Compiled);
+
+    private static (string Cleaned, List<ToolCall> Calls) ExtractFallbackToolCalls(string text)
+    {
+        var calls = new List<ToolCall>();
+        var cleaned = FallbackToolCallPattern.Replace(text, match =>
+        {
+            var name = match.Groups["name"].Value;
+            var rawArgs = match.Groups["args"].Value;
+            try
+            {
+                var repaired = BareKeyPattern.Replace(rawArgs, "\"$1\":");
+                var args = JsonSerializer.Deserialize<JsonElement>(repaired);
+                calls.Add(new ToolCall(Guid.NewGuid().ToString(), name, args));
+            }
+            catch (JsonException)
+            {
+                // Couldn't make sense of the arguments — still strip the token below so the
+                // garbage marker isn't shown to players, but the tool call itself is dropped.
+            }
+            return string.Empty;
+        }).Trim();
+
+        return (cleaned, calls);
     }
 
     public override async Task<float[]> GetEmbeddingAsync(string text, CancellationToken ct)

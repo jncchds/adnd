@@ -2,6 +2,19 @@
 
 ## v0.1.2 — 2026-08-02
 
+### Tool calls written as text by local models now actually run
+
+Observed live with LM Studio + Gemma: rather than populating the structured `tool_calls` field,
+the model sometimes appends the call as literal trailing text —
+`<|tool_call|>call:startCombat({enemies:["X"]})<|tool_call|>` — after otherwise real narration.
+Nothing downstream parses free text as a tool call, so the tool never ran, and the raw marker was
+saved and shown to players verbatim.
+
+- `OpenAICompatibleLLMProvider` now extracts these into real `ToolCall`s and strips the markers
+  from the narration. Bare unquoted object keys (`{enemies:[…]}`) are repaired before parsing.
+- Arguments that still won't parse are dropped, but the marker is stripped either way — players
+  never see the token regardless.
+
 ### Every successful GM turn stopped dead-lettering its own timeout
 
 `AgentSaga.Handle(SagaTimeout)` guards against running on a finished saga, but the guard never
