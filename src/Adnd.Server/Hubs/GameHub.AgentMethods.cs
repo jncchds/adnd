@@ -12,9 +12,18 @@ public partial class GameHub
         await RequireMemberAsync(gameId);
         var session = await ResolveGameSessionAsync(gameId);
         var systemPrompt = await BuildNarrateSystemPromptAsync(gameId);
+
+        // Without recent-message context each narrate call only ever saw the single line the
+        // player just sent, with no memory of the last several exchanges — the GM re-invented
+        // the scene from scratch on every turn instead of continuing it.
+        var context = await rag.GeneratePlotContextAsync(gameId);
+        var userPrompt = string.IsNullOrEmpty(context)
+            ? prompt
+            : $"{context}\n\n=== CURRENT ACTION ===\n{prompt}";
+
         var options = new GMDispatchOptions(
             SystemPrompt: systemPrompt,
-            UserPrompt: prompt);
+            UserPrompt: userPrompt);
         var call = new AgentCall
         {
             GameId = gameId,
@@ -87,7 +96,13 @@ public partial class GameHub
         var systemPrompt = "You are an AI GM assistant.";
         if (game?.LanguageDirective is { } languageDirective)
             systemPrompt = $"{systemPrompt} {languageDirective}";
-        var options = new GMDispatchOptions(systemPrompt, prompt);
+
+        var context = await rag.GeneratePlotContextAsync(gameId);
+        var userPrompt = string.IsNullOrEmpty(context)
+            ? prompt
+            : $"{context}\n\n=== CURRENT REQUEST ===\n{prompt}";
+
+        var options = new GMDispatchOptions(systemPrompt, userPrompt);
         var call = new AgentCall
         {
             GameId = gameId,

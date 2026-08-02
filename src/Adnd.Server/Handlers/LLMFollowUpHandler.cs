@@ -42,7 +42,10 @@ public class LLMFollowUpHandler(
         var provider = providerFactory.CreateFromPreset(preset);
         var opts = new LLMOptions { Model = preset.BaseModel, Temperature = preset.Temperature, MaxTokens = preset.MaxTokens };
 
-        var followUpPrompt = $"Tool results:\n{msg.ToolResultsSummary}\n\nPlease provide your narrative response.";
+        // msg.UserPrompt is the original player action/context from dispatch — dropping it
+        // here left the follow-up call knowing only the tool results, with no memory of what
+        // the player actually did, which is why post-tool narration read as disconnected.
+        var followUpPrompt = $"Player action:\n{msg.UserPrompt}\n\nTool results:\n{msg.ToolResultsSummary}\n\nPlease provide your narrative response.";
 
         string responseText = "";
         string? reasoning = null;

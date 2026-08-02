@@ -11,7 +11,10 @@ import {
 } from '@mui/icons-material'
 import { useGame } from '../api/hooks/useGame'
 import { usePlayers } from '../api/hooks/usePlayers'
+import { useGameHub } from '../api/hooks/useHub'
 import { api } from '../api/client'
+import type { GMActivity } from '../types'
+import { activityLabel } from '../utils/gmActivity'
 
 function StatCard({ label, value, color }: { label: string; value: number | string; color?: string }) {
   return (
@@ -31,6 +34,8 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(false)
   const [invite, setInvite] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const hub = useGameHub()
+  const [gmActivity, setGmActivity] = useState<GMActivity | null>(null)
 
   useEffect(() => {
     if (!gameId) return
@@ -43,6 +48,22 @@ export default function AdminDashboardPage() {
       setStats({ plots: plots.length, npcs: npcs.length, agentCalls: calls.length, llmLogs: logs.total })
     }).catch(() => {})
   }, [gameId])
+
+  // Game start runs a multi-step generation pipeline (plot threads, recap, opening
+  // narration) that can take up to a minute. Without this the "Start Game" button just
+  // looked disabled with no explanation — the same GMActivity broadcast that drives the
+  // chat page's "Weaving the opening plot…" chip needs a live listener here too.
+  useEffect(() => {
+    if (!gameId) return
+    hub.connect(gameId).catch(() => { /* surfaced via hub.error */ })
+    return () => { hub.disconnect().catch(() => { /* unmounting anyway */ }) }
+  }, [gameId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const handleGMActivity = (a: GMActivity) => setGmActivity(a.step === 'Completed' || a.step === 'Failed' ? null : a)
+    hub.on('GMActivity', handleGMActivity)
+    return () => hub.off('GMActivity', handleGMActivity)
+  }, [hub])
 
   const handle = async (fn: () => Promise<unknown>) => {
     setLoading(true)
@@ -82,6 +103,16 @@ export default function AdminDashboardPage() {
             <Chip label={game.status} size="small" color={game.status === 'Active' ? 'success' : 'default'} />
             <Chip label={`GM: ${game.gmStatus}`} size="small" color={game.gmStatus === 'Running' ? 'primary' : 'default'} />
             <Chip label={game.systemId} size="small" variant="outlined" />
+            {gmActivity && (
+              <Tooltip title="The GM is working — nothing's frozen, this can take up to a minute.">
+                <Chip
+                  icon={<CircularProgress size={12} color="inherit" sx={{ ml: '6px !important' }} />}
+                  label={activityLabel(gmActivity)}
+                  size="small"
+                  color="primary"
+                />
+              </Tooltip>
+            )}
           </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>

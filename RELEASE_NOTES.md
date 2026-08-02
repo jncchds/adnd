@@ -2,6 +2,25 @@
 
 ## v0.1.2 — 2026-08-02
 
+### Narration lost context on every tool-following turn and every fresh player message
+
+Admin > LLM Logs showed GM calls going out with almost nothing in them, and narration read as
+disconnected turn to turn — confirmed live: a player action that triggered a dice-roll tool call
+came back from the follow-up LLM call as if the roll were all that happened.
+
+- `LLMFollowUpHandler` built its prompt from `Tool results:\n{summary}` alone — `LLMFollowUpRequested.UserPrompt`,
+  which carries the original player action, was received but never read. Any GM response
+  involving a tool (dice rolls, skill checks, combat) lost all memory of what the player had
+  actually done.
+- `GameHub.TriggerNarrate`/`TriggerSuggest` sent the LLM only the player's raw one-line message
+  plus static campaign metadata (plot threads, PCs) — `RAGService.GeneratePlotContextAsync`
+  already builds recent-message/plot/NPC/character context but was never wired into the live
+  narration path. Both hub methods now prepend that context to the user prompt.
+- Admin dashboard's "Start Game" control now subscribes to the same `GMActivity` SignalR feed
+  the chat page uses, showing "Weaving the opening plot…" / "Writing the opening scene…" instead
+  of just a disabled button for the ~30–60s the game-start pipeline runs. The label mapping was
+  extracted to `utils/gmActivity.ts` so both pages share it.
+
 ### Game language now actually drives narration
 
 `Game.Language` was captured at game creation and shown in the UI, but never once read anywhere
