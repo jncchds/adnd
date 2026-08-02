@@ -5,7 +5,9 @@ import type { Message } from '../../types'
 export function useMessagesInfiniteScroll(sessionId: string | null) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
+  // Starts false, not true — otherwise "Load older messages" flashes before the initial
+  // page load has told us whether there's actually anything older to load.
+  const [hasMore, setHasMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cursorRef = useRef<string | null>(null)
   const seenIds = useRef(new Set<string>())

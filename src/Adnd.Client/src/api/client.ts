@@ -3,7 +3,7 @@ import type {
   Game, GameCreateRequest, Player, GameSession, NPC, Character, CreateCharacterRequest,
   LLMPreset, LLMPresetCreate, LLMPresetUpdate, ProviderStatus, LLMInteractionLog,
   Message, MessagePage,
-  AgentCall, ToolCall,
+  AgentCall, ToolCall, GMToolCallSummary,
   PlotThread, PlotContext, ConsistencyReport, PlotContinuation,
   GMStatusResponse,
   PromptTemplate, GameTemplate, SessionNote,
@@ -191,6 +191,7 @@ class APIClient {
   // Tool calls
   toolCalls = {
     pending: (gameId: string) => this.get<ToolCall[]>(`/gmtools/pending?gameId=${gameId}`),
+    byAgentCall: (agentCallId: string) => this.get<GMToolCallSummary[]>(`/gmtools/by-call/${agentCallId}`),
     confirm: (id: string) => this.post<void>(`/gmtools/${id}/confirm`),
     decline: (id: string, reason?: string) =>
       this.post<void>(`/gmtools/${id}/decline`, { reason }),

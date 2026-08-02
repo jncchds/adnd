@@ -50,6 +50,8 @@ export interface ProviderStatus {
   message: string
 }
 
+export type LLMInteractionStatus = 'Pending' | 'Processing' | 'Completed' | 'Failed'
+
 export interface LLMInteractionLog {
   id: string
   userId: string
@@ -57,6 +59,7 @@ export interface LLMInteractionLog {
   systemPrompt: string
   userPrompt: string
   response: string
+  reasoning: string | null
   promptTokens: number
   completionTokens: number
   totalTokens: number
@@ -65,4 +68,7 @@ export interface LLMInteractionLog {
   endpointUrl: string
   model: string
   startedAt: string
+  status: LLMInteractionStatus
+  errorMessage: string | null
+  completedAt: string | null
 }

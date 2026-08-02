@@ -2,6 +2,8 @@ using System.Text.Json;
 
 namespace Adnd.Server.Models;
 
+public record AgentStepEvent(SagaStep Step, DateTimeOffset At);
+
 public class AgentCall
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -17,6 +19,7 @@ public class AgentCall
     public string? Error { get; set; }
     public Guid? ParentCallId { get; set; }
     public int CurrentStep { get; set; } = (int)SagaStep.None;
+    public List<AgentStepEvent> StepHistory { get; set; } = [];
     public JsonElement Metadata { get; set; }
     public long? DurationMs { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -24,4 +27,14 @@ public class AgentCall
 
     public AgentCall? ParentCall { get; set; }
     public ICollection<AgentCall> ChildCalls { get; set; } = [];
+
+    // Wolverine redelivers a handler's message on transient failure, and each redelivery
+    // re-runs AdvanceStep for the same step before reaching the work that actually failed —
+    // collapsing consecutive duplicates keeps retries from showing up as fake progress.
+    public void AdvanceStep(SagaStep step)
+    {
+        CurrentStep = (int)step;
+        if (StepHistory.Count == 0 || StepHistory[^1].Step != step)
+            StepHistory.Add(new AgentStepEvent(step, DateTimeOffset.UtcNow));
+    }
 }

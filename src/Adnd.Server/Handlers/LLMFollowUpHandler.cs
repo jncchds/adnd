@@ -16,6 +16,7 @@ public class LLMFollowUpHandler(
     IEventBus eventBus,
     ISessionManagementService sessions,
     ILLMInteractionLogger llmLogger,
+    IGmActivityBroadcaster activity,
     ILogger<LLMFollowUpHandler> logger)
 {
     public async Task HandleAsync(LLMFollowUpRequested msg, CancellationToken ct)
@@ -23,8 +24,9 @@ public class LLMFollowUpHandler(
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
         if (call == null) return;
 
-        call.CurrentStep = (int)SagaStep.LLMFollowUp;
+        call.AdvanceStep(SagaStep.LLMFollowUp);
         await db.SaveChangesAsync();
+        await activity.BroadcastAsync(msg.GameId, SagaStep.LLMFollowUp, ct: ct);
 
         var game = await db.Games.Include(g => g.LLMPreset).FirstOrDefaultAsync(g => g.Id == msg.GameId);
         if (game?.LLMPreset == null)
@@ -43,33 +45,48 @@ public class LLMFollowUpHandler(
         var followUpPrompt = $"Tool results:\n{msg.ToolResultsSummary}\n\nPlease provide your narrative response.";
 
         string responseText = "";
-        string logResponse = "";
+        string? reasoning = null;
         Exception? llmError = null;
+
+        Guid logId = Guid.Empty;
+        try
+        {
+            logId = await llmLogger.LogStartAsync(game.CreatorId, msg.GameId, msg.SystemPrompt, followUpPrompt,
+                preset.Name, preset.EndpointUrl ?? provider.EndpointUrl, preset.BaseModel);
+        }
+        catch (Exception logEx)
+        {
+            logger.LogWarning(logEx, "Failed to write LLM interaction start log for game {GameId}", msg.GameId);
+        }
 
         var sw = Stopwatch.StartNew();
         try
         {
-            responseText = await provider.CompleteAsync(msg.SystemPrompt, followUpPrompt, opts, ct);
+            var result = await provider.CompleteAsync(msg.SystemPrompt, followUpPrompt, opts, ct);
+            responseText = result.Text;
+            reasoning = result.Reasoning;
             sw.Stop();
-            logResponse = responseText;
         }
         catch (Exception ex)
         {
             sw.Stop();
             llmError = ex;
-            logResponse = $"[ERROR] {ex.Message}";
         }
         finally
         {
             try
             {
-                await llmLogger.LogAsync(game.CreatorId, msg.GameId, msg.SystemPrompt, followUpPrompt,
-                    logResponse, provider.GetTokenUsage(), sw.ElapsedMilliseconds,
-                    preset.Name, preset.EndpointUrl ?? provider.EndpointUrl, preset.BaseModel);
+                if (logId != Guid.Empty)
+                {
+                    if (llmError != null)
+                        await llmLogger.LogFailureAsync(logId, llmError.Message, sw.ElapsedMilliseconds);
+                    else
+                        await llmLogger.LogSuccessAsync(logId, responseText, provider.GetTokenUsage(), sw.ElapsedMilliseconds, reasoning);
+                }
             }
             catch (Exception logEx)
             {
-                logger.LogWarning(logEx, "Failed to write LLM interaction log for game {GameId}", msg.GameId);
+                logger.LogWarning(logEx, "Failed to write LLM interaction result log for game {GameId}", msg.GameId);
             }
         }
 
@@ -79,9 +96,10 @@ public class LLMFollowUpHandler(
             return;
         }
 
-        call.CurrentStep = (int)SagaStep.NarrativeReady;
+        call.AdvanceStep(SagaStep.NarrativeReady);
         call.OutputMessage = responseText;
         await db.SaveChangesAsync();
+        await activity.BroadcastAsync(msg.GameId, SagaStep.NarrativeReady, ct: ct);
 
         var session = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
         await eventBus.PublishAsync(new NarrativeReady(msg.AgentCallId, msg.GameId, session.Id, responseText));

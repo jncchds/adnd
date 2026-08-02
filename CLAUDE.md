@@ -101,13 +101,15 @@ Browser (React 19 + MUI v7)
 All GM actions flow through durable Wolverine messages persisted to PostgreSQL. The handler chain per GM action:
 
 ```
-AgentCallQueued → SagaOrchestratorHandler → AgentSaga
-    → LLMDispatchHandler → LLMResponseHandler
-    → [ToolExecutionHandler → CoordinatorHandler → LLMFollowUpHandler] (loop if tools)
-    → NarrativeHandler → SignalR push to players
+AgentCallQueued → AgentSaga.Start
+    → LLMDispatchHandler → AgentSaga.Handle(LLMResponseReceived)
+    → [ToolExecutionHandler → AgentSaga.Handle(ToolCallCompleted) → LLMFollowUpHandler] (loop if tools)
+    → AgentSaga.Handle(NarrativeReady) → SignalR push to players
 ```
 
 `AgentSaga` is the state machine keyed on `AgentCall.Id`. States: `Init → LLMDispatch → LLMResponse → ToolExecution → LLMFollowUp → NarrativeReady → Completed | Failed`. 5-minute timeout → `Failed`.
+
+**A saga-routed message (one carrying `[property: SagaIdentity]`) is delivered only to that saga's `Start`/`Handle` methods.** A separate plain-handler class registered for the same message type is silently never invoked — no exception, no log, the message just doesn't reach it. This cost a full gameplay loop, four separate times over: `SagaOrchestratorHandler` (for `AgentCallQueued`), `LLMResponseHandler` (for `LLMResponseReceived`), `CoordinatorHandler` (for `ToolCallCompleted`), and `NarrativeHandler` (for `NarrativeReady`) each used to sit *alongside* the saga's own `Handle` method for the same message, silently dead on arrival every time — Wolverine gave no error, so each one shipped, got tested with a code path that happened not to exercise it, and only surfaced later. In the `NarrativeReady` case specifically, this meant the saga reached "Completed" while the chat message was never saved or broadcast and `AgentCall.Status` never left `Running` — from the admin UI it looked identical to a hung LLM call. All four are now merged directly into `AgentSaga`'s own `Handle` methods, and the standalone handler classes are deleted. Do not add a standalone handler for a message type a saga already owns — put the logic in the saga's `Handle` method, and grep for an existing plain handler on the same message type before assuming one doesn't already conflict.
 
 **Any message routed to `AgentSaga` must carry `[property: SagaIdentity]` on `AgentCallId`.** Wolverine only recognises a property named `Id`, `SagaId` or `AgentSagaId` by convention; without the attribute it cannot correlate the message to its saga and the whole chain silently stops. See `Events/GameEvents.cs`.
 

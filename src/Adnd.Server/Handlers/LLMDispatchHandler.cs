@@ -17,6 +17,7 @@ public class LLMDispatchHandler(
     IEventBus eventBus,
     IGMToolRegistry toolRegistry,
     ILLMInteractionLogger llmLogger,
+    IGmActivityBroadcaster activity,
     ILogger<LLMDispatchHandler> logger)
 {
     public async Task HandleAsync(LLMDispatchRequested msg, CancellationToken ct)
@@ -24,8 +25,9 @@ public class LLMDispatchHandler(
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
         if (call == null) return;
 
-        call.CurrentStep = (int)SagaStep.LLMDispatch;
+        call.AdvanceStep(SagaStep.LLMDispatch);
         await db.SaveChangesAsync();
+        await activity.BroadcastAsync(msg.GameId, SagaStep.LLMDispatch, ct: ct);
 
         var game = await db.Games.Include(g => g.LLMPreset).FirstOrDefaultAsync(g => g.Id == msg.GameId);
         if (game?.LLMPreset == null)
@@ -51,11 +53,22 @@ public class LLMDispatchHandler(
         };
 
         string responseText = "";
+        string? reasoning = null;
         bool hasToolCalls = false;
         int toolCount = 0;
         string? rawJson = null;
-        string logResponse = "";
         Exception? llmError = null;
+
+        Guid logId = Guid.Empty;
+        try
+        {
+            logId = await llmLogger.LogStartAsync(game.CreatorId, msg.GameId, msg.SystemPrompt, msg.UserPrompt,
+                preset.Name, preset.EndpointUrl ?? provider.EndpointUrl, preset.BaseModel);
+        }
+        catch (Exception logEx)
+        {
+            logger.LogWarning(logEx, "Failed to write LLM interaction start log for game {GameId}", msg.GameId);
+        }
 
         var sw = Stopwatch.StartNew();
         try
@@ -66,28 +79,32 @@ public class LLMDispatchHandler(
                 msg.SystemPrompt, msg.UserPrompt, toolRegistry.GetToolDefinitions(), opts, ct);
             sw.Stop();
             responseText = result.NarrativeText ?? "";
+            reasoning = result.Reasoning;
             toolCount = result.ToolCalls.Count;
             hasToolCalls = toolCount > 0;
             rawJson = hasToolCalls ? JsonSerializer.Serialize(result.ToolCalls) : null;
-            logResponse = responseText + (rawJson ?? "");
         }
         catch (Exception ex)
         {
             sw.Stop();
             llmError = ex;
-            logResponse = $"[ERROR] {ex.Message}";
         }
         finally
         {
             try
             {
-                await llmLogger.LogAsync(game.CreatorId, msg.GameId, msg.SystemPrompt, msg.UserPrompt,
-                    logResponse, provider.GetTokenUsage(), sw.ElapsedMilliseconds,
-                    preset.Name, preset.EndpointUrl ?? provider.EndpointUrl, preset.BaseModel);
+                if (logId != Guid.Empty)
+                {
+                    if (llmError != null)
+                        await llmLogger.LogFailureAsync(logId, llmError.Message, sw.ElapsedMilliseconds);
+                    else
+                        await llmLogger.LogSuccessAsync(logId, responseText + (rawJson ?? ""),
+                            provider.GetTokenUsage(), sw.ElapsedMilliseconds, reasoning);
+                }
             }
             catch (Exception logEx)
             {
-                logger.LogWarning(logEx, "Failed to write LLM interaction log for game {GameId}", msg.GameId);
+                logger.LogWarning(logEx, "Failed to write LLM interaction result log for game {GameId}", msg.GameId);
             }
         }
 
@@ -97,8 +114,9 @@ public class LLMDispatchHandler(
             return;
         }
 
-        call.CurrentStep = (int)SagaStep.LLMResponse;
+        call.AdvanceStep(SagaStep.LLMResponse);
         await db.SaveChangesAsync();
+        await activity.BroadcastAsync(msg.GameId, SagaStep.LLMResponse, ct: ct);
 
         await eventBus.PublishAsync(new LLMResponseReceived(msg.AgentCallId, msg.GameId, responseText, hasToolCalls, toolCount, rawJson));
     }

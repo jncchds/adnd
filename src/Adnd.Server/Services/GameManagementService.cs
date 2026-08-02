@@ -72,11 +72,16 @@ public class GameManagementService(
 
         db.Games.Add(game);
 
+        // The Creator is a table admin who can also play — not the GM. The GM is the LLM and
+        // has no Player row at all. Labeling this row "Game Master" leaked into RAGService's
+        // prompt context (falls back to "GM" only when Player is null), making the real GM
+        // think the human creator was itself the GM.
+        var creatorUser = await db.Users.FindAsync(userId);
         var player = new Player
         {
             GameId = game.Id,
             UserId = userId,
-            CharacterName = "Game Master",
+            CharacterName = creatorUser?.DisplayName ?? "Creator",
             Role = PlayerRole.Creator
         };
 
@@ -171,6 +176,7 @@ public class GameManagementService(
             ?? throw new KeyNotFoundException($"Game {gameId} not found.");
 
         game.Status = GameStatus.Starting;
+        game.GMStatus = GMStatus.Running;
         game.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync();
     }

@@ -24,7 +24,12 @@ public record ToolDefinition(string Name, string Description, JsonElement Parame
 
 public record ToolCall(string Id, string Name, JsonElement Arguments);
 
-public record LLMToolCallResult(string? NarrativeText, List<ToolCall> ToolCalls, TokenUsage Usage);
+public record LLMToolCallResult(string? NarrativeText, List<ToolCall> ToolCalls, TokenUsage Usage, string? Reasoning = null);
+
+// Reasoning is the model's separate "thinking" output where the provider exposes it
+// (Ollama's Thinking field, OpenAI-compatible gateways' reasoning_content, Gemini's
+// thought-flagged parts) — null when the provider/API doesn't surface it.
+public record LLMCompletionResult(string Text, string? Reasoning);
 
 public record ProviderStatus(bool IsAvailable, string? ModelName, string? Error);
 
@@ -33,7 +38,7 @@ public interface ILLMProvider
     string ProviderId { get; }
     string EndpointUrl { get; }
     TokenUsage GetTokenUsage();
-    Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct);
+    Task<LLMCompletionResult> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct);
     Task<LLMToolCallResult> CompleteWithToolsAsync(string systemPrompt, string userPrompt, IEnumerable<ToolDefinition> tools, LLMOptions opts, CancellationToken ct);
     Task<float[]> GetEmbeddingAsync(string text, CancellationToken ct);
     Task<IReadOnlyList<string>> ListModelsAsync(CancellationToken ct);
@@ -52,10 +57,10 @@ public abstract class BaseLLMProvider : ILLMProvider
 
     protected void UpdateTokenUsage(TokenUsage usage) => _tokenUsage = usage;
 
-    public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
+    public async Task<LLMCompletionResult> CompleteAsync(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
         => await CompleteAsyncCore(systemPrompt, userPrompt, opts, ct);
 
-    protected abstract Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct);
+    protected abstract Task<LLMCompletionResult> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct);
 
     public async Task<LLMToolCallResult> CompleteWithToolsAsync(string systemPrompt, string userPrompt, IEnumerable<ToolDefinition> tools, LLMOptions opts, CancellationToken ct)
     {
@@ -86,10 +91,10 @@ public abstract class BaseLLMProvider : ILLMProvider
 
         var response = await CompleteAsyncCore(augmentedSystem, userPrompt, opts with { JsonMode = true }, ct);
 
-        var toolCalls = ParseToolCallsFromResponse(response);
-        var narrativeText = toolCalls.Count > 0 ? null : response;
+        var toolCalls = ParseToolCallsFromResponse(response.Text);
+        var narrativeText = toolCalls.Count > 0 ? null : response.Text;
 
-        return new LLMToolCallResult(narrativeText, toolCalls, _tokenUsage);
+        return new LLMToolCallResult(narrativeText, toolCalls, _tokenUsage, response.Reasoning);
     }
 
     private static List<ToolCall> ParseToolCallsFromResponse(string response)

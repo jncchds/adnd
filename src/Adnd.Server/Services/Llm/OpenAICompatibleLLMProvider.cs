@@ -16,7 +16,7 @@ public class OpenAICompatibleLLMProvider(
     public override string ProviderId => "openaicompatible";
     public override string EndpointUrl => endpointUrl;
 
-    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
+    protected override async Task<LLMCompletionResult> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
     {
         var body = BuildBody(opts, new[]
         {
@@ -30,11 +30,17 @@ public class OpenAICompatibleLLMProvider(
 
         ExtractUsage(root);
 
-        return RequireFirstChoice(root)
-            .GetProperty("message")
-            .GetProperty("content")
-            .GetString() ?? string.Empty;
+        var message = RequireFirstChoice(root).GetProperty("message");
+        var text = message.GetProperty("content").GetString() ?? string.Empty;
+        return new LLMCompletionResult(text, ExtractReasoning(message));
     }
+
+    // OpenRouter/DeepSeek-R1/vLLM-style gateways return a sibling "reasoning_content"
+    // field on the message alongside "content" — not part of the OpenAI spec proper.
+    private static string? ExtractReasoning(JsonElement message) =>
+        message.TryGetProperty("reasoning_content", out var r) && r.ValueKind == JsonValueKind.String
+            ? r.GetString()
+            : null;
 
     /// <summary>
     /// Several OpenAI-compatible gateways (LiteLLM, vLLM, LM Studio) answer 200 OK with an
@@ -111,7 +117,7 @@ public class OpenAICompatibleLLMProvider(
             narrativeText = contentEl.GetString();
         }
 
-        return new LLMToolCallResult(narrativeText, toolCalls, GetTokenUsage());
+        return new LLMToolCallResult(narrativeText, toolCalls, GetTokenUsage(), ExtractReasoning(message));
     }
 
     public override async Task<float[]> GetEmbeddingAsync(string text, CancellationToken ct)

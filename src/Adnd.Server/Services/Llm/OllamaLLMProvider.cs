@@ -41,7 +41,7 @@ public class OllamaLLMProvider : BaseLLMProvider
     public override string ProviderId => "ollama";
     public override string EndpointUrl => _endpointUrl;
 
-    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
+    protected override async Task<LLMCompletionResult> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
     {
         var messages = new List<Message>
         {
@@ -49,15 +49,19 @@ public class OllamaLLMProvider : BaseLLMProvider
             new() { Role = ChatRole.User, Content = userPrompt }
         };
 
+        var thinkingEnabled = !string.IsNullOrWhiteSpace(opts.ReasoningEffort) && opts.ReasoningEffort != "none";
+
         var request = new ChatRequest
         {
             Model = string.IsNullOrEmpty(opts.Model) ? _model : opts.Model,
             Messages = messages,
             Stream = false,
+            Think = thinkingEnabled ? true : null,
             Format = opts.JsonMode ? JsonSerializer.Deserialize<JsonElement>("\"json\"") : null
         };
 
         var sb = new StringBuilder();
+        var thinkingSb = new StringBuilder();
         ChatDoneResponseStream? done = null;
 
         await foreach (var chunk in _client.ChatAsync(request, ct))
@@ -66,6 +70,8 @@ public class OllamaLLMProvider : BaseLLMProvider
                 continue;
             if (chunk.Message?.Content is { } content)
                 sb.Append(content);
+            if (chunk.Message?.Thinking is { } thinking)
+                thinkingSb.Append(thinking);
             if (chunk is ChatDoneResponseStream doneChunk)
                 done = doneChunk;
         }
@@ -77,7 +83,7 @@ public class OllamaLLMProvider : BaseLLMProvider
             UpdateTokenUsage(new TokenUsage(promptTokens, completionTokens, promptTokens + completionTokens));
         }
 
-        return sb.ToString();
+        return new LLMCompletionResult(sb.ToString(), thinkingSb.Length > 0 ? thinkingSb.ToString() : null);
     }
 
     protected override Task<LLMToolCallResult> CompleteWithToolsAsyncCore(string systemPrompt, string userPrompt, IEnumerable<ToolDefinition> tools, LLMOptions opts, CancellationToken ct)

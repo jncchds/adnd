@@ -30,11 +30,11 @@ public class GoogleAIStudioLLMProvider(
             _ => 0
         };
 
-    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
+    protected override async Task<LLMCompletionResult> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
     {
         var targetModel = string.IsNullOrEmpty(opts.Model) ? model : opts.Model;
         var result = await SendRequestAsync(targetModel, systemPrompt, userPrompt, null, opts, ct);
-        return result.NarrativeText ?? string.Empty;
+        return new LLMCompletionResult(result.NarrativeText ?? string.Empty, result.Reasoning);
     }
 
     protected override async Task<LLMToolCallResult> CompleteWithToolsAsyncCore(string systemPrompt, string userPrompt, IEnumerable<ToolDefinition> tools, LLMOptions opts, CancellationToken ct)
@@ -56,7 +56,7 @@ public class GoogleAIStudioLLMProvider(
 
         var thinkingBudget = GetThinkingBudget(opts.ReasoningEffort);
         if (thinkingBudget > 0)
-            generationConfig["thinkingConfig"] = new { thinkingBudget };
+            generationConfig["thinkingConfig"] = new { thinkingBudget, includeThoughts = true };
         if (opts.JsonMode)
         {
             generationConfig["responseMimeType"] = "application/json";
@@ -139,10 +139,14 @@ public class GoogleAIStudioLLMProvider(
         }
 
         string? narrativeText = null;
+        string? reasoning = null;
         var toolCalls = new List<ToolCall>();
 
         foreach (var part in parts.EnumerateArray())
         {
+            var isThought = part.TryGetProperty("thought", out var thoughtEl) &&
+                             thoughtEl.ValueKind == JsonValueKind.True;
+
             if (part.TryGetProperty("functionCall", out var fnCall))
             {
                 var name = fnCall.GetProperty("name").GetString() ?? string.Empty;
@@ -151,14 +155,17 @@ public class GoogleAIStudioLLMProvider(
             }
             else if (part.TryGetProperty("text", out var textEl))
             {
-                narrativeText = (narrativeText ?? string.Empty) + textEl.GetString();
+                if (isThought)
+                    reasoning = (reasoning ?? string.Empty) + textEl.GetString();
+                else
+                    narrativeText = (narrativeText ?? string.Empty) + textEl.GetString();
             }
         }
 
         if (toolCalls.Count > 0)
             narrativeText = null;
 
-        return new LLMToolCallResult(narrativeText, toolCalls, GetTokenUsage());
+        return new LLMToolCallResult(narrativeText, toolCalls, GetTokenUsage(), reasoning);
     }
 
     public override async Task<float[]> GetEmbeddingAsync(string text, CancellationToken ct)

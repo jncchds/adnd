@@ -50,7 +50,7 @@ public sealed class CombatAIService(AppDbContext db, ILLMProviderFactory llmProv
                 JsonSchema = JsonSchemas.Array
             };
 
-            var response = await provider.CompleteAsync(systemPrompt, context, opts, ct);
+            var response = (await provider.CompleteAsync(systemPrompt, context, opts, ct)).Text;
 
             if (JsonExtract.TryExtractArray(response, out var array))
             {

@@ -20,20 +20,68 @@ import { useAuth } from '../context/AuthContext'
 import { api } from '../api/client'
 import type {
   Message, Combat, Player, Character,
-  DamageEvent, HealEvent, ConditionEvent,
+  DamageEvent, HealEvent, ConditionEvent, GMActivity,
 } from '../types'
+
+// Friendly, reassuring copy for each saga step — shown at the bottom of chat so players
+// know the GM hasn't frozen and roughly what it's doing while they wait.
+const STEP_LABELS: Record<string, string> = {
+  Init: 'Preparing the scene…',
+  LLMDispatch: 'The GM is thinking…',
+  LLMResponse: 'Reviewing what happened…',
+  ToolExecution: 'Resolving an action…',
+  ToolCoordination: 'Resolving an action…',
+  LLMFollowUp: 'Composing the narration…',
+  NarrativeReady: 'Almost done…',
+  // Game-start pipeline (GameStartService) — doesn't run through AgentSaga, so these are
+  // plain phase names rather than SagaStep values.
+  GeneratingPlot: 'Weaving the opening plot…',
+  GeneratingRecap: 'Recalling last session…',
+  GeneratingNarration: 'Writing the opening scene…',
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  rollDice: 'Rolling dice…',
+  skillCheck: 'Checking a skill…',
+  requestPlayerRoll: 'Waiting on your roll…',
+  queryCharacter: 'Looking up a character…',
+  queryNPCs: 'Looking up NPCs…',
+  searchPlotContext: 'Recalling the story so far…',
+  updateGameState: 'Updating the world…',
+  sendWhisper: 'Sending a whisper…',
+  startCombat: 'Starting combat…',
+  addCombatParticipant: 'Adding a combatant…',
+  generateLoot: 'Generating loot…',
+  narrate: 'Narrating…',
+}
+
+function activityLabel(a: GMActivity): string {
+  if (a.step === 'ToolExecution' && a.detail && TOOL_LABELS[a.detail]) return TOOL_LABELS[a.detail]
+  return STEP_LABELS[a.step] ?? 'Working…'
+}
 
 type ReceiverType = 'All' | 'GM' | string
 
-function MsgBubble({ msg, players }: { msg: Message; players: Player[] }) {
+function MsgBubble({ msg, players, characters }: { msg: Message; players: Player[]; characters: Character[] }) {
   const isGM = msg.type === 'GM'
   const isSystem = ['System', 'PlayerJoined', 'PlayerLeft', 'GameStarted', 'SessionCreated'].includes(msg.type)
   const isDice = ['DiceRoll', 'SkillCheck', 'AttackRoll'].includes(msg.type)
   const isWhisper = msg.type === 'Whisper' || msg.type === 'OOCWhisper'
   const isOOC = msg.isOOC || msg.type === 'OOC'
 
-  const playerName = msg.playerDisplayName
-    ?? players.find(p => p.id === msg.playerId)?.displayName
+  // Sender label leads with the character name (what the table sees in-fiction), with the
+  // account's display name in brackets — previously this showed the raw account name only,
+  // so "Bob" narrating as "Thorin Ironfist" appeared in chat as just "Bob". The full Character
+  // sheet's name takes priority over Player.characterName (a quick label chosen at join time
+  // that never syncs once "Create My Character" produces the real sheet).
+  const senderPlayer = players.find(p => p.id === msg.playerId)
+  const characterName = characters.find(c => c.playerId === msg.playerId)?.name?.trim()
+    || senderPlayer?.characterName?.trim()
+    || null
+  const accountName = senderPlayer?.displayName ?? msg.playerDisplayName ?? null
+  const playerName = characterName
+    ? (accountName && accountName !== characterName ? `${characterName} (${accountName})` : characterName)
+    : accountName
     ?? (msg.playerId ? 'Player' : null)
 
   if (isSystem) {
@@ -180,13 +228,26 @@ function CombatPanel({ combat }: { combat: Combat }) {
 }
 
 function ToolCallBanner({ gameId }: { gameId: string }) {
-  const { toolCalls, confirm } = useToolCalls(gameId)
+  // Decline was already implemented in useToolCalls (and supported end-to-end by
+  // /api/gmtools/{id}/decline) but had no button here — a player who wanted to skip a
+  // gated roll had no way to say so and the call just sat there until the saga's
+  // 5-minute timeout failed the whole turn.
+  const { toolCalls, confirm, decline } = useToolCalls(gameId)
   if (!toolCalls.length) return null
+  const tc = toolCalls[0]
+  const isRoll = tc.toolName === 'requestPlayerRoll'
+  const formula = isRoll ? (tc.arguments.formula as string | undefined) : undefined
+  const reason = isRoll ? (tc.arguments.reason as string | undefined) : undefined
   return (
     <Alert severity="info" sx={{ mb: 1 }} action={
-      <Button size="small" onClick={() => confirm(toolCalls[0].id)}>Confirm</Button>
+      <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <Button size="small" color="inherit" onClick={() => decline(tc.id)}>Decline</Button>
+        <Button size="small" onClick={() => confirm(tc.id)}>Confirm</Button>
+      </Box>
     }>
-      AI is waiting: <strong>{toolCalls[0].name}</strong>
+      {isRoll
+        ? <>The GM requests a roll: <strong>{formula ?? '1d20'}</strong>{reason ? ` — ${reason}` : ''}</>
+        : <>AI is waiting: <strong>{tc.toolName}</strong></>}
     </Alert>
   )
 }
@@ -198,22 +259,27 @@ export default function GameChatPage() {
   const { game, loading: gameLoading } = useGame(gameId ?? null)
   const { players } = usePlayers(gameId ?? null)
   const [myCharacter, setMyCharacter] = useState<Character | null | undefined>(undefined)
-  const isCreator = !!game && !!user && game.creatorId === user.id
+  const [characters, setCharacters] = useState<Character[]>([])
 
   useEffect(() => {
     if (!gameId || gameLoading) return
-    if (isCreator) { setMyCharacter(null); return }
+    // The Creator can also play a character (they're a table admin, not the GM — see
+    // CLAUDE.md), so they need the same character check as any other player.
     api.characters.getMy(gameId)
       .then(c => setMyCharacter(c ?? null))
       .catch(() => setMyCharacter(null))
-  }, [gameId, gameLoading, isCreator])
+    // Whole-party roster so chat can label senders by their character's actual name.
+    api.characters.listForGame(gameId)
+      .then(setCharacters)
+      .catch(() => setCharacters([]))
+  }, [gameId, gameLoading])
   const hub = useGameHub()
   const { messages, loading: msgsLoading, hasMore, loadInitial, loadOlder, appendLive } = useMessagesInfiniteScroll(game?.currentSessionId ?? null)
   const [combat, setCombat] = useState<Combat | null>(null)
   const [input, setInput] = useState('')
   const [isOOC, setIsOOC] = useState(false)
   const [receiver, setReceiver] = useState<ReceiverType>('All')
-  const [gmThinking, setGmThinking] = useState(false)
+  const [gmActivity, setGmActivity] = useState<GMActivity | null>(null)
   const [gmError, setGmError] = useState<string | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -236,11 +302,13 @@ export default function GameChatPage() {
   useEffect(() => {
     const handleNewMessage = (msg: Message) => {
       appendLive(msg)
+      // A GM message arriving is the definitive end of a turn — clears the activity
+      // indicator even if a Completed/Failed broadcast was somehow missed.
+      if (msg.type === 'GM') setGmActivity(null)
       if (isAtBottom.current) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
     }
-    const handleGMThinking = () => setGmThinking(true)
-    const handleGMDone = () => setGmThinking(false)
-    const handleGMError = ({ message }: { message: string }) => setGmError(message)
+    const handleGMActivity = (a: GMActivity) => setGmActivity(a.step === 'Completed' || a.step === 'Failed' ? null : a)
+    const handleGMError = ({ message }: { message: string }) => { setGmError(message); setGmActivity(null) }
     const handleCombatStarted = (c: Combat) => setCombat(c)
     const handleCombatEnded = () => setCombat(null)
     const handleTurnAdvanced = (c: Combat) => setCombat(c)
@@ -278,8 +346,7 @@ export default function GameChatPage() {
 
     hub.on('NewMessage', handleNewMessage)
     hub.on('Error', handleError)
-    hub.on('GMThinking', handleGMThinking)
-    hub.on('GMDoneThinking', handleGMDone)
+    hub.on('GMActivity', handleGMActivity)
     hub.on('GMError', handleGMError)
     hub.on('CombatStarted', handleCombatStarted)
     hub.on('CombatEnded', handleCombatEnded)
@@ -292,8 +359,7 @@ export default function GameChatPage() {
     return () => {
       hub.off('NewMessage', handleNewMessage)
       hub.off('Error', handleError)
-      hub.off('GMThinking', handleGMThinking)
-      hub.off('GMDoneThinking', handleGMDone)
+      hub.off('GMActivity', handleGMActivity)
       hub.off('GMError', handleGMError)
       hub.off('CombatStarted', handleCombatStarted)
       hub.off('CombatEnded', handleCombatEnded)
@@ -318,6 +384,14 @@ export default function GameChatPage() {
 
   const send = async () => {
     if (!input.trim() || !gameId) return
+
+    // In-character speech needs a character to speak as. The server enforces this too
+    // (defense in depth), but failing fast here avoids a round-trip and a raw hub error.
+    if (!isOOC && myCharacter === null) {
+      setSendError('Create a character before speaking in character. Use OOC for table talk.')
+      return
+    }
+
     const content = input.trim()
     setInput('')
     setSendError(null)
@@ -326,21 +400,26 @@ export default function GameChatPage() {
     // Passing one shifted every argument by a position and made all four calls fail.
     try {
       if (receiver === 'GM') {
-        // There is no "whisper the GM" hub method; the GM is the Creator player, so this
-        // is an ordinary whisper addressed to them.
-        const gm = players.find(p => p.role === 'Creator')
-        if (!gm) {
-          setInput(content)
-          setSendError('No Game Master found in this game.')
-          return
-        }
-        await hub.invoke('SendWhisper', gameId, gm.id, content)
+        // The GM is the LLM, not the game's Creator — it has no Player row to whisper.
+        // TriggerSuggest asks it directly. NOTE: NarrativeHandler currently broadcasts every
+        // response to the whole game group, so this isn't actually private yet — it just
+        // stops silently DMing the human who happens to have created the game.
+        await hub.invoke('TriggerSuggest', gameId, content)
       } else if (receiver !== 'All') {
         await hub.invoke('SendWhisper', gameId, receiver, content)
       } else if (isOOC) {
         await hub.invoke('SendOOCMessage', gameId, content)
       } else {
         await hub.invoke('SendMessage', gameId, content, false)
+        // In-character messages to the table are what the GM narrates against. OOC chat and
+        // whispers above stay silent so table banter doesn't spend the owner's LLM budget.
+        // Separate try/catch: the message already sent successfully, so a narration failure
+        // must not restore it into the input box as if nothing went out.
+        try {
+          await hub.invoke('TriggerNarrate', gameId, content)
+        } catch (narrateErr) {
+          setSendError((narrateErr as Error).message || 'The GM could not respond to that.')
+        }
       }
     } catch (e) {
       setInput(content)
@@ -380,8 +459,8 @@ export default function GameChatPage() {
         </Alert>
       )}
 
-      {/* No character banner (players only) */}
-      {!isCreator && myCharacter === null && (
+      {/* No character banner — the Creator can also play a character, so this applies to them too */}
+      {myCharacter === null && (
         <Alert severity="warning" sx={{ mx: 2 }}
           action={<Button size="small" color="inherit" onClick={() => navigate(`/character/create?gameId=${gameId}`)}>Create Character</Button>}>
           You don't have a character in this game yet.
@@ -402,15 +481,8 @@ export default function GameChatPage() {
           </Box>
         )}
         {messages.map(msg => (
-          <MsgBubble key={msg.id} msg={msg} players={players} />
+          <MsgBubble key={msg.id} msg={msg} players={players} characters={characters} />
         ))}
-        {gmThinking && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, opacity: 0.7 }}>
-            <GMIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-            <Typography variant="caption" color="primary">GM is composing…</Typography>
-            <CircularProgress size={12} color="inherit" />
-          </Box>
-        )}
         <div ref={bottomRef} />
       </Box>
 
@@ -453,12 +525,21 @@ export default function GameChatPage() {
           <Typography variant="caption" color={hub.isConnected ? 'success.main' : 'error.main'}>
             {hub.isConnected ? '● Connected' : '○ Disconnected'}
           </Typography>
-          {game?.gmStatus === 'Running' && (
+          {gmActivity ? (
+            <Tooltip title="The GM is working on this turn — nothing's frozen, this can take up to a minute.">
+              <Chip
+                icon={<CircularProgress size={12} color="inherit" sx={{ ml: '6px !important' }} />}
+                label={activityLabel(gmActivity)}
+                size="small"
+                color="primary"
+                sx={{ ml: 1 }}
+              />
+            </Tooltip>
+          ) : game?.gmStatus === 'Running' ? (
             <Chip label="GM Active" size="small" color="primary" sx={{ ml: 1 }} />
-          )}
-          {game?.gmStatus === 'Paused' && (
+          ) : game?.gmStatus === 'Paused' ? (
             <Chip label="GM Paused" size="small" variant="outlined" sx={{ ml: 1 }} />
-          )}
+          ) : null}
           {myCharacter && (
             <Chip
               icon={<CharIcon sx={{ fontSize: '14px !important' }} />}

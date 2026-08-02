@@ -13,6 +13,7 @@ public class ToolExecutionHandler(
     IGMToolRegistry toolRegistry,
     IEventBus eventBus,
     ISessionManagementService sessions,
+    IGmActivityBroadcaster activity,
     ILogger<ToolExecutionHandler> logger)
 {
     public async Task HandleAsync(ToolCallRequested msg, CancellationToken ct)
@@ -20,8 +21,9 @@ public class ToolExecutionHandler(
         var call = await db.AgentCalls.FindAsync([msg.AgentCallId], ct);
         if (call == null) return;
 
-        call.CurrentStep = (int)SagaStep.ToolExecution;
+        call.AdvanceStep(SagaStep.ToolExecution);
         await db.SaveChangesAsync(ct);
+        await activity.BroadcastAsync(msg.GameId, SagaStep.ToolExecution, msg.ToolName, ct);
 
         if (toolRegistry.RequiresConfirmation(msg.ToolName))
         {

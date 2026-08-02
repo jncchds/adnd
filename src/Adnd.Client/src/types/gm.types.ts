@@ -6,6 +6,13 @@ export interface GMStatusResponse {
   status: GMStatus
 }
 
+/** Pushed over SignalR ("GMActivity") as an agent call moves through its saga steps. */
+export interface GMActivity {
+  gameId: string
+  step: string
+  detail: string | null
+}
+
 export interface SwayRequest {
   direction: string
   intensity: number

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { Box, IconButton, Tooltip, Divider, Typography, useTheme } from '@mui/material'
+import { Box, Tooltip, Divider, Typography, useTheme } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import {
   Casino as DiceIcon,
   Tune as PresetsIcon,
@@ -10,8 +11,7 @@ import {
   People as CharactersIcon,
   Brightness4 as DarkIcon,
   Brightness7 as LightIcon,
-  ChevronLeft as CollapseIcon,
-  ChevronRight as ExpandIcon,
+  Menu as MenuIcon,
   Logout as LogoutIcon,
   ArrowBack as BackIcon,
   Dashboard as OverviewIcon,
@@ -106,7 +106,6 @@ export default function SidePanel({ collapsed, onToggle, gameId, section }: Prop
   ] : []
 
   const sectionNav = inAdmin ? adminNav : gameNav
-  const sectionLabel = inAdmin ? 'Game Admin' : 'Game'
 
   const sidebarBg = theme.palette.mode === 'dark' ? '#0e0b14' : '#f0ebff'
 
@@ -123,31 +122,49 @@ export default function SidePanel({ collapsed, onToggle, gameId, section }: Prop
         overflow: 'hidden',
       }}
     >
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', p: 1, pb: 0.5 }}>
-        {!collapsed && (
-          <Box>
-            <Typography variant="caption" fontWeight={700} color="primary" sx={{ letterSpacing: 2, textTransform: 'uppercase' }}>
-              ADnD
-            </Typography>
-            <Box component="span" sx={{ ml: 0.5, fontSize: 9, bgcolor: 'primary.main', color: '#fff', px: 0.5, py: 0.1, borderRadius: 0.5 }}>
-              ALPHA
-            </Box>
-          </Box>
-        )}
-        <Tooltip title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} placement="right">
-          <IconButton size="small" onClick={onToggle}>
-            {collapsed ? <ExpandIcon fontSize="small" /> : <CollapseIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
-      </Box>
-
-      {/* User */}
-      {!collapsed && user && (
-        <Box sx={{ px: 1.5, pb: 1 }}>
-          <Typography variant="caption" color="text.secondary" noWrap>{user.displayName}</Typography>
+      {/* Header — the whole row is the collapse/expand toggle, not just an icon in the corner */}
+      <Tooltip title={collapsed ? 'Expand sidebar' : ''} placement="right">
+        <Box
+          component="button"
+          onClick={onToggle}
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 1,
+            width: '100%', border: 0, background: 'none', cursor: 'pointer',
+            p: 1, color: theme.palette.text.primary, font: 'inherit',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            '&:hover': { bgcolor: 'action.hover' },
+          }}
+        >
+          <MenuIcon fontSize="small" />
+          {!collapsed && (
+            <>
+              <Typography variant="body2" fontWeight={700} sx={{ letterSpacing: 1 }}>
+                ADnD
+              </Typography>
+              <Box
+                component="a"
+                href="https://github.com/jncchds/adnd"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                sx={{
+                  fontSize: 10, lineHeight: 1.4, textDecoration: 'none',
+                  color: theme.palette.text.secondary,
+                  bgcolor: alpha(theme.palette.primary.main, 0.15),
+                  border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}`,
+                  px: 0.75, py: 0.1, borderRadius: 10,
+                  '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.25) },
+                }}
+              >
+                v{__APP_VERSION__}
+              </Box>
+              <Box component="span" sx={{ fontSize: 9, fontWeight: 700, bgcolor: 'error.main', color: '#fff', px: 0.5, py: 0.1, borderRadius: 0.5 }}>
+                ALPHA
+              </Box>
+            </>
+          )}
         </Box>
-      )}
+      </Tooltip>
 
       <Divider />
 
@@ -160,17 +177,6 @@ export default function SidePanel({ collapsed, onToggle, gameId, section }: Prop
         {sectionNav.length > 0 && (
           <>
             <Divider sx={{ my: 0.5 }} />
-
-            {!collapsed && (
-              <Typography
-                variant="caption"
-                color={inAdmin ? 'primary' : 'text.secondary'}
-                fontWeight={inAdmin ? 700 : 400}
-                sx={{ px: 1.5, textTransform: 'uppercase', letterSpacing: 1 }}
-              >
-                {sectionLabel}
-              </Typography>
-            )}
 
             {/* Leaving admin returns to the game it belongs to, not the dashboard. */}
             {inAdmin && (

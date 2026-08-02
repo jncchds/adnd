@@ -98,19 +98,19 @@ public class AuthController(IAuthService authService, IUserIdProvider userIdProv
 // Validation attributes plus [ApiController] give automatic 400s. Without these an empty
 // password and a non-email address registered successfully.
 public record RegisterRequest(
-    [property: Required, EmailAddress, MaxLength(256)] string Email,
-    [property: Required, MinLength(8), MaxLength(128)] string Password,
-    [property: Required, MinLength(1), MaxLength(64)] string DisplayName);
+    [Required, EmailAddress, MaxLength(256)] string Email,
+    [Required, MinLength(8), MaxLength(128)] string Password,
+    [Required, MinLength(1), MaxLength(64)] string DisplayName);
 
 public record LoginRequest(
-    [property: Required, EmailAddress] string Email,
-    [property: Required] string Password);
+    [Required, EmailAddress] string Email,
+    [Required] string Password);
 
-public record RefreshRequest([property: Required] string RefreshToken);
+public record RefreshRequest([Required] string RefreshToken);
 
 public record ChangePasswordRequest(
-    [property: Required] string CurrentPassword,
-    [property: Required, MinLength(8), MaxLength(128)] string NewPassword);
+    [Required] string CurrentPassword,
+    [Required, MinLength(8), MaxLength(128)] string NewPassword);
 
 public record UpdateDisplayNameRequest(
-    [property: Required, MinLength(1), MaxLength(64)] string DisplayName);
+    [Required, MinLength(1), MaxLength(64)] string DisplayName);

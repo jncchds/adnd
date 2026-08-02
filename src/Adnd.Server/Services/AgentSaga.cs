@@ -1,7 +1,13 @@
+using System.Text.Json;
 using Adnd.Server.Data;
+using Adnd.Server.Dtos;
 using Adnd.Server.Events;
+using Adnd.Server.Hubs;
 using Adnd.Server.Models;
+using Adnd.Server.Services.Llm;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Wolverine;
 
 namespace Adnd.Server.Services;
@@ -23,51 +29,220 @@ public class AgentSaga : Wolverine.Saga
     public Guid? CurrentToolId { get; set; }
     public string CurrentState { get; set; } = "Init";
 
-    // Start() — triggered by AgentCallQueued
-    public async Task Start(AgentCallQueued msg, IMessageContext context)
+    // Start() — triggered by AgentCallQueued. Wolverine routes a [SagaIdentity]-carrying
+    // message solely to the saga's Start/Handle methods; a separate plain handler class for
+    // the same message type is never invoked (silently — no exception), so the orchestration
+    // that used to live in SagaOrchestratorHandler has to happen here.
+    public async Task Start(AgentCallQueued msg, IMessageContext context, AppDbContext db, IGmActivityBroadcaster activity, ILogger<AgentSaga> logger)
     {
         Id = msg.AgentCallId;
         AgentCallId = msg.AgentCallId;
         GameId = msg.GameId;
         CurrentState = "Init";
 
-        // Schedule a 5-minute timeout
         await context.ScheduleAsync(new SagaTimeout(Id), TimeSpan.FromMinutes(5));
+
+        var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
+        if (call == null) return;
+        call.Status = AgentCallStatus.Running;
+        call.AdvanceStep(SagaStep.Init);
+        await db.SaveChangesAsync();
+        await activity.BroadcastAsync(msg.GameId, SagaStep.Init);
+
+        string systemPrompt, userPrompt;
+        try
+        {
+            var opts = string.IsNullOrEmpty(call.Input)
+                ? null
+                : JsonSerializer.Deserialize<GMDispatchOptions>(call.Input);
+            systemPrompt = opts?.SystemPrompt ?? "";
+            userPrompt = opts?.UserPrompt ?? "";
+        }
+        catch (JsonException ex)
+        {
+            // Previously swallowed: a malformed Input dispatched a billable LLM call with
+            // two empty prompts and no indication anything had gone wrong.
+            logger.LogError(ex, "Agent call {AgentCallId} has malformed Input; aborting dispatch", call.Id);
+            await context.PublishAsync(new AgentCallFailed(call.Id, call.GameId, "Agent call input was not valid JSON."));
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(systemPrompt) && string.IsNullOrWhiteSpace(userPrompt))
+        {
+            logger.LogError("Agent call {AgentCallId} produced empty prompts; aborting dispatch", call.Id);
+            await context.PublishAsync(new AgentCallFailed(call.Id, call.GameId, "Agent call produced an empty prompt."));
+            return;
+        }
+
+        await context.PublishAsync(new LLMDispatchRequested(call.Id, call.GameId, systemPrompt, userPrompt));
     }
 
-    // Transition on LLM response — move to tool execution or await narrative
-    public void Handle(LLMResponseReceived msg)
+    // Transition on LLM response — move to tool execution or await narrative. This used to be
+    // a void state-only transition while a separate LLMResponseHandler class did the real work
+    // (advancing AgentCall.CurrentStep, publishing NarrativeReady/ToolCallRequested) — the same
+    // saga-owned-message gotcha documented above for AgentCallQueued: Wolverine routes
+    // LLMResponseReceived (it carries [SagaIdentity]) solely to this Handle method, so
+    // LLMResponseHandler was silently never invoked and every narration hung forever at
+    // CurrentStep=LLMResponse. The orchestration now lives here instead.
+    public async Task Handle(LLMResponseReceived msg, IMessageContext context, AppDbContext db, ISessionManagementService sessions, IGmActivityBroadcaster activity)
     {
-        if (msg.HasToolCalls)
-        {
-            ToolsRemaining = msg.ToolCount;
-            CurrentState = "ToolExecution";
-        }
-        else
+        var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
+        if (call == null) return;
+
+        call.Output = msg.ResponseText;
+
+        List<ToolCall> toolCalls = [];
+        if (msg.HasToolCalls && !string.IsNullOrEmpty(msg.RawJson))
+            toolCalls = JsonSerializer.Deserialize<List<ToolCall>>(msg.RawJson) ?? [];
+
+        if (toolCalls.Count == 0)
         {
             CurrentState = "AwaitingNarrative";
+            call.AdvanceStep(SagaStep.NarrativeReady);
+            await db.SaveChangesAsync();
+            await activity.BroadcastAsync(msg.GameId, SagaStep.NarrativeReady);
+
+            var session = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
+            await context.PublishAsync(new NarrativeReady(msg.AgentCallId, msg.GameId, session.Id, msg.ResponseText));
+            return;
         }
+
+        ToolsRemaining = toolCalls.Count;
+        CurrentState = "ToolExecution";
+        call.AdvanceStep(SagaStep.ToolExecution);
+        await activity.BroadcastAsync(msg.GameId, SagaStep.ToolExecution);
+
+        var coordinator = new ToolCallCoordinator
+        {
+            AgentCallId = msg.AgentCallId,
+            TotalTools = toolCalls.Count,
+            CompletedTools = 0,
+            CurrentToolIndex = 0,
+            ToolResults = JsonSerializer.SerializeToElement(new List<object>()),
+            ToolCalls = JsonSerializer.SerializeToElement(toolCalls)
+        };
+        db.ToolCallCoordinators.Add(coordinator);
+        await db.SaveChangesAsync();
+
+        var first = toolCalls[0];
+        await context.PublishAsync(new ToolCallRequested(msg.AgentCallId, msg.GameId, first.Name, first.Arguments.GetRawText(), 0));
     }
 
-    // Count down remaining tool calls
-    public void Handle(ToolCallCompleted msg)
+    // Advance the tool-call coordinator, dispatch the next tool, or move to the LLM follow-up.
+    // Same saga-owned-message gotcha as above: this used to be a void state-only transition
+    // while a separate CoordinatorHandler class (dead — Wolverine never invoked it) recorded
+    // results, dispatched the next tool, and published LLMFollowUpRequested. Without it, any
+    // GM response containing more than zero tool calls (dice rolls, skill checks, etc.) hung
+    // forever after the first tool completed.
+    public async Task Handle(ToolCallCompleted msg, IMessageContext context, AppDbContext db, IGmActivityBroadcaster activity)
     {
         ToolsRemaining = Math.Max(0, ToolsRemaining - 1);
-        if (ToolsRemaining == 0)
-            CurrentState = "LLMFollowUp";
+
+        var coordinator = await db.ToolCallCoordinators.FirstOrDefaultAsync(c => c.AgentCallId == msg.AgentCallId);
+        if (coordinator == null) return;
+
+        var results = JsonSerializer.Deserialize<List<JsonElement>>(coordinator.ToolResults.GetRawText()) ?? [];
+        results.Add(JsonSerializer.SerializeToElement(new { toolName = msg.ToolName, result = msg.ResultJson }));
+        coordinator.ToolResults = JsonSerializer.SerializeToElement(results);
+        coordinator.CompletedTools++;
+        coordinator.CurrentToolIndex++;
+        await db.SaveChangesAsync();
+
+        var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
+        if (call == null) return;
+
+        var toolCalls = coordinator.ToolCalls.ValueKind == JsonValueKind.Array
+            ? JsonSerializer.Deserialize<List<ToolCall>>(coordinator.ToolCalls.GetRawText()) ?? []
+            : [];
+
+        if (coordinator.CurrentToolIndex < toolCalls.Count)
+        {
+            var next = toolCalls[coordinator.CurrentToolIndex];
+            await context.PublishAsync(new ToolCallRequested(msg.AgentCallId, msg.GameId, next.Name, next.Arguments.GetRawText(), coordinator.CurrentToolIndex));
+            return;
+        }
+
+        CurrentState = "LLMFollowUp";
+        call.AdvanceStep(SagaStep.LLMFollowUp);
+        await db.SaveChangesAsync();
+        await activity.BroadcastAsync(msg.GameId, SagaStep.LLMFollowUp);
+
+        string systemPrompt = "", userPrompt = "";
+        if (!string.IsNullOrEmpty(call.Input))
+        {
+            try
+            {
+                var opts = JsonSerializer.Deserialize<GMDispatchOptions>(call.Input);
+                systemPrompt = opts?.SystemPrompt ?? "";
+                userPrompt = opts?.UserPrompt ?? "";
+            }
+            catch (JsonException)
+            {
+                // Dispatch already validated Input; a failure here is non-fatal.
+            }
+        }
+
+        var toolSummary = string.Join("\n", results.Select(r => r.GetRawText()));
+        await context.PublishAsync(new LLMFollowUpRequested(msg.AgentCallId, msg.GameId, systemPrompt, userPrompt, toolSummary));
     }
 
-    // Narrative ready — saga is complete
-    public async Task Handle(NarrativeReady msg, AppDbContext db)
+    // Narrative ready — save + broadcast the message and complete the saga. Same saga-owned-
+    // message gotcha as above, for the third and most consequential time: NarrativeReady
+    // carries [SagaIdentity], so the standalone NarrativeHandler class — which actually saved
+    // the Message row, flipped AgentCall.Status to Completed, and pushed it over SignalR — was
+    // silently never invoked. Every TriggerNarrate/TriggerSuggest call reached this point and
+    // then simply vanished: no chat message, no completed status, saga stuck at "Running".
+    public async Task Handle(NarrativeReady msg, IMessageContext context, AppDbContext db, IHubContext<GameHub> hub, IGmActivityBroadcaster activity)
     {
         CurrentState = "Completed";
+
+        var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
+        if (call != null)
+        {
+            call.Status = AgentCallStatus.Completed;
+            call.AdvanceStep(SagaStep.Completed);
+            call.OutputMessage = msg.NarrativeText;
+            call.DurationMs = (long)(DateTimeOffset.UtcNow - call.CreatedAt).TotalMilliseconds;
+        }
+
+        var game = await db.Games.FindAsync(msg.GameId);
+        if (game != null)
+        {
+            var preview = msg.NarrativeText.Length > 80 ? msg.NarrativeText[..80] + "…" : msg.NarrativeText;
+            game.LastGMAction = preview;
+            game.LastGMActionAt = DateTimeOffset.UtcNow;
+        }
+
+        Message? saved = null;
+        if (msg.SessionId != Guid.Empty)
+        {
+            saved = new Message
+            {
+                SessionId = msg.SessionId,
+                Content = msg.NarrativeText,
+                Type = "GM",
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            db.Messages.Add(saved);
+        }
+
         await CleanUpCoordinatorAsync(db);
+        await db.SaveChangesAsync();
+        await activity.BroadcastAsync(msg.GameId, SagaStep.Completed);
+        await context.PublishAsync(new GameNarrationStarted(msg.GameId, msg.AgentCallId));
+
+        if (saved != null)
+        {
+            var dto = new MessageDto(saved.Id, saved.SessionId, null, saved.Content, saved.Type, false, saved.CreatedAt, null);
+            await hub.Clients.Group(msg.GameId.ToString()).SendAsync("NewMessage", dto);
+        }
+
         MarkCompleted();
     }
 
     // Retries exhausted — terminal. AgentCallFailed is deliberately NOT handled here;
     // AgentCallFailedHandler owns the retry decision and publishes this when it gives up.
-    public async Task Handle(AgentCallAbandoned msg, AppDbContext db)
+    public async Task Handle(AgentCallAbandoned msg, AppDbContext db, IGmActivityBroadcaster activity)
     {
         CurrentState = "Failed";
 
@@ -76,18 +251,19 @@ public class AgentSaga : Wolverine.Saga
         {
             call.Status = AgentCallStatus.Failed;
             call.Error = msg.Error;
-            call.CurrentStep = (int)SagaStep.Failed;
+            call.AdvanceStep(SagaStep.Failed);
             call.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
         await CleanUpCoordinatorAsync(db);
         await db.SaveChangesAsync();
+        await activity.BroadcastAsync(msg.GameId, SagaStep.Failed, msg.Error);
         MarkCompleted();
     }
 
     // Timeout — fail stuck sagas. Wolverine still delivers the scheduled message after the
     // saga completes, so this must tolerate being called on an already-finished saga.
-    public async Task Handle(SagaTimeout msg, AppDbContext db)
+    public async Task Handle(SagaTimeout msg, AppDbContext db, IGmActivityBroadcaster activity)
     {
         if (CurrentState is "Completed" or "Failed") return;
 
@@ -97,12 +273,13 @@ public class AgentSaga : Wolverine.Saga
         {
             call.Status = AgentCallStatus.Failed;
             call.Error = "Saga timed out after 5 minutes";
-            call.CurrentStep = (int)SagaStep.Failed;
+            call.AdvanceStep(SagaStep.Failed);
             call.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
         await CleanUpCoordinatorAsync(db);
         await db.SaveChangesAsync();
+        await activity.BroadcastAsync(GameId, SagaStep.Failed, "Saga timed out after 5 minutes");
         MarkCompleted();
     }
 

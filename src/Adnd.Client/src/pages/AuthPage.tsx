@@ -46,7 +46,7 @@ export default function AuthPage() {
           <Typography variant="caption" color="text.secondary">AI-Powered TTRPG Platform</Typography>
         </Box>
 
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} centered sx={{ mb: 3 }}>
+        <Tabs value={tab} onChange={(_, v) => { setTab(v); setError('') }} centered sx={{ mb: 3 }}>
           <Tab label="Sign In" />
           <Tab label="Register" />
         </Tabs>

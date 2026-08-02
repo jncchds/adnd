@@ -105,13 +105,12 @@ export default function GameCharactersPage() {
   const { id: gameId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { game, loading: gameLoading } = useGame(gameId ?? null)
+  const { loading: gameLoading } = useGame(gameId ?? null)
   const { players } = usePlayers(gameId ?? null)
   const [characters, setCharacters] = useState<Character[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const isCreator = !!game && !!user && game.creatorId === user.id
   const myPlayer = players.find(p => p.userId === user?.id)
 
   useEffect(() => {
@@ -132,7 +131,7 @@ export default function GameCharactersPage() {
     <Box sx={{ p: 3, maxWidth: 900, mx: 'auto' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Typography variant="h5" fontWeight={700}>Party Characters</Typography>
-        {!isCreator && !myCharacter && (
+        {!myCharacter && (
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -148,7 +147,7 @@ export default function GameCharactersPage() {
       {characters.length === 0 && (
         <Paper sx={{ p: 4, textAlign: 'center' }}>
           <Typography color="text.secondary" sx={{ mb: 2 }}>No characters have been created yet.</Typography>
-          {!isCreator && (
+          {!myCharacter && (
             <Button variant="contained" startIcon={<AddIcon />}
               onClick={() => navigate(`/character/create?gameId=${gameId}`)}>
               Create My Character

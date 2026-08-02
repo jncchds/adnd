@@ -38,7 +38,7 @@ public class OpenAILLMProvider(
         return new EmbeddingClient(targetModel, apiKey);
     }
 
-    protected override async Task<string> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
+    protected override async Task<LLMCompletionResult> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
     {
         var targetModel = string.IsNullOrEmpty(opts.Model) ? model : opts.Model;
         var chatClient = CreateChatClient(targetModel);
@@ -66,7 +66,9 @@ public class OpenAILLMProvider(
         if (completion.Usage is { } usage)
             UpdateTokenUsage(new TokenUsage(usage.InputTokenCount, usage.OutputTokenCount, usage.TotalTokenCount));
 
-        return completion.Content.Count > 0 ? completion.Content[0].Text : string.Empty;
+        // The Chat Completions API never returns reasoning/thinking text (o-series models
+        // only expose that via the separate Responses API) — Reasoning is always null here.
+        return new LLMCompletionResult(completion.Content.Count > 0 ? completion.Content[0].Text : string.Empty, null);
     }
 
     protected override async Task<LLMToolCallResult> CompleteWithToolsAsyncCore(string systemPrompt, string userPrompt, IEnumerable<ToolDefinition> tools, LLMOptions opts, CancellationToken ct)

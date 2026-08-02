@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services.Llm;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Adnd.Server.Services;
 
@@ -16,7 +18,9 @@ public class NarrativeGenerationFactory(
     AppDbContext db,
     IRAGService rag,
     ILLMProviderFactory factory,
-    IApiKeyEncryptionService encryption) : INarrativeGenerationFactory
+    IApiKeyEncryptionService encryption,
+    ILLMInteractionLogger llmLogger,
+    ILogger<NarrativeGenerationFactory> logger) : INarrativeGenerationFactory
 {
     public async Task<string> GenerateOpeningNarrationAsync(Guid gameId, CancellationToken ct = default)
     {
@@ -50,7 +54,7 @@ public class NarrativeGenerationFactory(
         };
 
         var provider = factory.CreateFromPreset(preset);
-        return await provider.CompleteAsync(systemPrompt, userPrompt, opts, ct);
+        return await CompleteAndLogAsync(gameId, game.CreatorId, provider, preset, systemPrompt, userPrompt, opts, ct);
     }
 
     public async Task<string> GenerateSessionRecapAsync(Guid gameId, Guid sessionId, CancellationToken ct = default)
@@ -79,7 +83,66 @@ public class NarrativeGenerationFactory(
         };
 
         var provider = factory.CreateFromPreset(preset);
-        return await provider.CompleteAsync(systemPrompt, prompt, opts, ct);
+        return await CompleteAndLogAsync(gameId, game.CreatorId, provider, preset, systemPrompt, prompt, opts, ct);
+    }
+
+    /// <summary>
+    /// Wraps a provider call with two-phase LLM interaction logging (Pending → Completed/Failed).
+    /// Without this, opening narration and freeform narrative calls made directly here (rather
+    /// than through AgentSaga's LLMDispatchHandler) were invisible in Admin > LLM Logs.
+    /// </summary>
+    private async Task<string> CompleteAndLogAsync(
+        Guid gameId, Guid creatorId, ILLMProvider provider, LLMPreset preset,
+        string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
+    {
+        string response = "";
+        string? reasoning = null;
+        Exception? llmError = null;
+
+        Guid logId = Guid.Empty;
+        try
+        {
+            logId = await llmLogger.LogStartAsync(creatorId, gameId, systemPrompt, userPrompt,
+                preset.Name, preset.EndpointUrl ?? provider.EndpointUrl, preset.BaseModel);
+        }
+        catch (Exception logEx)
+        {
+            logger.LogWarning(logEx, "Failed to write LLM interaction start log for game {GameId}", gameId);
+        }
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = await provider.CompleteAsync(systemPrompt, userPrompt, opts, ct);
+            response = result.Text;
+            reasoning = result.Reasoning;
+            sw.Stop();
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            llmError = ex;
+        }
+        finally
+        {
+            try
+            {
+                if (logId != Guid.Empty)
+                {
+                    if (llmError != null)
+                        await llmLogger.LogFailureAsync(logId, llmError.Message, sw.ElapsedMilliseconds);
+                    else
+                        await llmLogger.LogSuccessAsync(logId, response, provider.GetTokenUsage(), sw.ElapsedMilliseconds, reasoning);
+                }
+            }
+            catch (Exception logEx)
+            {
+                logger.LogWarning(logEx, "Failed to write LLM interaction result log for game {GameId}", gameId);
+            }
+        }
+        if (llmError != null)
+            throw llmError;
+        return response;
     }
 
     private async Task<string> BuildSystemPromptAsync(Guid gameId, Game game, CancellationToken ct)

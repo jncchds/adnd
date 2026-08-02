@@ -43,7 +43,7 @@ export default function CharacterCreateWizard() {
         background, attributes: attrs,
         backstory: backstory || undefined,
       })
-      navigate(`/character/${char.id}`)
+      navigate(gameId ? `/game/${gameId}` : `/character/${char.id}`)
     } catch (e) { setError((e as Error).message) }
     finally { setCreating(false) }
   }

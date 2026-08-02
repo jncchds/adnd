@@ -124,7 +124,7 @@ export default function AdminDashboardPage() {
               Pause GM
             </Button>
           )}
-          {(game.gmStatus === 'Paused' || game.gmStatus === 'Idle') && (
+          {game.status === 'Active' && (game.gmStatus === 'Paused' || game.gmStatus === 'Idle') && (
             <Button variant="outlined" color="success" startIcon={<ResumeIcon />} disabled={loading}
               onClick={() => handle(() => api.games.resumeGM(gameId!))}>
               Resume GM

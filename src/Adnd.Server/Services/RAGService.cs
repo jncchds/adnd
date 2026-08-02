@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -6,6 +7,7 @@ using Adnd.Server.Data;
 using Adnd.Server.Models;
 using Adnd.Server.Services.Llm;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
 
@@ -29,7 +31,9 @@ public class RAGService(
     AppDbContext db,
     IEmbeddingService embeddingService,
     ILLMProviderFactory factory,
-    IApiKeyEncryptionService encryption) : IRAGService
+    IApiKeyEncryptionService encryption,
+    ILLMInteractionLogger llmLogger,
+    ILogger<RAGService> logger) : IRAGService
 {
     // Static cache shared across all scoped instances; 60-minute TTL
     private static readonly ConcurrentDictionary<string, (float[] Embedding, DateTimeOffset CachedAt)> _embeddingCache = new();
@@ -142,7 +146,7 @@ public class RAGService(
 
     public async Task<string> GenerateSessionSummaryAsync(Guid gameId, Guid sessionId, CancellationToken ct = default)
     {
-        var (provider, opts) = await GetProviderAsync(gameId, temperature: 0.5f, maxTokens: 1024, ct);
+        var (provider, opts, preset, creatorId) = await GetProviderAsync(gameId, temperature: 0.5f, maxTokens: 1024, ct);
         if (provider is null)
             return "No LLM preset configured for this game.";
 
@@ -160,19 +164,19 @@ public class RAGService(
             $"{m.Player?.CharacterName ?? "GM"}: {m.Content}"));
 
         const string system = "You are a narrative scribe. Write a concise 'previously on...' recap of the game session below. Write in past tense, 3-5 sentences, focusing on the most dramatically important moments.";
-        return await provider.CompleteAsync(system, transcript, opts, ct);
+        return await CompleteAndLogAsync(gameId, creatorId, provider, preset!, system, transcript, opts, ct);
     }
 
     public async Task<ConsistencyReport> CheckPlotConsistencyAsync(Guid gameId, CancellationToken ct = default)
     {
-        var (provider, opts) = await GetProviderAsync(gameId, temperature: 0.3f, maxTokens: 512, ct, jsonMode: true, jsonSchema: JsonSchemas.Object);
+        var (provider, opts, preset, creatorId) = await GetProviderAsync(gameId, temperature: 0.3f, maxTokens: 512, ct, jsonMode: true, jsonSchema: JsonSchemas.Object);
         if (provider is null)
             return new ConsistencyReport(true, [], "No LLM preset configured.");
 
         var context = await GeneratePlotContextAsync(gameId, ct);
         const string system = "You are a story consistency checker. Analyze the game state and identify any narrative contradictions or continuity issues. Respond with JSON: {\"isConsistent\": bool, \"issues\": [\"...\"], \"summary\": \"...\"}";
 
-        var response = await provider.CompleteAsync(system, context, opts, ct);
+        var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset!, system, context, opts, ct);
 
         if (JsonExtract.TryExtractObject(response, out var obj))
         {
@@ -189,14 +193,14 @@ public class RAGService(
 
     public async Task<PlotContinuation> SuggestContinuationAsync(Guid gameId, CancellationToken ct = default)
     {
-        var (provider, opts) = await GetProviderAsync(gameId, temperature: 0.8f, maxTokens: 512, ct, jsonMode: true, jsonSchema: JsonSchemas.Object);
+        var (provider, opts, preset, creatorId) = await GetProviderAsync(gameId, temperature: 0.8f, maxTokens: 512, ct, jsonMode: true, jsonSchema: JsonSchemas.Object);
         if (provider is null)
             return new PlotContinuation("No LLM preset configured.", []);
 
         var context = await GeneratePlotContextAsync(gameId, ct);
         const string system = "You are a TTRPG game master advisor. Based on the current game state, suggest how the story could continue. Respond with JSON: {\"suggestion\": \"...\", \"possibleDirections\": [\"...\", \"...\", \"...\"]}";
 
-        var response = await provider.CompleteAsync(system, context, opts, ct);
+        var response = await CompleteAndLogAsync(gameId, creatorId, provider, preset!, system, context, opts, ct);
 
         if (JsonExtract.TryExtractObject(response, out var obj))
         {
@@ -307,7 +311,7 @@ public class RAGService(
         }
     }
 
-    private async Task<(ILLMProvider? Provider, LLMOptions Opts)> GetProviderAsync(
+    private async Task<(ILLMProvider? Provider, LLMOptions Opts, LLMPreset? Preset, Guid CreatorId)> GetProviderAsync(
         Guid gameId, float temperature, int maxTokens, CancellationToken ct,
         bool jsonMode = false, System.Text.Json.JsonElement? jsonSchema = null)
     {
@@ -316,7 +320,7 @@ public class RAGService(
             .FirstOrDefaultAsync(g => g.Id == gameId, ct);
 
         if (game?.LLMPreset is null)
-            return (null, default!);
+            return (null, default!, null, Guid.Empty);
 
         var preset = game.LLMPreset;
         if (preset.ApiKey is not null)
@@ -332,6 +336,65 @@ public class RAGService(
             JsonSchema = jsonSchema
         };
 
-        return (factory.CreateFromPreset(preset), opts);
+        return (factory.CreateFromPreset(preset), opts, preset, game.CreatorId);
+    }
+
+    /// <summary>
+    /// Wraps a provider call with two-phase LLM interaction logging (Pending → Completed/Failed)
+    /// so RAG-driven calls (recaps, consistency checks, continuation suggestions) show up in
+    /// Admin > LLM Logs like the AgentSaga-dispatched calls do.
+    /// </summary>
+    private async Task<string> CompleteAndLogAsync(
+        Guid gameId, Guid creatorId, ILLMProvider provider, LLMPreset preset,
+        string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
+    {
+        string response = "";
+        string? reasoning = null;
+        Exception? llmError = null;
+
+        Guid logId = Guid.Empty;
+        try
+        {
+            logId = await llmLogger.LogStartAsync(creatorId, gameId, systemPrompt, userPrompt,
+                preset.Name, preset.EndpointUrl ?? provider.EndpointUrl, preset.BaseModel);
+        }
+        catch (Exception logEx)
+        {
+            logger.LogWarning(logEx, "Failed to write LLM interaction start log for game {GameId}", gameId);
+        }
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = await provider.CompleteAsync(systemPrompt, userPrompt, opts, ct);
+            response = result.Text;
+            reasoning = result.Reasoning;
+            sw.Stop();
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            llmError = ex;
+        }
+        finally
+        {
+            try
+            {
+                if (logId != Guid.Empty)
+                {
+                    if (llmError != null)
+                        await llmLogger.LogFailureAsync(logId, llmError.Message, sw.ElapsedMilliseconds);
+                    else
+                        await llmLogger.LogSuccessAsync(logId, response, provider.GetTokenUsage(), sw.ElapsedMilliseconds, reasoning);
+                }
+            }
+            catch (Exception logEx)
+            {
+                logger.LogWarning(logEx, "Failed to write LLM interaction result log for game {GameId}", gameId);
+            }
+        }
+        if (llmError != null)
+            throw llmError;
+        return response;
     }
 }

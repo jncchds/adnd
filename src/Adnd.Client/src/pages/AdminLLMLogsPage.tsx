@@ -9,6 +9,13 @@ import { ExpandMore, ExpandLess, Delete as DeleteIcon, DeleteSweep } from '@mui/
 import { api } from '../api/client'
 import type { LLMInteractionLog } from '../types'
 
+const STATUS_COLOR: Record<LLMInteractionLog['status'], 'default' | 'warning' | 'success' | 'error'> = {
+  Pending: 'default',
+  Processing: 'warning',
+  Completed: 'success',
+  Failed: 'error',
+}
+
 function LogRow({ log, onDelete }: { log: LLMInteractionLog; onDelete: () => void }) {
   const [open, setOpen] = useState(false)
   return (
@@ -18,6 +25,7 @@ function LogRow({ log, onDelete }: { log: LLMInteractionLog; onDelete: () => voi
           <IconButton size="small">{open ? <ExpandLess /> : <ExpandMore />}</IconButton>
         </TableCell>
         <TableCell><Typography variant="caption">{new Date(log.startedAt).toLocaleString()}</Typography></TableCell>
+        <TableCell><Chip label={log.status} size="small" color={STATUS_COLOR[log.status]} /></TableCell>
         <TableCell><Chip label={log.model} size="small" /></TableCell>
         <TableCell><Typography variant="caption">{log.presetName}</Typography></TableCell>
         <TableCell align="right">
@@ -35,7 +43,7 @@ function LogRow({ log, onDelete }: { log: LLMInteractionLog; onDelete: () => voi
         </TableCell>
       </TableRow>
       <TableRow>
-        <TableCell colSpan={7} sx={{ py: 0 }}>
+        <TableCell colSpan={8} sx={{ py: 0 }}>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
               <Box>
@@ -54,11 +62,31 @@ function LogRow({ log, onDelete }: { log: LLMInteractionLog; onDelete: () => voi
                   </Typography>
                 </Paper>
               </Box>
+              {log.reasoning && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" fontWeight={600}>Reasoning</Typography>
+                  <Paper sx={{ p: 1, mt: 0.5, bgcolor: 'action.hover', maxHeight: 300, overflow: 'auto' }}>
+                    <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontStyle: 'italic', color: 'text.secondary' }}>
+                      {log.reasoning}
+                    </Typography>
+                  </Paper>
+                </Box>
+              )}
+              {log.status === 'Failed' && log.errorMessage && (
+                <Box>
+                  <Typography variant="caption" color="error" fontWeight={600}>Error</Typography>
+                  <Paper sx={{ p: 1, mt: 0.5, bgcolor: 'rgba(211,47,47,0.08)', maxHeight: 200, overflow: 'auto' }}>
+                    <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                      {log.errorMessage}
+                    </Typography>
+                  </Paper>
+                </Box>
+              )}
               <Box>
                 <Typography variant="caption" color="text.secondary" fontWeight={600}>Response</Typography>
                 <Paper sx={{ p: 1, mt: 0.5, bgcolor: 'rgba(124,58,237,0.05)', maxHeight: 400, overflow: 'auto' }}>
                   <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
-                    {log.response}
+                    {log.response || (log.status === 'Processing' ? '(waiting for response…)' : '')}
                   </Typography>
                 </Paper>
               </Box>
@@ -82,18 +110,26 @@ export default function AdminLLMLogsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const load = async (p: number) => {
+  const load = async (p: number, silent = false) => {
     if (!gameId) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       const data = await api.llmLogs.list(gameId, p)
       setLogs(data.items)
       setTotal(data.total)
     } catch (e) { setError((e as Error).message) }
-    finally { setLoading(false) }
+    finally { if (!silent) setLoading(false) }
   }
 
   useEffect(() => { load(page) }, [page]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll while a call is still in flight so Pending/Processing rows resolve without a manual refresh.
+  const hasInFlight = logs.some(l => l.status === 'Pending' || l.status === 'Processing')
+  useEffect(() => {
+    if (!hasInFlight) return
+    const timer = setInterval(() => load(page, true), 3000)
+    return () => clearInterval(timer)
+  }, [hasInFlight, page]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDelete = async (id: string) => {
     try { await api.llmLogs.delete(id); load(page) }
@@ -123,6 +159,7 @@ export default function AdminLLMLogsPage() {
             <TableRow>
               <TableCell />
               <TableCell>Time</TableCell>
+              <TableCell>Status</TableCell>
               <TableCell>Model</TableCell>
               <TableCell>Preset</TableCell>
               <TableCell align="right">In↑ Out↓</TableCell>
@@ -132,7 +169,7 @@ export default function AdminLLMLogsPage() {
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={7} align="center"><CircularProgress size={24} /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={24} /></TableCell></TableRow>
             ) : logs.map(log => (
               <LogRow key={log.id} log={log} onDelete={() => handleDelete(log.id)} />
             ))}

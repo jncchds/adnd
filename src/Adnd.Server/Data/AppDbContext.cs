@@ -57,6 +57,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
             v => JsonSerializer.Deserialize<List<MilestoneEvent>>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null)) ?? new List<MilestoneEvent>());
 
+        // AdvanceStep appends to this list in place, so the same content-comparer approach
+        // as milestoneListComparer applies here too.
+        var stepEventListComparer = new ValueComparer<List<AgentStepEvent>>(
+            (a, b) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(b, (JsonSerializerOptions?)null),
+            v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
+            v => JsonSerializer.Deserialize<List<AgentStepEvent>>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null)) ?? new List<AgentStepEvent>());
+
         // ── Soft-delete global filters ──
         modelBuilder.Entity<Game>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<Player>().HasQueryFilter(e => !e.IsDeleted);
@@ -165,6 +172,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasForeignKey(a => a.ParentCallId)
             .OnDelete(DeleteBehavior.Restrict);
         ConfigureJsonb<AgentCall>(modelBuilder, a => a.Metadata, jsonComparer);
+        modelBuilder.Entity<AgentCall>()
+            .Property(a => a.StepHistory)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Deserialize<List<AgentStepEvent>>(v) ?? new())
+            .Metadata.SetValueComparer(stepEventListComparer);
 
         // ── GMToolCall ──
         ConfigureJsonb<GMToolCall>(modelBuilder, g => g.Arguments, jsonComparer);

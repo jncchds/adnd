@@ -6,10 +6,86 @@ import {
 } from '@mui/material'
 import { ExpandMore, ExpandLess } from '@mui/icons-material'
 import { api } from '../api/client'
-import type { AgentCall, AgentCallStatus } from '../types'
+import type { AgentCall, AgentCallStatus, GMToolCallSummary, GMToolCallStatus } from '../types'
 
 const STATUS_COLORS: Record<AgentCallStatus, 'default' | 'info' | 'success' | 'error' | 'warning'> = {
   Pending: 'info', Running: 'warning', Completed: 'success', Failed: 'error', Cancelled: 'default',
+}
+
+const TOOL_STATUS_COLORS: Record<GMToolCallStatus, 'default' | 'info' | 'success' | 'error' | 'warning'> = {
+  Pending: 'info', Running: 'warning', Completed: 'success', Failed: 'error',
+  AwaitingConfirmation: 'warning', Declined: 'default',
+}
+
+function ToolCallList({ agentCallId }: { agentCallId: string }) {
+  const [toolCalls, setToolCalls] = useState<GMToolCallSummary[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.toolCalls.byAgentCall(agentCallId)
+      .then(setToolCalls)
+      .catch(e => setError((e as Error).message))
+  }, [agentCallId])
+
+  if (error) return <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>
+  if (toolCalls === null) return <CircularProgress size={16} />
+  if (toolCalls.length === 0) return <Typography variant="caption" color="text.secondary">No tool calls.</Typography>
+
+  return (
+    <Table size="small">
+      <TableBody>
+        {toolCalls.map(t => {
+          const durationMs = t.completedAt
+            ? new Date(t.completedAt).getTime() - new Date(t.startedAt).getTime()
+            : null
+          return (
+            <TableRow key={t.id}>
+              <TableCell sx={{ border: 0, pl: 0 }}>
+                <Chip label={t.status} size="small" color={TOOL_STATUS_COLORS[t.status]} />
+              </TableCell>
+              <TableCell sx={{ border: 0 }}><Typography variant="caption">{t.toolName}</Typography></TableCell>
+              <TableCell sx={{ border: 0 }}>
+                {t.requiresConfirmation && <Chip label="confirm" size="small" variant="outlined" />}
+              </TableCell>
+              <TableCell sx={{ border: 0 }} align="right">
+                <Typography variant="caption" color="text.secondary">
+                  {durationMs != null ? `${durationMs}ms` : '—'}
+                </Typography>
+              </TableCell>
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
+  )
+}
+
+function StepTimeline({ call }: { call: AgentCall }) {
+  if (call.stepHistory.length === 0)
+    return <Typography variant="caption" color="text.secondary">Step: {call.currentStep}</Typography>
+
+  return (
+    <Table size="small">
+      <TableHead>
+        <TableRow>
+          <TableCell sx={{ pl: 0 }}>Step</TableCell>
+          <TableCell>Time</TableCell>
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {call.stepHistory.map((e, i) => (
+          <TableRow key={i}>
+            <TableCell sx={{ pl: 0, border: 0 }}>
+              <Typography variant="caption">{e.step}</Typography>
+            </TableCell>
+            <TableCell sx={{ border: 0 }}>
+              <Typography variant="caption" color="text.secondary">{new Date(e.at).toLocaleTimeString()}</Typography>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  )
 }
 
 function CallRow({ call }: { call: AgentCall }) {
@@ -32,7 +108,18 @@ function CallRow({ call }: { call: AgentCall }) {
               {call.outputMessage && (
                 <Typography variant="body2" sx={{ mb: 1 }}>{call.outputMessage}</Typography>
               )}
-              <Typography variant="caption" color="text.secondary">Step: {call.currentStep}</Typography>
+              <Box sx={{ mb: 1.5 }}>
+                <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 0.5 }}>
+                  Saga steps
+                </Typography>
+                <StepTimeline call={call} />
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary" fontWeight={600} display="block" sx={{ mb: 0.5 }}>
+                  Tool calls
+                </Typography>
+                <ToolCallList agentCallId={call.id} />
+              </Box>
             </Box>
           </Collapse>
         </TableCell>

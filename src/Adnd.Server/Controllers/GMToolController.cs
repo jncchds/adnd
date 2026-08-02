@@ -21,6 +21,17 @@ public record PendingToolCallDto(
     Guid? TargetPlayerId,
     DateTimeOffset StartedAt);
 
+public record GMToolCallSummaryDto(
+    Guid Id,
+    string ToolName,
+    GMToolCallStatus Status,
+    JsonElement Arguments,
+    JsonElement Result,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? CompletedAt,
+    bool RequiresConfirmation,
+    Guid? TargetPlayerId);
+
 [ApiController]
 [Route("api/gmtools")]
 [Authorize]
@@ -54,6 +65,29 @@ public class GMToolController(
             .ToListAsync(ct);
 
         return Ok(pending);
+    }
+
+    /// <summary>
+    /// Tool calls executed for a single agent call (saga run), for the Agent Calls admin
+    /// overview. Authorized against the agent call's own game, not a caller-supplied gameId.
+    /// </summary>
+    [HttpGet("by-call/{agentCallId:guid}")]
+    public async Task<IActionResult> GetByAgentCall(Guid agentCallId, CancellationToken ct)
+    {
+        var call = await db.AgentCalls.AsNoTracking().FirstOrDefaultAsync(a => a.Id == agentCallId, ct);
+        if (call == null) return NotFound();
+        if (await RequireCreatorAsync(call.GameId) is { } failure) return failure;
+
+        var toolCalls = await db.GMToolCalls
+            .AsNoTracking()
+            .Where(t => t.AgentCallId == agentCallId)
+            .OrderBy(t => t.ToolIndex).ThenBy(t => t.StartedAt)
+            .Select(t => new GMToolCallSummaryDto(
+                t.Id, t.ToolName, t.Status, t.Arguments, t.Result,
+                t.StartedAt, t.CompletedAt, t.RequiresConfirmation, t.TargetPlayerId))
+            .ToListAsync(ct);
+
+        return Ok(toolCalls);
     }
 
     [HttpPost("{id:guid}/confirm")]

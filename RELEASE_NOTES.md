@@ -1,5 +1,72 @@
 # Release Notes
 
+## v0.1.1 — 2026-08-02
+
+### GM turn observability + live activity feedback
+
+Players had no indication a GM turn was progressing versus hung — the chat view showed a
+static "GM Active" badge whether the GM was idle, mid-turn, or dead. Admins had no visibility
+into what an agent call actually did beyond its final output.
+
+**feat — live GM activity indicator:**
+- New `IGmActivityBroadcaster` pushes a `GMActivity` SignalR event as `AgentCall` moves through
+  each saga step (dispatch, tool execution, follow-up, etc.), and as `GameStartService`'s
+  opening-narration pipeline (plot generation, recap, narration) progresses — a path that
+  previously gave zero feedback for 20–30+ seconds.
+- The chat bottom bar now shows a live, friendly label ("The GM is thinking…", "Rolling
+  dice…", "Weaving the opening plot…") with a spinner, falling back to the static "GM
+  Active"/"GM Paused" badge once idle. Removed the `GMThinking`/`GMDoneThinking` client
+  listeners, which the server never actually emitted — dead code masquerading as this feature.
+
+**feat — Agent Calls admin tab now shows what happened, not just the result:**
+- `AgentCall.StepHistory` records every saga-step transition with a timestamp, rendered as a
+  table in the admin UI. `AdvanceStep` collapses consecutive-duplicate entries so Wolverine's
+  retry-on-transient-failure redeliveries don't show up as fake repeated progress.
+- New `GET /api/gmtools/by-call/{agentCallId}` lists the tool calls executed for a turn.
+
+**feat — LLM reasoning capture:**
+- `LLMInteractionLog.Reasoning` persists the model's separate "thinking" output where the
+  provider exposes it: Ollama's `Thinking` field, OpenAI-compatible gateways'
+  `reasoning_content` (OpenRouter/DeepSeek-R1/vLLM), and Gemini's `thought`-flagged parts
+  (now requesting `includeThoughts`). Native OpenAI's Chat Completions API doesn't expose
+  reasoning text, so that path stays `null` — a documented API limitation, not a bug. Shown in
+  a dedicated panel in Admin > LLM Logs.
+
+**fix — tool call confirmation banner had no way to say no:**
+- `useToolCalls.decline()` was fully wired to `/api/gmtools/{id}/decline` but the chat UI only
+  rendered a Confirm button. A player who wanted to skip a gated roll had no way to say so and
+  the call sat there until the saga's 5-minute timeout failed the whole turn.
+
+**fix — dead, unauthorized SignalR methods:**
+- `GameHub.ToolCalls.cs` (`ConfirmPlayerRoll`, `DeclinePlayerRoll`, `ConfirmToolCall`) was never
+  called by the client, didn't touch any real state, and skipped the `RequireMemberAsync` check
+  every other hub method enforces — any authenticated user could invoke them for someone else's
+  game to broadcast fake confirmation events into that game's chat. Removed.
+
+**fix — chat UI:**
+- "Load older messages" flashed on a brand-new, empty session because `hasMore` defaulted to
+  `true` before the first page load resolved.
+
+**redesign — sidebar:**
+- Removed standalone caption text (username, section labels) so the sidebar is composed
+  entirely of interactive controls.
+- The header is now a single burger-icon button that collapses/expands the sidebar, replacing
+  the separate corner chevron. Added a version pill (linking to the repo) and kept the ALPHA
+  badge alongside it.
+
+**fix — carried over from the prior repair pass:**
+- `RegisterRequest`/`LoginRequest` validation attributes moved off the `[property: ...]` target.
+- Creating a character from a game context now returns to that game instead of the standalone
+  character sheet.
+- `GameCharactersPage` no longer hid "Create My Character" from the creator — the Creator can
+  play a character too (see below).
+- New games now label the Creator's `Player` row with their display name instead of "Game
+  Master" — that string leaked into `RAGService`'s prompt context and made the real GM think
+  the human creator was itself the GM.
+- `GameHub.SendMessage` now rejects in-character speech from a player with no character
+  server-side, not just via a client-side banner.
+- `AdminDashboardPage`'s "Resume GM" button no longer appears for a game that isn't Active.
+
 ## v0.1.0 — 2026-08-02
 
 ### Repair & Hardening Pass

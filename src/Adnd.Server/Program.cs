@@ -135,6 +135,7 @@ builder.Services.AddSingleton<ISystemRegistry, SystemRegistry>();
 builder.Services.AddScoped<IGameEngine, GameEngine>();
 builder.Services.AddScoped<IPlayerManagementService, PlayerManagementService>();
 builder.Services.AddScoped<IWhisperService, WhisperService>();
+builder.Services.AddSingleton<IGmActivityBroadcaster, GmActivityBroadcaster>();
 
 // ── LLM Provider System ───────────────────────────────────────────────────────
 builder.Services.AddHttpClient("LLMProvider").ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(120));
@@ -189,6 +190,12 @@ builder.Host.UseWolverine(opts =>
     opts.PersistMessagesWithPostgresql(connStr, "public");
     opts.Discovery.IncludeAssembly(typeof(Program).Assembly);
     opts.Durability.Mode = DurabilityMode.Solo;
+
+    // EF Core registers DbContextOptions<AppDbContext> via an opaque lambda factory (AddDbContext),
+    // which Wolverine's codegen can't inline. Since 6.0 that now throws InvalidServiceLocationException
+    // at startup instead of silently falling back to GetRequiredService — route just this type through
+    // the service locator instead of disabling the safety net for everything else.
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<DbContextOptions<AppDbContext>>();
 });
 
 // ── SignalR ───────────────────────────────────────────────────────────────────

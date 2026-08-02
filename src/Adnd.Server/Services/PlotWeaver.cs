@@ -287,30 +287,48 @@ public class PlotWeaver(
         string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
     {
         string response = "";
+        string? reasoning = null;
         Exception? llmError = null;
+
+        Guid logId = Guid.Empty;
+        try
+        {
+            logId = await llmLogger.LogStartAsync(creatorId, gameId, systemPrompt, userPrompt,
+                preset.Name, preset.EndpointUrl ?? provider.EndpointUrl, preset.BaseModel);
+        }
+        catch (Exception logEx)
+        {
+            logger.LogWarning(logEx, "Failed to write LLM interaction start log for game {GameId}", gameId);
+        }
+
         var sw = Stopwatch.StartNew();
         try
         {
-            response = await provider.CompleteAsync(systemPrompt, userPrompt, opts, ct);
+            var result = await provider.CompleteAsync(systemPrompt, userPrompt, opts, ct);
+            response = result.Text;
+            reasoning = result.Reasoning;
             sw.Stop();
         }
         catch (Exception ex)
         {
             sw.Stop();
             llmError = ex;
-            response = $"[ERROR] {ex.Message}";
         }
         finally
         {
             try
             {
-                await llmLogger.LogAsync(creatorId, gameId, systemPrompt, userPrompt,
-                    response, provider.GetTokenUsage(), sw.ElapsedMilliseconds,
-                    preset.Name, preset.EndpointUrl ?? provider.EndpointUrl, preset.BaseModel);
+                if (logId != Guid.Empty)
+                {
+                    if (llmError != null)
+                        await llmLogger.LogFailureAsync(logId, llmError.Message, sw.ElapsedMilliseconds);
+                    else
+                        await llmLogger.LogSuccessAsync(logId, response, provider.GetTokenUsage(), sw.ElapsedMilliseconds, reasoning);
+                }
             }
             catch (Exception logEx)
             {
-                logger.LogWarning(logEx, "Failed to write LLM interaction log for game {GameId}", gameId);
+                logger.LogWarning(logEx, "Failed to write LLM interaction result log for game {GameId}", gameId);
             }
         }
         if (llmError != null)

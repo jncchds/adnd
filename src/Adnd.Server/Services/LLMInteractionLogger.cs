@@ -9,9 +9,13 @@ namespace Adnd.Server.Services;
 
 public interface ILLMInteractionLogger
 {
-    Task LogAsync(Guid userId, Guid? gameId, string systemPrompt, string userPrompt,
-                  string response, TokenUsage usage, long durationMs,
-                  string presetName, string endpointUrl, string model);
+    /// <summary>Writes a Pending row before the provider call goes out. Returns its id.</summary>
+    Task<Guid> LogStartAsync(Guid userId, Guid? gameId, string systemPrompt, string userPrompt,
+                              string presetName, string endpointUrl, string model);
+
+    Task LogSuccessAsync(Guid logId, string response, TokenUsage usage, long durationMs, string? reasoning = null);
+
+    Task LogFailureAsync(Guid logId, string errorMessage, long durationMs);
 }
 
 // Singleton: uses IServiceScopeFactory so each log write gets an isolated DbContext.
@@ -24,29 +28,49 @@ public class LLMInteractionLogger(
     private bool DebugEnabled =>
         config["LLM_DEBUG_LOG"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
 
-    public async Task LogAsync(Guid userId, Guid? gameId, string systemPrompt, string userPrompt,
-                               string response, TokenUsage usage, long durationMs,
-                               string presetName, string endpointUrl, string model)
+    public async Task<Guid> LogStartAsync(Guid userId, Guid? gameId, string systemPrompt, string userPrompt,
+                                           string presetName, string endpointUrl, string model)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        db.LLMInteractionLogs.Add(new LLMInteractionLog
+        var entry = new LLMInteractionLog
         {
             UserId = userId,
             OriginGameId = gameId,
             SystemPrompt = systemPrompt,
             UserPrompt = userPrompt,
-            Response = response,
-            PromptTokens = usage.PromptTokens,
-            CompletionTokens = usage.CompletionTokens,
-            TotalTokens = usage.TotalTokens,
-            DurationMs = durationMs,
             PresetName = presetName,
             EndpointUrl = endpointUrl,
-            Model = model
-        });
+            Model = model,
+            Status = EventRecordStatus.Processing
+        };
+        db.LLMInteractionLogs.Add(entry);
+        await db.SaveChangesAsync();
 
+        return entry.Id;
+    }
+
+    public async Task LogSuccessAsync(Guid logId, string response, TokenUsage usage, long durationMs, string? reasoning = null)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var entry = await db.LLMInteractionLogs.FindAsync(logId);
+        if (entry == null)
+        {
+            logger.LogWarning("LLM interaction log {LogId} not found when recording success", logId);
+            return;
+        }
+
+        entry.Response = response;
+        entry.Reasoning = reasoning;
+        entry.PromptTokens = usage.PromptTokens;
+        entry.CompletionTokens = usage.CompletionTokens;
+        entry.TotalTokens = usage.TotalTokens;
+        entry.DurationMs = durationMs;
+        entry.Status = EventRecordStatus.Completed;
+        entry.CompletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync();
 
         if (DebugEnabled)
@@ -56,8 +80,27 @@ public class LLMInteractionLogger(
                 "=== SYSTEM ===\n{System}\n" +
                 "=== USER ===\n{User}\n" +
                 "=== RESPONSE ===\n{Response}",
-                presetName, model, durationMs, usage.TotalTokens, usage.PromptTokens, usage.CompletionTokens,
-                systemPrompt, userPrompt, response);
+                entry.PresetName, entry.Model, durationMs, usage.TotalTokens, usage.PromptTokens, usage.CompletionTokens,
+                entry.SystemPrompt, entry.UserPrompt, response);
         }
+    }
+
+    public async Task LogFailureAsync(Guid logId, string errorMessage, long durationMs)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var entry = await db.LLMInteractionLogs.FindAsync(logId);
+        if (entry == null)
+        {
+            logger.LogWarning("LLM interaction log {LogId} not found when recording failure", logId);
+            return;
+        }
+
+        entry.ErrorMessage = errorMessage;
+        entry.DurationMs = durationMs;
+        entry.Status = EventRecordStatus.Failed;
+        entry.CompletedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
     }
 }

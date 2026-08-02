@@ -3,6 +3,11 @@ namespace Adnd.Server.Hubs;
 public record MessageDto(Guid Id, Guid SessionId, Guid? PlayerId, string Content, string Type, bool IsOOC, DateTimeOffset CreatedAt, object? Metadata);
 public record GameStatusDto(Guid GameId, string Status, string GMStatus);
 public record GMStatusDto(Guid GameId, string Status, string? LastAction);
+
+// Per-turn progress, distinct from GMStatusDto's persistent Running/Paused toggle — this is
+// "what is the current agent call doing right now" so the chat UI can show the player
+// something more useful than a static "GM Active" badge while a turn is in flight.
+public record GMActivityDto(Guid GameId, string Step, string? Detail);
 public record PlayerDto(Guid Id, Guid GameId, Guid UserId, string CharacterName, string Role, bool IsConnected);
 public record CombatDto(Guid Id, Guid GameId, Guid SessionId, string Name, string Status, int CurrentRound, int CurrentTurnIndex, List<ParticipantDto> Participants);
 

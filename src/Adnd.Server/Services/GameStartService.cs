@@ -18,6 +18,7 @@ public class GameStartService(
     IPlotWeaver plotWeaver,
     INarrativeGenerationFactory narrativeFactory,
     IHubContext<GameHub> hub,
+    IGmActivityBroadcaster activity,
     ILogger<GameStartService> logger) : IGameStartService
 {
     public async Task StartGameAsync(Guid gameId, CancellationToken ct = default)
@@ -27,6 +28,17 @@ public class GameStartService(
         // Create (or get) the initial session
         var session = await sessions.GetOrCreateCurrentSessionAsync(gameId);
 
+        // This path generates the opening narration directly rather than going through
+        // AgentSaga, so it never publishes GameNarrationStarted — the event that normally
+        // flips Game.Status from Starting to Active. Without this, a freshly-started game
+        // stays stuck at Starting forever (no admin-dashboard button matches that status).
+        var game = await db.Games.FindAsync([gameId], ct);
+        if (game is not null && game.Status == GameStatus.Starting)
+        {
+            game.Status = GameStatus.Active;
+            await db.SaveChangesAsync(ct);
+        }
+
         // Seed default prompt templates (S3) if none exist for this game's system
         await SeedPromptTemplatesAsync(gameId, ct);
 
@@ -34,6 +46,7 @@ public class GameStartService(
         if (!await plotWeaver.HasInitialThreadsAsync(gameId, ct))
         {
             logger.LogInformation("Generating initial plot threads for game {GameId}", gameId);
+            await activity.BroadcastAsync(gameId, "GeneratingPlot", ct: ct);
             await plotWeaver.ReviewAndAdaptAsync(gameId, ct);
         }
 
@@ -46,6 +59,7 @@ public class GameStartService(
         if (priorSessions is not null)
         {
             logger.LogInformation("Generating recap for prior session {SessionId} in game {GameId}", priorSessions.Id, gameId);
+            await activity.BroadcastAsync(gameId, "GeneratingRecap", ct: ct);
             var recap = await narrativeFactory.GenerateSessionRecapAsync(gameId, priorSessions.Id, ct);
             if (!string.IsNullOrEmpty(recap))
             {
@@ -62,6 +76,7 @@ public class GameStartService(
 
         // Generate and broadcast opening narration directly
         logger.LogInformation("Generating opening narration for game {GameId}", gameId);
+        await activity.BroadcastAsync(gameId, "GeneratingNarration", ct: ct);
         var narration = await narrativeFactory.GenerateOpeningNarrationAsync(gameId, ct);
         if (!string.IsNullOrEmpty(narration))
         {
@@ -77,6 +92,13 @@ public class GameStartService(
 
             var dto = new MessageDto(msg.Id, msg.SessionId, null, msg.Content, msg.Type, false, msg.CreatedAt, null);
             await hub.Clients.Group(gameId.ToString()).SendAsync("NewMessage", dto, ct);
+        }
+        else
+        {
+            // No narration text produced (e.g. the provider errored) — the NewMessage-driven
+            // clear in the client never fires, so without this the activity chip is stuck
+            // showing "Writing the opening scene…" forever.
+            await activity.BroadcastAsync(gameId, "Completed", ct: ct);
         }
     }
 

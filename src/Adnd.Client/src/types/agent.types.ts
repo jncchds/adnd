@@ -5,6 +5,15 @@ export type AgentAction =
   | 'Execute' | 'Notify' | 'Recall' | 'ManageState' | 'Nudge'
   | 'CreateCharacter' | 'OpenNarrative' | 'GenerateInitialThreads'
 
+export type SagaStep =
+  | 'None' | 'Init' | 'LLMDispatch' | 'LLMResponse' | 'ToolExecution'
+  | 'ToolCoordination' | 'LLMFollowUp' | 'NarrativeReady' | 'Completed' | 'Failed'
+
+export interface AgentStepEvent {
+  step: SagaStep
+  at: string
+}
+
 export interface AgentCall {
   id: string
   gameId: string
@@ -19,6 +28,7 @@ export interface AgentCall {
   error: string | null
   parentCallId: string | null
   currentStep: number
+  stepHistory: AgentStepEvent[]
   durationMs: number | null
   createdAt: string
   updatedAt: string
@@ -26,7 +36,24 @@ export interface AgentCall {
 
 export interface ToolCall {
   id: string
-  name: string
+  gameId: string
+  sessionId: string
+  toolName: string
   arguments: Record<string, unknown>
-  status: 'Pending' | 'Confirmed' | 'Declined'
+  targetPlayerId: string | null
+  startedAt: string
+}
+
+export type GMToolCallStatus = 'Pending' | 'Running' | 'Completed' | 'Failed' | 'AwaitingConfirmation' | 'Declined'
+
+export interface GMToolCallSummary {
+  id: string
+  toolName: string
+  status: GMToolCallStatus
+  arguments: Record<string, unknown>
+  result: unknown
+  startedAt: string
+  completedAt: string | null
+  requiresConfirmation: boolean
+  targetPlayerId: string | null
 }

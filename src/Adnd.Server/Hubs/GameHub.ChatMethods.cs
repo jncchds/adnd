@@ -10,6 +10,12 @@ public partial class GameHub
     public async Task SendMessage(Guid gameId, string content, bool isOOC = false)
     {
         var player = await RequireMemberAsync(gameId);
+
+        // In-character speech implies a character to speak as; OOC table talk does not.
+        // Client-side already warns via a banner, but that's UI-only — enforce it here too.
+        if (!isOOC && !await db.Characters.AnyAsync(c => c.PlayerId == player.Id))
+            throw new HubForbiddenException("Create a character before speaking in character.");
+
         var session = await ResolveGameSessionAsync(gameId);
 
         // Build the entity here rather than re-querying "newest message in the session"
