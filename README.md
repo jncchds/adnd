@@ -12,7 +12,8 @@ ADnD is a multiplayer tabletop RPG platform where a configurable AI Game Master 
 - **Multi-system** — D&D 5e, Pathfinder 2e, Call of Cthulhu 7e, and custom systems
 - **Durable sagas** — Wolverine/PostgreSQL-backed AI work queue; no lost narration on restart
 - **JWT auth** — refresh token rotation, encrypted API keys at rest (AES-256-GCM)
-- **Whispers** — private GM-to-player and player-to-player messaging
+- **Whispers** — private GM-to-player and player-to-player messaging; whispers and OOC chat are
+  excluded from everything the AI GM sees, so they never surface in narration or recaps
 - **Secret dice rolls** — result visible only to roller and GM
 - **Session recaps** — on-demand or automatic "previously on..." summaries
 - **Multi-language narration** — pick a language at game creation (English, Spanish, French,

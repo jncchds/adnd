@@ -2,6 +2,30 @@
 
 ## v0.1.2 — 2026-08-02
 
+### Private messages can no longer reach the narrator
+
+Four different places built "the messages the GM saw" with three different filters, and the
+weakest of them decided what went into the session recap.
+
+- New `MessageVisibility.IsVisibleToNarration` (`Data/MessageVisibility.cs`) is now the single
+  definition: not OOC, and carrying no whisper routing in either direction. It keys off
+  `WhisperFromId`/`WhisperToId` rather than `Type == "Whisper"`, because a private GM-suggest
+  reply is stored with `Type "GM"`. A message a character says publicly has no routing fields,
+  so it is included — which is what "unless they shared it publicly" amounts to.
+- `GenerateSessionSummaryAsync` filtered OOC only, so whispers — player-to-player and
+  GM-to-player alike — were summarised into the "Previously..." recap, which `GameStartService`
+  then writes into the public chat as a GM message and which feeds every later narration. Fixed.
+- `RAGService.GeneratePlotContextAsync` and `NPCRelevanceService` checked `WhisperToId` but not
+  `WhisperFromId`, so a private message routed only outbound depended on its `IsOOC` flag alone
+  to stay out of the prompt. Both now use the shared predicate.
+- Message embeddings were generated for every message in the session, whispers and OOC included.
+  Nothing queries `Message.Embedding` yet — only `PlotThread.Embedding` is similarity-searched —
+  so those vectors never surfaced, but they were private content in a column that exists to be
+  searched. `EmbedMessagesAsync`/`EmbedMessageAsync` now filter at the write site, so the column
+  cannot leak regardless of what reads it later, and OOC chat stops spending embedding calls.
+- Migration `ClearPrivateMessageEmbeddings` nulls the vectors already stored for OOC and whisper
+  rows. Down is intentionally empty: restoring them would re-leak the content.
+
 ### Character creation starts from the standard array
 
 The attribute step opened on straight 10s across the board, which is not a legal starting spread

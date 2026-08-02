@@ -54,7 +54,8 @@ public class RAGService(
         if (session is not null)
         {
             var messages = await db.Messages
-                .Where(m => m.SessionId == session.Id && !m.IsOOC && m.WhisperToId == null)
+                .Where(m => m.SessionId == session.Id)
+                .VisibleToNarration()
                 .OrderByDescending(m => m.CreatedAt)
                 .Take(20)
                 .OrderBy(m => m.CreatedAt)
@@ -152,8 +153,12 @@ public class RAGService(
         if (provider is null)
             return "No LLM preset configured for this game.";
 
+        // The recap is written back into the public chat by GameStartService and then feeds
+        // every later narration, so a whisper summarised into it is a whisper published to
+        // the whole table. This used to filter OOC only.
         var messages = await db.Messages
-            .Where(m => m.SessionId == sessionId && !m.IsOOC)
+            .Where(m => m.SessionId == sessionId)
+            .VisibleToNarration()
             .OrderBy(m => m.CreatedAt)
             .Take(100)
             .Include(m => m.Player)
@@ -225,8 +230,13 @@ public class RAGService(
 
         if (session is null) return;
 
+        // Filtered at the write site, not at every future read: an OOC line or a whisper
+        // simply never gets a vector, so Message.Embedding cannot leak one no matter what
+        // similarity search is added later. Nothing queries this column today, which is the
+        // only reason the contaminated vectors already in it were never visible.
         var messages = await db.Messages
             .Where(m => m.SessionId == session.Id && m.Embedding == null)
+            .VisibleToNarration()
             .Take(50)
             .ToListAsync(ct);
 
@@ -248,6 +258,7 @@ public class RAGService(
             .FirstOrDefaultAsync(m => m.Id == messageId, ct);
 
         if (message is null || message.Embedding is not null) return;
+        if (!message.IsNarrationVisible()) return;
 
         var embedding = await GetCachedEmbeddingAsync(message.Content, message.Session.GameId, ct);
         if (embedding.Length > 0)

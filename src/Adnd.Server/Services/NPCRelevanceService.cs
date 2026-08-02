@@ -68,7 +68,8 @@ public class NPCRelevanceService(AppDbContext db) : INPCRelevanceService
         if (resolvedSessionId is null) return string.Empty;
 
         var contents = await db.Messages
-            .Where(m => m.SessionId == resolvedSessionId && !m.IsOOC && m.WhisperToId == null)
+            .Where(m => m.SessionId == resolvedSessionId)
+            .VisibleToNarration()
             .OrderByDescending(m => m.CreatedAt)
             .Take(RecentMessageWindow)
             .Select(m => m.Content)

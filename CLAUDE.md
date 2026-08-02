@@ -54,7 +54,7 @@ Migrations are applied automatically on startup by `MigrationService.ApplyMigrat
 
 `DesignTimeDbContextFactory` builds the context for the EF tooling so `dotnet ef` does not boot the full host (which would demand a real JWT key and encryption key it has no need for).
 
-Current migrations: `InitialCreate`, `AddCharacterBackstory`, `AgentLoopToolCallState`, `PlotThreadResolvedAt`, `AddLlmInteractionLogStatus`, `AddAgentCallStepHistoryAndLlmReasoning`, `AddAgentCallRequestedByPlayer`, `NPCStatusAndLastSeen`.
+Current migrations: `InitialCreate`, `AddCharacterBackstory`, `AgentLoopToolCallState`, `PlotThreadResolvedAt`, `AddLlmInteractionLogStatus`, `AddAgentCallStepHistoryAndLlmReasoning`, `AddAgentCallRequestedByPlayer`, `NPCStatusAndLastSeen`, `ClearPrivateMessageEmbeddings`.
 
 **Check scaffolded migrations before accepting them.** EF emits `jsonb NOT NULL DEFAULT ''` for new `JsonElement` columns; `''` is not valid JSON and the `ALTER TABLE` fails. The converter's sentinel is the literal `"null"`.
 
@@ -136,6 +136,26 @@ Tool arguments are LLM-generated: parse ids with `TryGetGuid` rather than `Guid.
 ### LLM Provider Abstraction
 
 `ILLMProviderFactory` resolves to `ILLMProvider` based on `LLMPreset.ProviderType`. Supported values: `ollama`, `openaicompatible`, `openai`, `google`. API keys stored encrypted at rest via AES-256-GCM (`ApiKeyEncryptionService`).
+
+### What the narrator is allowed to have seen
+
+`MessageVisibility.IsVisibleToNarration` (`Data/MessageVisibility.cs`) is the **only** definition
+of which messages may reach the GM: not OOC, and no whisper routing in either direction. Anything
+that builds prompt context or writes `Message.Embedding` goes through `.VisibleToNarration()` —
+`RAGService.GeneratePlotContextAsync`, `GenerateSessionSummaryAsync`, `EmbedMessagesAsync`,
+`EmbedMessageAsync`, and `NPCRelevanceService`. This was previously spelled out inline in four
+places with three different predicates, and the weakest one (`!IsOOC` alone, in the session
+summary) put whispers into the "Previously..." recap that `GameStartService` publishes to the
+whole table.
+
+Decide on `WhisperFromId`/`WhisperToId`, never on `Type == "Whisper"`: a private GM-suggest reply
+is stored with `Type "GM"` and only its `WhisperToId` marks it private. The converse needs no
+rule — a public in-character line carries no routing fields and is therefore included, which is
+exactly why a character repeating a whisper publicly *should* influence narration.
+
+Embeddings are filtered at the **write** site, not at each read. Nothing similarity-searches
+`Message.Embedding` today (only `PlotThread.Embedding`), so a read-side filter would be a rule
+the next feature could forget; a null vector cannot leak.
 
 ### RAG + Plot Intelligence
 
