@@ -2,6 +2,19 @@
 
 ## v0.1.2 — 2026-08-02
 
+### Every successful GM turn stopped dead-lettering its own timeout
+
+`AgentSaga.Handle(SagaTimeout)` guards against running on a finished saga, but the guard never
+executed: Wolverine loads the saga document by id *before* invoking the handler, and
+`MarkCompleted()` deletes that document the moment the saga finishes. Since the 5-minute timeout
+exists to catch stuck sagas, the overwhelmingly common case is that it fires against a saga that
+completed normally — so it arrived to find no document, threw `UnknownSagaException` before the
+handler body ran, and dead-lettered the envelope. Every single successful turn.
+
+- `Program.cs` now registers `opts.OnException<UnknownSagaException>().Discard()`. `AgentSaga` is
+  the only saga in the codebase, so discarding app-wide is equivalent to scoping it to
+  `SagaTimeout`.
+
 ### The GM no longer answers every line with a paragraph
 
 The narrate system prompt told the GM to narrate vividly and "end with an open question or clear

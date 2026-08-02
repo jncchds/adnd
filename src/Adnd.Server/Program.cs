@@ -18,6 +18,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Wolverine;
+using Wolverine.ErrorHandling;
 using Wolverine.Postgresql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -197,6 +198,18 @@ builder.Host.UseWolverine(opts =>
     // at startup instead of silently falling back to GetRequiredService — route just this type through
     // the service locator instead of disabling the safety net for everything else.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<DbContextOptions<AppDbContext>>();
+
+    // AgentSaga.Handle(SagaTimeout) already tolerates being called on a finished saga
+    // (CurrentState is "Completed" or "Failed" => return), but that guard never runs: Wolverine
+    // loads the saga document by id before invoking the handler, and MarkCompleted() deletes
+    // that document as soon as the saga finishes — which is the overwhelmingly common case,
+    // since the 5-minute timeout is meant to catch stuck sagas, not normal ones. So the scheduled
+    // timeout for every successful turn arrives to find no document, Wolverine throws
+    // UnknownSagaException before our handler body ever runs, and the envelope dead-letters.
+    // AgentSaga is the only saga in this codebase, so discarding this exception app-wide is
+    // equivalent to discarding it for SagaTimeout specifically.
+    opts.OnException<Wolverine.Persistence.Sagas.UnknownSagaException>()
+        .Discard();
 });
 
 // ── SignalR ───────────────────────────────────────────────────────────────────
