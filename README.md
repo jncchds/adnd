@@ -15,6 +15,9 @@ ADnD is a multiplayer tabletop RPG platform where a configurable AI Game Master 
 - **Whispers** — private GM-to-player and player-to-player messaging
 - **Secret dice rolls** — result visible only to roller and GM
 - **Session recaps** — on-demand or automatic "previously on..." summaries
+- **Multi-language narration** — pick a language at game creation (English, Spanish, French,
+  German, Italian, Portuguese, Polish, Russian, Ukrainian, Japanese) and the GM narrates, adapts
+  plot threads, and writes recaps in it
 
 ## Quick Start
 

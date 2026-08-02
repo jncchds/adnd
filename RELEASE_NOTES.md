@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.1.2 — 2026-08-02
+
+### Game language now actually drives narration
+
+`Game.Language` was captured at game creation and shown in the UI, but never once read anywhere
+in the LLM call path — every game narrated in whatever language the model defaulted to,
+regardless of what the GM selected.
+
+- Added `Game.LanguageDirective`, appended to every GM system prompt: chat narration and
+  GM-suggest (`GameHub.AgentMethods.cs`), opening narration (`NarrativeGenerationFactory`), the
+  `/api/llmtrigger` endpoints, PlotWeaver's thread generation/adaptation/milestone/opportunity
+  prompts, and RAGService's session recap/consistency-check/continuation-suggestion prompts.
+- Plot thread `category` enum values are explicitly pinned to English in the prompt text so
+  `Enum.TryParse` doesn't fail when the rest of the JSON response comes back translated.
+- Added Ukrainian to the game-creation language dropdown.
+
+### Game join no longer requires a character name upfront
+
+- `POST /api/games/join` (`JoinByCodeRequest`) dropped the `CharacterName` field — character
+  creation happens in-game after joining, and `CharactersController.Create` now syncs
+  `Player.CharacterName` from the created character so the join-time placeholder isn't stale.
+
 ## v0.1.1 — 2026-08-02
 
 ### GM turn observability + live activity feedback
