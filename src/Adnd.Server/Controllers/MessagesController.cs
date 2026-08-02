@@ -53,8 +53,12 @@ public class MessagesController(
         var query = db.Messages
             .AsNoTracking()
             .Where(m => m.SessionId == sessionId)
-            // Whispers are only visible to their sender and recipient.
-            .Where(m => m.Type != "Whisper" || m.WhisperFromId == player.Id || m.WhisperToId == player.Id);
+            // Any message carrying whisper routing is private to its sender/recipient —
+            // keyed off the routing fields themselves, not a literal Type == "Whisper" check,
+            // so a private GM-suggest reply (Type "GM" with WhisperToId set to the asker) is
+            // hidden from everyone else the same way a player-to-player whisper is.
+            .Where(m => (m.WhisperFromId == null && m.WhisperToId == null)
+                || m.WhisperFromId == player.Id || m.WhisperToId == player.Id);
 
         if (cursor is not null)
             query = query.Where(m => m.CreatedAt < cursor);

@@ -42,8 +42,24 @@ public partial class DiceEngine : IDiceEngine
         var breakdownParts = new List<string>();
         var total = 0;
 
+        // TokenPattern only matches well-formed dice/number terms, so it silently skips
+        // over anything else — a formula like "1d20+{strength}" (an LLM emitting an
+        // unresolved ability-modifier placeholder instead of a number) used to have that
+        // whole term vanish with no error, quietly under-totaling the roll. Requiring every
+        // matched token to butt up against the last one means any unrecognized fragment
+        // fails loudly instead of being dropped.
+        var consumed = 0;
         foreach (Match match in TokenPattern().Matches(normalized))
         {
+            if (match.Index != consumed)
+            {
+                var badFragment = normalized[consumed..match.Index];
+                throw new ArgumentException(
+                    $"Dice formula \"{formula}\" contains \"{badFragment}\", which isn't a number or dice term. " +
+                    "Use a fully-resolved formula like \"1d20+3\" — no placeholders.");
+            }
+            consumed = match.Index + match.Length;
+
             var token = match.Value;
             var sign = token[0] == '-' ? -1 : 1;
             var body = token[1..];
@@ -87,7 +103,20 @@ public partial class DiceEngine : IDiceEngine
             }
         }
 
-        var breakdown = string.Join(" ", breakdownParts) + $" = {total}";
+        if (consumed != normalized.Length)
+        {
+            var badFragment = normalized[consumed..];
+            throw new ArgumentException(
+                $"Dice formula \"{formula}\" contains \"{badFragment}\", which isn't a number or dice term. " +
+                "Use a fully-resolved formula like \"1d20+3\" — no placeholders.");
+        }
+
+        // A single term's own text already states the result ("+[14]d20=14") — appending
+        // "= 14" again just repeated the same number and was the part players found most
+        // confusing. Only show the running total once there's an actual sum of 2+ terms.
+        var breakdown = breakdownParts.Count > 1
+            ? string.Join(" ", breakdownParts) + $" = {total}"
+            : string.Join(" ", breakdownParts);
         return new DiceResult(formula, total, allIndividualRolls, allKeptRolls, breakdown);
     }
 

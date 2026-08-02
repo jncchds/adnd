@@ -194,6 +194,19 @@ public class AgentSaga : Wolverine.Saga
     // then simply vanished: no chat message, no completed status, saga stuck at "Running".
     public async Task Handle(NarrativeReady msg, IMessageContext context, AppDbContext db, IHubContext<GameHub> hub, IGmActivityBroadcaster activity)
     {
+        // The LLM call can "succeed" (no exception, normal HTTP 200) yet still produce zero
+        // narrative text — observed live with a reasoning model that spent its whole
+        // completion budget on internal chain-of-thought and never wrote an actual answer.
+        // Saving that as a Message produced a blank "Game Master" chat bubble with no
+        // explanation. Treat it as a failure instead so the existing AgentCallFailedHandler
+        // retry path (same prompt, often succeeds on a second pass) kicks in, rather than
+        // completing the saga on nothing.
+        if (string.IsNullOrWhiteSpace(msg.NarrativeText))
+        {
+            await context.PublishAsync(new AgentCallFailed(msg.AgentCallId, msg.GameId, "The GM's response came back empty."));
+            return;
+        }
+
         CurrentState = "Completed";
 
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
@@ -205,8 +218,10 @@ public class AgentSaga : Wolverine.Saga
             call.DurationMs = (long)(DateTimeOffset.UtcNow - call.CreatedAt).TotalMilliseconds;
         }
 
+        // A private GM-suggest answer isn't part of the shared story, so it shouldn't
+        // overwrite the "last GM action" the whole table sees on the admin overview.
         var game = await db.Games.FindAsync(msg.GameId);
-        if (game != null)
+        if (game != null && call?.RequestedByPlayerId is null)
         {
             var preview = msg.NarrativeText.Length > 80 ? msg.NarrativeText[..80] + "…" : msg.NarrativeText;
             game.LastGMAction = preview;
@@ -221,6 +236,9 @@ public class AgentSaga : Wolverine.Saga
                 SessionId = msg.SessionId,
                 Content = msg.NarrativeText,
                 Type = "GM",
+                // Set only for a private TriggerSuggest ask — makes MessagesController's
+                // whisper filter hide this reply from every player except the one who asked.
+                WhisperToId = call?.RequestedByPlayerId,
                 CreatedAt = DateTimeOffset.UtcNow
             };
             db.Messages.Add(saved);
@@ -234,7 +252,20 @@ public class AgentSaga : Wolverine.Saga
         if (saved != null)
         {
             var dto = new MessageDto(saved.Id, saved.SessionId, null, saved.Content, saved.Type, false, saved.CreatedAt, null);
-            await hub.Clients.Group(msg.GameId.ToString()).SendAsync("NewMessage", dto);
+
+            // A private ask (TriggerSuggest) must reach only the player who asked — this used
+            // to always broadcast to the whole game group regardless of Action, so every
+            // player saw every GM-suggest reply, including the empty ones.
+            if (call?.RequestedByPlayerId is { } requesterId)
+            {
+                var requester = await db.Players.FindAsync(requesterId);
+                if (requester != null)
+                    await hub.Clients.User(requester.UserId.ToString()).SendAsync("NewMessage", dto);
+            }
+            else
+            {
+                await hub.Clients.Group(msg.GameId.ToString()).SendAsync("NewMessage", dto);
+            }
         }
 
         MarkCompleted();
@@ -242,7 +273,7 @@ public class AgentSaga : Wolverine.Saga
 
     // Retries exhausted — terminal. AgentCallFailed is deliberately NOT handled here;
     // AgentCallFailedHandler owns the retry decision and publishes this when it gives up.
-    public async Task Handle(AgentCallAbandoned msg, AppDbContext db, IGmActivityBroadcaster activity)
+    public async Task Handle(AgentCallAbandoned msg, AppDbContext db, IGmActivityBroadcaster activity, IHubContext<GameHub> hub)
     {
         CurrentState = "Failed";
 
@@ -258,6 +289,14 @@ public class AgentSaga : Wolverine.Saga
         await CleanUpCoordinatorAsync(db);
         await db.SaveChangesAsync();
         await activity.BroadcastAsync(msg.GameId, SagaStep.Failed, msg.Error);
+
+        // The client clears its activity chip on step "Failed" but never surfaces msg.Error
+        // from that event — GameChatPage has had a "GMError" listener wired up since the
+        // turn-observability work, but nothing on the server ever sent one. Without this, a
+        // GM turn that exhausts its retries fails completely silently: the chip just goes
+        // back to "GM Active" as if nothing happened, no message, no error, nothing.
+        await hub.Clients.Group(msg.GameId.ToString()).SendAsync("GMError", new { message = msg.Error });
+
         MarkCompleted();
     }
 

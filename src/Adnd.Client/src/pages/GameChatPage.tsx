@@ -98,14 +98,14 @@ function MsgBubble({ msg, players, characters }: { msg: Message; players: Player
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
           </Box>
         ) : (
-          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{msg.content}</Typography>
-        )}
-        {isDice && msg.metadata && (
-          <Box sx={{ mt: 0.5 }}>
-            <Typography variant="caption" color="success.main" fontWeight={600}>
-              🎲 {JSON.stringify(msg.metadata)}
-            </Typography>
-          </Box>
+          <Typography
+            variant="body2"
+            color={isDice ? 'success.main' : undefined}
+            fontWeight={isDice ? 600 : undefined}
+            sx={{ whiteSpace: 'pre-wrap' }}
+          >
+            {isDice && '🎲 '}{msg.content}
+          </Typography>
         )}
       </Paper>
       <Typography variant="caption" color="text.disabled" sx={{ ml: 1, display: 'block' }}>
@@ -202,6 +202,7 @@ function ToolCallBanner({ gameId }: { gameId: string }) {
   const isRoll = tc.toolName === 'requestPlayerRoll'
   const formula = isRoll ? (tc.arguments.formula as string | undefined) : undefined
   const reason = isRoll ? (tc.arguments.reason as string | undefined) : undefined
+  const dc = isRoll ? (tc.arguments.dc as number | undefined) : undefined
   return (
     <Alert severity="info" sx={{ mb: 1 }} action={
       <Box sx={{ display: 'flex', gap: 0.5 }}>
@@ -210,7 +211,7 @@ function ToolCallBanner({ gameId }: { gameId: string }) {
       </Box>
     }>
       {isRoll
-        ? <>The GM requests a roll: <strong>{formula ?? '1d20'}</strong>{reason ? ` — ${reason}` : ''}</>
+        ? <>The GM requests a roll: <strong>{formula ?? '1d20'}</strong>{dc != null ? <> vs DC <strong>{dc}</strong></> : null}{reason ? ` — ${reason}` : ''}</>
         : <>AI is waiting: <strong>{tc.toolName}</strong></>}
     </Alert>
   )

@@ -1,5 +1,6 @@
 using Adnd.Server.Dtos;
 using Adnd.Server.Models;
+using Adnd.Server.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Hubs;
@@ -80,20 +81,54 @@ public partial class GameHub
         {
             sb.AppendLine("Player characters:");
             foreach (var c in characters)
-                sb.AppendLine($"- {c.Name} (Level {c.Level} {c.Class}, HP {c.CurrentHP}/{c.MaxHP})");
+            {
+                // Ability modifiers ("STR +2, DEX +0, …") so the LLM can write a real number
+                // into a dice formula itself instead of inventing a placeholder like
+                // "1d20+{strength}", which DiceEngine can't resolve.
+                var mods = AbilityScoreHelper.FormatModifiers(c.Attributes);
+                var modsSuffix = string.IsNullOrEmpty(mods) ? "" : $" — {mods}";
+                sb.AppendLine($"- {c.Name} (Level {c.Level} {c.Class}, HP {c.CurrentHP}/{c.MaxHP}){modsSuffix}");
+            }
             sb.AppendLine();
         }
 
         sb.AppendLine("Narrate the scene vividly. Use the available tools (rollDice, skillCheck, startCombat, etc.) when appropriate. Keep responses concise and end with an open question or clear call to action.");
+        sb.AppendLine("When a roll is needed, use a fully-resolved dice formula such as \"1d20+3\" — add the relevant ability modifier listed above yourself. Never write a placeholder like \"1d20+{strength}\"; the dice engine cannot resolve it.");
         return sb.ToString();
     }
 
     public async Task TriggerSuggest(Guid gameId, string prompt)
     {
-        await RequireMemberAsync(gameId);
+        var player = await RequireMemberAsync(gameId);
         var session = await ResolveGameSessionAsync(gameId);
+
+        // TriggerSuggest never saved the player's own question, so it just vanished from
+        // their chat log the moment they sent it. WhisperFromId marks it private to them —
+        // no one else in the game should see a player quietly asking the GM assistant OOC.
+        var questionMsg = new Message
+        {
+            SessionId = session.Id,
+            PlayerId = player.Id,
+            Content = prompt,
+            Type = "OOC",
+            IsOOC = true,
+            WhisperFromId = player.Id,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.Messages.Add(questionMsg);
+        await db.SaveChangesAsync();
+        var questionDto = new MessageDto(questionMsg.Id, questionMsg.SessionId, questionMsg.PlayerId,
+            questionMsg.Content, questionMsg.Type, questionMsg.IsOOC, questionMsg.CreatedAt, null);
+        await Clients.Caller.SendCoreAsync("NewMessage", [questionDto]);
+
         var game = await db.Games.FirstOrDefaultAsync(g => g.Id == gameId);
-        var systemPrompt = "You are an AI GM assistant.";
+        // This bare a one-liner gave the model no directive to actually answer — observed
+        // live: it reasoned at length about who an NPC was and then emitted zero response
+        // text, producing a blank chat bubble. Being explicit about answering out-of-character,
+        // concisely, and without invoking tools closes off the modes that led there.
+        var systemPrompt = "You are an AI GM assistant answering an out-of-character question from a player. " +
+            "Respond directly and concisely in plain prose — do not narrate in character and do not call any tools. " +
+            "Always give a real answer; if you're unsure, say so plainly rather than leaving the response empty.";
         if (game?.LanguageDirective is { } languageDirective)
             systemPrompt = $"{systemPrompt} {languageDirective}";
 
@@ -110,6 +145,7 @@ public partial class GameHub
             FromAgent = AgentType.Player,
             ToAgent = AgentType.GM,
             Action = AgentAction.Suggest,
+            RequestedByPlayerId = player.Id,
             Input = System.Text.Json.JsonSerializer.Serialize(options)
         };
         await agentBus.SendCallAsync(call);

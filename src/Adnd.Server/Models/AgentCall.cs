@@ -12,6 +12,12 @@ public class AgentCall
     public AgentType FromAgent { get; set; }
     public AgentType ToAgent { get; set; }
     public AgentAction Action { get; set; }
+
+    // Set only for calls a single player asked for privately (TriggerSuggest). When present,
+    // AgentSaga delivers the final narrative to just this player instead of broadcasting it
+    // to the whole game group — previously every GM-suggest reply, including an empty one,
+    // was visible to every player in the game with no way to keep it private.
+    public Guid? RequestedByPlayerId { get; set; }
     public string? Input { get; set; }
     public string? Output { get; set; }
     public string? OutputMessage { get; set; }

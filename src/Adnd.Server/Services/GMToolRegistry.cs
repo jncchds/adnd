@@ -43,12 +43,12 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
     [
         new("narrate", "Output narrative text to players",
             Schema("""{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}""")),
-        new("rollDice", "Roll dice using a formula",
-            Schema("""{"type":"object","properties":{"formula":{"type":"string"},"reason":{"type":"string"}},"required":["formula"]}""")),
+        new("rollDice", "Roll dice using a fully-resolved formula, e.g. \"1d20+3\". Never use a placeholder like \"{strength}\" — look up the character's ability modifier (from context or queryCharacter) and write the number in yourself. Include \"dc\" whenever the roll is against a target number — the result will state whether it succeeded, so you don't have to compare it yourself.",
+            Schema("""{"type":"object","properties":{"formula":{"type":"string"},"reason":{"type":"string"},"dc":{"type":"integer"}},"required":["formula"]}""")),
         new("skillCheck", "Perform a skill check for a character",
             Schema("""{"type":"object","properties":{"characterId":{"type":"string"},"skillId":{"type":"string"},"dc":{"type":"integer"}},"required":["characterId","skillId","dc"]}""")),
-        new("requestPlayerRoll", "Request a player to roll dice",
-            Schema("""{"type":"object","properties":{"playerId":{"type":"string"},"formula":{"type":"string"},"reason":{"type":"string"}},"required":["playerId","formula","reason"]}""")),
+        new("requestPlayerRoll", "Request a player to roll dice. formula must be fully-resolved, e.g. \"1d20+2\" — never a placeholder like \"{strength}\"; look up the character's ability modifier first. Include \"dc\" whenever the roll is against a target number — the result will state whether it succeeded.",
+            Schema("""{"type":"object","properties":{"playerId":{"type":"string"},"formula":{"type":"string"},"reason":{"type":"string"},"dc":{"type":"integer"}},"required":["playerId","formula","reason"]}""")),
         new("queryCharacter", "Retrieve character data",
             Schema("""{"type":"object","properties":{"characterId":{"type":"string"}},"required":["characterId"]}""")),
         new("queryNPCs", "Retrieve NPC list for a game",
@@ -80,10 +80,13 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
             {
                 var formula = arguments.GetProperty("formula").GetString() ?? "1d20";
                 var result = diceEngine.Roll(formula);
-                var content = $"Rolled {formula}: {result.Total} ({result.Breakdown})";
+                var (content, dc, success) = FormatRollContent(formula, result, arguments);
                 await BroadcastRollAsync(gameId, sessionId, content, "DiceRoll",
-                    new { formula = result.Formula, total = result.Total, breakdown = result.Breakdown }, ct);
-                return result.Breakdown;
+                    new { formula = result.Formula, total = result.Total, breakdown = result.Breakdown, dc, success }, ct);
+                // Previously returned only result.Breakdown — the follow-up narration call
+                // never learned whether a rollDice-with-dc succeeded or failed, so it had to
+                // guess. Returning the full content (which states Success/Failure) fixes that.
+                return content;
             }
 
             case "skillCheck":
@@ -91,7 +94,7 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
                 var roll = diceEngine.Roll("1d20");
                 var dc = arguments.TryGetProperty("dc", out var dcEl) ? dcEl.GetInt32() : 10;
                 var success = roll.Total >= dc;
-                var content = $"Skill check: rolled {roll.Total} vs DC {dc} — {(success ? "Success" : "Failure")}. {roll.Breakdown}";
+                var content = $"Skill check vs DC {dc}: {roll.Breakdown} — {(success ? "Success" : "Failure")}";
                 await BroadcastRollAsync(gameId, sessionId, content, "SkillCheck",
                     new { dc, total = roll.Total, success, breakdown = roll.Breakdown }, ct);
                 return content;
@@ -108,11 +111,9 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
                 var reason = arguments.TryGetProperty("reason", out var reasonEl) ? reasonEl.GetString() : null;
                 var roll = diceEngine.Roll(formula);
                 TryGetGuid(arguments, "playerId", out var rollerId);
-                var content = string.IsNullOrEmpty(reason)
-                    ? $"Rolled {formula}: {roll.Total} ({roll.Breakdown})"
-                    : $"Rolled {formula} ({reason}): {roll.Total} ({roll.Breakdown})";
+                var (content, dc, success) = FormatRollContent(formula, roll, arguments, reason);
                 await BroadcastRollAsync(gameId, sessionId, content, "DiceRoll",
-                    new { formula = roll.Formula, total = roll.Total, breakdown = roll.Breakdown }, ct,
+                    new { formula = roll.Formula, total = roll.Total, breakdown = roll.Breakdown, dc, success }, ct,
                     rollerId == Guid.Empty ? null : rollerId);
                 return content;
             }
@@ -135,7 +136,10 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
                     character.Class,
                     character.Level,
                     character.CurrentHP,
-                    character.MaxHP
+                    character.MaxHP,
+                    // Ability modifiers as text ("STR +2, DEX +0, …") so the LLM can drop a
+                    // real number straight into a dice formula instead of guessing.
+                    abilityModifiers = AbilityScoreHelper.FormatModifiers(character.Attributes)
                 });
             }
 
@@ -302,6 +306,27 @@ public class GMToolRegistry(AppDbContext db, IDiceEngine diceEngine, IHubContext
             default:
                 throw new InvalidOperationException($"Unknown tool: {toolName}");
         }
+    }
+
+    /// <summary>
+    /// Shared by rollDice/requestPlayerRoll. Without a stated target, a roll like "Attempting
+    /// to force open the door: 17" leaves the player unable to tell if that succeeded — the
+    /// GM knew the DC internally but nothing surfaced it, so success/failure had to be
+    /// inferred (often wrongly) from the follow-up narration's prose.
+    /// </summary>
+    private static (string Content, int? Dc, bool? Success) FormatRollContent(
+        string formula, DiceResult result, JsonElement arguments, string? reason = null)
+    {
+        int? dc = arguments.TryGetProperty("dc", out var dcEl) && dcEl.ValueKind == JsonValueKind.Number
+            ? dcEl.GetInt32()
+            : null;
+        bool? success = dc.HasValue ? result.Total >= dc.Value : null;
+
+        var prefix = string.IsNullOrEmpty(reason) ? "" : $"{reason} — ";
+        var suffix = dc.HasValue
+            ? $" vs DC {dc}: {result.Breakdown} — {(success!.Value ? "Success" : "Failure")}"
+            : $": {result.Breakdown}";
+        return ($"{prefix}Rolled {formula}{suffix}", dc, success);
     }
 
     // Mirrors GameHub.RollDice: GM-tool rolls must land their own chat message immediately,

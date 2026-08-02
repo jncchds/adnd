@@ -12,7 +12,9 @@ public partial class GameHub
         var session = await ResolveGameSessionAsync(gameId);
 
         var result = diceEngine.Roll(formula);
-        var content = $"Rolled {formula}: {result.Total} ({result.Breakdown})";
+        // Breakdown already states the total once (e.g. "+[14]d20=14 +3 = 17"), so repeating
+        // it as a leading "{Total} (...)" just showed the same number twice.
+        var content = $"Rolled {formula}: {result.Breakdown}";
         var metadata = new { formula = result.Formula, total = result.Total, breakdown = result.Breakdown };
 
         var msg = new Message

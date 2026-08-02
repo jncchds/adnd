@@ -2,6 +2,40 @@
 
 ## v0.1.2 — 2026-08-02
 
+### Dice results were unreadable, and a bad formula silently under-rolled
+
+- `DiceEngine.Roll` skipped any token its regex didn't recognise, so an LLM-emitted placeholder
+  like `1d20+{strength}` dropped that whole term and quietly returned a wrong total. Unparsed
+  fragments now throw with the offending text named.
+- The GM prompt, `rollDice` and `requestPlayerRoll` tool descriptions, `queryCharacter`, and the
+  per-character prompt lines now all carry ability modifiers as text (`STR +2, DEX +0, …`, via
+  the new `AbilityScoreHelper`) so the model can write a real number into a formula itself.
+- `rollDice`/`requestPlayerRoll` take an optional `dc`. When present the chat message states
+  Success/Failure, the value is returned to the follow-up narration call (which previously had
+  to guess the outcome), and the pending-roll banner shows the target number.
+- Roll messages no longer print the total twice (`17 (+[14]d20=14 +3 = 17)`), and a single-term
+  roll drops the redundant trailing `= N`. Dice chat bubbles render as plain highlighted text
+  instead of dumping raw `JSON.stringify(metadata)`.
+
+### GM-suggest replies were public, and the question vanished
+
+- `TriggerSuggest` now saves the player's own question as a private OOC message so it stays in
+  their log, and tags the agent call with `AgentCall.RequestedByPlayerId` (new migration).
+- The reply is delivered to just that player and no longer overwrites the game's
+  "last GM action" on the admin overview. `MessagesController` now hides any message carrying
+  whisper routing rather than only `Type == "Whisper"`, so the private reply stays private on
+  history reload too.
+- The GM-suggest system prompt was a bare one-liner; a local model responded by reasoning at
+  length and emitting no text at all. It now explicitly asks for a direct OOC answer, and
+  `LLMDispatchHandler` no longer offers the 12-tool schema on `Suggest` calls at all.
+
+### GM activity chip lost or stuck on reconnect
+
+- `IGmActivityBroadcaster` caches the current step per game and `JoinGameGroup` replays it, so a
+  client that joins mid-generation catches up instead of showing a static "GM Active".
+- `GameStartService` now broadcasts `Completed` on the success path too — without it the cache
+  stayed stuck on "Writing the opening scene…" for anyone who reconnected later.
+
 ### Narration lost context on every tool-following turn and every fresh player message
 
 Admin > LLM Logs showed GM calls going out with almost nothing in them, and narration read as

@@ -73,16 +73,33 @@ public class LLMDispatchHandler(
         var sw = Stopwatch.StartNew();
         try
         {
-            // The GM tool registry must be offered to the model — passing an empty list here
-            // meant the GM could never call a tool, and pushed Ollama into its JSON-mode fallback.
-            var result = await provider.CompleteWithToolsAsync(
-                msg.SystemPrompt, msg.UserPrompt, toolRegistry.GetToolDefinitions(), opts, ct);
-            sw.Stop();
-            responseText = result.NarrativeText ?? "";
-            reasoning = result.Reasoning;
-            toolCount = result.ToolCalls.Count;
-            hasToolCalls = toolCount > 0;
-            rawJson = hasToolCalls ? JsonSerializer.Serialize(result.ToolCalls) : null;
+            if (call.Action == AgentAction.Suggest)
+            {
+                // TriggerSuggest is a plain OOC Q&A — it never wants to call a tool, and its
+                // own system prompt says so. But every dispatch was still offering the full
+                // 12-tool schema anyway, and at least one local model (LM Studio/gemma) reacted
+                // to that by "reasoning" about the question at length and then emitting no
+                // content at all, over and over, even across retries. Dropping the tool
+                // definitions for this action removes whatever about the tool-calling
+                // apparatus was derailing it.
+                var plain = await provider.CompleteAsync(msg.SystemPrompt, msg.UserPrompt, opts, ct);
+                sw.Stop();
+                responseText = plain.Text ?? "";
+                reasoning = plain.Reasoning;
+            }
+            else
+            {
+                // The GM tool registry must be offered to the model — passing an empty list here
+                // meant the GM could never call a tool, and pushed Ollama into its JSON-mode fallback.
+                var result = await provider.CompleteWithToolsAsync(
+                    msg.SystemPrompt, msg.UserPrompt, toolRegistry.GetToolDefinitions(), opts, ct);
+                sw.Stop();
+                responseText = result.NarrativeText ?? "";
+                reasoning = result.Reasoning;
+                toolCount = result.ToolCalls.Count;
+                hasToolCalls = toolCount > 0;
+                rawJson = hasToolCalls ? JsonSerializer.Serialize(result.ToolCalls) : null;
+            }
         }
         catch (Exception ex)
         {

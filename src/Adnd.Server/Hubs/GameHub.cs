@@ -17,7 +17,8 @@ public partial class GameHub(
     ISessionManagementService sessionService,
     IAgentBus agentBus,
     IDiceEngine diceEngine,
-    IRAGService rag) : Hub
+    IRAGService rag,
+    IGmActivityBroadcaster gmActivity) : Hub
 {
     protected static readonly ConcurrentDictionary<string, string> _playerConnections = new();
 

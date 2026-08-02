@@ -93,13 +93,16 @@ public class GameStartService(
             var dto = new MessageDto(msg.Id, msg.SessionId, null, msg.Content, msg.Type, false, msg.CreatedAt, null);
             await hub.Clients.Group(gameId.ToString()).SendAsync("NewMessage", dto, ct);
         }
-        else
-        {
-            // No narration text produced (e.g. the provider errored) — the NewMessage-driven
-            // clear in the client never fires, so without this the activity chip is stuck
-            // showing "Writing the opening scene…" forever.
-            await activity.BroadcastAsync(gameId, "Completed", ct: ct);
-        }
+
+        // Always broadcast Completed, success or not. The client used to clear its activity
+        // chip purely by observing a GM NewMessage arrive, which worked as long as nothing
+        // remembered activity state server-side. Now that IGmActivityBroadcaster caches the
+        // last activity per game (so a client joining mid-generation can catch up), leaving
+        // this unbroadcast on the success path meant the cache stayed stuck on
+        // "GeneratingNarration" forever, and anyone who reconnected afterwards — e.g. a player
+        // navigating away to create a character and back — got replayed that stale "Writing
+        // the opening scene…" chip despite the turn having finished ages ago.
+        await activity.BroadcastAsync(gameId, "Completed", ct: ct);
     }
 
     private async Task SeedPromptTemplatesAsync(Guid gameId, CancellationToken ct)
