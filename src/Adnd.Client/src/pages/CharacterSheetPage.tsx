@@ -23,7 +23,8 @@ function AttrCard({ abbr, value }: { abbr: string; value: number }) {
 }
 
 export default function CharacterSheetPage() {
-  const { id: characterId } = useParams<{ id: string }>()
+  // Routed as /game/:id/character/:characterId — `id` is the game, not the sheet.
+  const { characterId } = useParams<{ id: string; characterId: string }>()
   const { character, loading, error, setCharacter } = useCharacter(characterId ?? null)
   const [tab, setTab] = useState(0)
   const [saving, setSaving] = useState(false)

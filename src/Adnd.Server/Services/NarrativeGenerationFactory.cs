@@ -12,6 +12,15 @@ public interface INarrativeGenerationFactory
     Task<string> GenerateOpeningNarrationAsync(Guid gameId, CancellationToken ct = default);
     Task<string> GenerateSessionRecapAsync(Guid gameId, Guid sessionId, CancellationToken ct = default);
     Task<string> GenerateNarrativeAsync(Guid gameId, string prompt, float temperature = 0.8f, CancellationToken ct = default);
+
+    /// <summary>
+    /// A one-off call against the game's preset with a caller-supplied system prompt, for
+    /// callers that want structured output rather than narration. The GM persona and the
+    /// language directive are deliberately *not* applied — a caller asking for JSON has to
+    /// spell out which fields are prose and which are identifiers that must stay in English.
+    /// Preset resolution, key decryption and LLM logging are shared with the narration paths.
+    /// </summary>
+    Task<string> GenerateStructuredAsync(Guid gameId, string systemPrompt, string userPrompt, float temperature = 0.8f, CancellationToken ct = default);
 }
 
 public class NarrativeGenerationFactory(
@@ -84,6 +93,31 @@ public class NarrativeGenerationFactory(
 
         var provider = factory.CreateFromPreset(preset);
         return await CompleteAndLogAsync(gameId, game.CreatorId, provider, preset, systemPrompt, prompt, opts, ct);
+    }
+
+    public async Task<string> GenerateStructuredAsync(Guid gameId, string systemPrompt, string userPrompt, float temperature = 0.8f, CancellationToken ct = default)
+    {
+        var game = await db.Games
+            .Include(g => g.LLMPreset)
+            .FirstOrDefaultAsync(g => g.Id == gameId, ct);
+
+        if (game?.LLMPreset is null)
+            return string.Empty;
+
+        var preset = game.LLMPreset;
+        if (preset.ApiKey is not null)
+            preset.DecryptedApiKey = encryption.Decrypt(preset.ApiKey);
+
+        var opts = new LLMOptions
+        {
+            Model = preset.BaseModel,
+            Temperature = temperature,
+            MaxTokens = preset.MaxTokens,
+            TopP = preset.TopP
+        };
+
+        var provider = factory.CreateFromPreset(preset);
+        return await CompleteAndLogAsync(gameId, game.CreatorId, provider, preset, systemPrompt, userPrompt, opts, ct);
     }
 
     /// <summary>

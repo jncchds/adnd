@@ -12,6 +12,15 @@ public record CreateCharacterDto(
     string? Race);
 
 /// <summary>
+/// Asks the GM's model to fill in the rest of a character. Whatever the player has already
+/// typed is sent along and comes back unchanged; both empty is the "surprise me" path.
+/// </summary>
+public record SuggestCharacterDto(
+    Guid GameId,
+    string? Name,
+    string? Backstory);
+
+/// <summary>
 /// Fields a player may edit on their own sheet. Update previously bound the Character
 /// entity itself, so the client could set its own Level, MaxHP and CurrentHP — a fully
 /// client-authoritative character sheet. Progression-affecting fields are GM-only

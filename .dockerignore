@@ -5,7 +5,6 @@
 CLAUDE.md
 DESIGN_DOCUMENT.md
 PLAN.md
-RELEASE_NOTES.md
 README.md
 docker-compose*.yml
 src/Adnd.Client/node_modules/

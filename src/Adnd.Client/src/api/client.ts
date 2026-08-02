@@ -1,6 +1,7 @@
 import type {
   AuthResponse, LoginRequest, RegisterRequest, User,
   Game, GameCreateRequest, Player, GameSession, NPC, Character, CreateCharacterRequest, CharacterOptions,
+  SuggestCharacterRequest, CharacterConcept,
   LLMPreset, LLMPresetCreate, LLMPresetUpdate, ProviderStatus, LLMInteractionLog,
   Message, MessagePage,
   AgentCall, ToolCall, GMToolCallSummary,
@@ -234,6 +235,8 @@ class APIClient {
     create: (data: CreateCharacterRequest) => this.post<Character>('/characters', data),
     update: (id: string, data: Partial<Character>) => this.put<Character>(`/characters/${id}`, data),
     options: () => this.get<CharacterOptions>('/characters/options'),
+    suggest: (data: SuggestCharacterRequest) =>
+      this.post<CharacterConcept>('/characters/suggest', data),
   }
 
   // Prompt templates — server route is /quickwins/templates

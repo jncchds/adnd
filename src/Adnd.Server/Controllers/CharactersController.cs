@@ -5,6 +5,7 @@ using Adnd.Server.Models;
 using Adnd.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Controllers;
@@ -16,7 +17,10 @@ public class CharactersController(
     AppDbContext db,
     ICharacterCreationFactory factory,
     IFeatureCatalogue features,
-    IUserIdProvider userIdProvider) : ControllerBase
+    ICharacterConceptService concepts,
+    IUserIdProvider userIdProvider,
+    IGameAuthorizationService auth,
+    ILogger<CharactersController> logger) : GameScopedController(auth, userIdProvider)
 {
     /// <summary>
     /// Races the creation wizard offers, and the reroll abilities the catalogue knows about.
@@ -45,7 +49,7 @@ public class CharactersController(
     [HttpGet]
     public async Task<IActionResult> ListForGame([FromQuery] Guid gameId)
     {
-        var userId = userIdProvider.GetUserId();
+        var userId = CurrentUserId;
         var isAuthorized =
             await db.Players.IgnoreQueryFilters().AnyAsync(p => p.GameId == gameId && p.UserId == userId && !p.IsDeleted) ||
             await db.Games.IgnoreQueryFilters().AnyAsync(g => g.Id == gameId && g.CreatorId == userId && !g.IsDeleted);
@@ -59,7 +63,7 @@ public class CharactersController(
     [HttpGet("my")]
     public async Task<IActionResult> GetMy([FromQuery] Guid gameId)
     {
-        var userId = userIdProvider.GetUserId();
+        var userId = CurrentUserId;
         var player = await db.Players.IgnoreQueryFilters()
             .FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId && !p.IsDeleted);
         if (player == null)
@@ -93,7 +97,7 @@ public class CharactersController(
     /// </summary>
     private async Task<bool> CanAccessCharacterAsync(Character character)
     {
-        var userId = userIdProvider.GetUserId();
+        var userId = CurrentUserId;
 
         var owner = await db.Players
             .IgnoreQueryFilters()
@@ -112,7 +116,7 @@ public class CharactersController(
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateCharacterDto dto)
     {
-        var userId = userIdProvider.GetUserId();
+        var userId = CurrentUserId;
 
         var player = await db.Players
             .Include(p => p.Character)
@@ -134,6 +138,41 @@ public class CharactersController(
         db.Characters.Add(character);
         await db.SaveChangesAsync();
         return CreatedAtAction(nameof(Get), new { id = character.Id }, character);
+    }
+
+    /// <summary>
+    /// Prefills the creation wizard from the campaign's premise and its narration so far.
+    /// Spends LLM budget, so unlike the rest of this controller it is rate limited — but it is
+    /// open to any member rather than the creator, because the player creating the character is
+    /// the one who needs it.
+    /// </summary>
+    [HttpPost("suggest")]
+    [EnableRateLimiting("llm")]
+    public async Task<IActionResult> Suggest([FromBody] SuggestCharacterDto dto)
+    {
+        if (await RequireMember(dto.GameId) is { } failure) return failure;
+
+        try
+        {
+            var concept = await concepts.SuggestAsync(dto.GameId, dto.Name, dto.Backstory, HttpContext.RequestAborted);
+            return Ok(concept);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            // The model refused, returned prose, or the game has no preset — all recoverable by
+            // the player, who can press the button again or just fill the wizard in by hand.
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Character suggestion failed for game {GameId}", dto.GameId);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { error = "The GM's model could not be reached. Try again, or fill the wizard in yourself." });
+        }
     }
 
     [HttpPut("{id:guid}")]
@@ -179,7 +218,7 @@ public class CharactersController(
 
         if (owner is null) return NotFound();
 
-        var userId = userIdProvider.GetUserId();
+        var userId = CurrentUserId;
         var isCreator = await db.Games
             .IgnoreQueryFilters()
             .AnyAsync(g => g.Id == owner.GameId && g.CreatorId == userId && !g.IsDeleted);

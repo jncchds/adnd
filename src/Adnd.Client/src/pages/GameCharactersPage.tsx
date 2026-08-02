@@ -135,7 +135,7 @@ export default function GameCharactersPage() {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => navigate(`/character/create?gameId=${gameId}`)}
+            onClick={() => navigate(`/game/${gameId}/character/new`)}
           >
             Create My Character
           </Button>
@@ -149,7 +149,7 @@ export default function GameCharactersPage() {
           <Typography color="text.secondary" sx={{ mb: 2 }}>No characters have been created yet.</Typography>
           {!myCharacter && (
             <Button variant="contained" startIcon={<AddIcon />}
-              onClick={() => navigate(`/character/create?gameId=${gameId}`)}>
+              onClick={() => navigate(`/game/${gameId}/character/new`)}>
               Create My Character
             </Button>
           )}
@@ -160,7 +160,7 @@ export default function GameCharactersPage() {
         <Grid container spacing={2}>
           {myCharacter && (
             <Grid size={{ xs: 12, md: 6 }}>
-              <OwnCharacterCard character={myCharacter} onView={() => navigate(`/character/${myCharacter.id}`)} />
+              <OwnCharacterCard character={myCharacter} onView={() => navigate(`/game/${gameId}/character/${myCharacter.id}`)} />
             </Grid>
           )}
           {otherCharacters.map(c => {

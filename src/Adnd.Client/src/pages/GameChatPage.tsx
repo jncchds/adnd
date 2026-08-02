@@ -509,7 +509,7 @@ export default function GameChatPage() {
       {/* No character banner — the Creator can also play a character, so this applies to them too */}
       {myCharacter === null && (
         <Alert severity="warning" sx={{ mx: 2 }}
-          action={<Button size="small" color="inherit" onClick={() => navigate(`/character/create?gameId=${gameId}`)}>Create Character</Button>}>
+          action={<Button size="small" color="inherit" onClick={() => navigate(`/game/${gameId}/character/new`)}>Create Character</Button>}>
           You don't have a character in this game yet.
         </Alert>
       )}
@@ -615,7 +615,7 @@ export default function GameChatPage() {
               label={myCharacter.name}
               size="small"
               variant="outlined"
-              onClick={() => navigate(`/character/${myCharacter.id}`)}
+              onClick={() => navigate(`/game/${gameId}/character/${myCharacter.id}`)}
               sx={{ ml: 1, cursor: 'pointer' }}
             />
           )}

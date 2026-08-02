@@ -164,6 +164,7 @@ builder.Services.AddScoped<IRAGService, RAGService>();
 builder.Services.AddScoped<INPCRelevanceService, NPCRelevanceService>();
 builder.Services.AddScoped<IPlotWeaver, PlotWeaver>();
 builder.Services.AddScoped<ICharacterCreationFactory, CharacterCreationFactory>();
+builder.Services.AddScoped<ICharacterConceptService, CharacterConceptService>();
 builder.Services.AddScoped<INarrativeGenerationFactory, NarrativeGenerationFactory>();
 builder.Services.AddScoped<IGameStartService, GameStartService>();
 

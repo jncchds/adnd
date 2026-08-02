@@ -5,8 +5,9 @@ WORKDIR /repo
 COPY src/Adnd.Client/package*.json src/Adnd.Client/
 RUN npm ci --prefix src/Adnd.Client
 
-# VERSION is read by vite.config.ts at build time
+# Both are read by vite.config.ts at build time (version badge, release notes page)
 COPY VERSION ./
+COPY RELEASE_NOTES.md ./
 COPY src/Adnd.Client/ src/Adnd.Client/
 RUN cd src/Adnd.Client && npm run build
 

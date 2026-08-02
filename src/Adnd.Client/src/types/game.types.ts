@@ -118,6 +118,23 @@ export interface CharacterOptions {
   }[]
 }
 
+/** POST /api/characters/suggest — anything already typed is echoed back unchanged. */
+export interface SuggestCharacterRequest {
+  gameId: string
+  name?: string
+  backstory?: string
+}
+
+/** The wizard's prefill. `race`/`background` are always values the wizard itself offers. */
+export interface CharacterConcept {
+  name: string
+  backstory: string
+  race: string | null
+  class: string
+  background: string | null
+  attributes: Record<string, number>
+}
+
 export interface CreateCharacterRequest {
   gameId: string
   name: string

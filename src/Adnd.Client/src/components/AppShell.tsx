@@ -12,9 +12,10 @@ export default function AppShell() {
 
   const path = location.pathname
 
-  // Only /game/:id and /admin/:id carry a game id. useParams also matches /character/:id
-  // from this layout route, which previously made the sidebar fetch a game by character id
-  // and render game links pointing at a character.
+  // Only /game/:id and /admin/:id carry a game id in `:id`. Every other route in this layout
+  // must resolve to no section at all — a stray `:id` from some other route would make the
+  // sidebar fetch a game by the wrong id and render game links pointing at it. Character
+  // routes are nested under /game/:id precisely so they land in the game section here.
   const section: 'game' | 'admin' | undefined =
     path.startsWith('/admin/') ? 'admin'
       : path.startsWith('/game/') ? 'game'

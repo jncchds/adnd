@@ -156,6 +156,27 @@ a roll with no DC cannot be known to have failed). `GameHub.TakeRest` refills th
 `AwaitingReroll` rather than publishing `ToolCallCompleted`, so the narrator is told the final
 number. Without that hold the GM narrates a failure the player then rerolls into a success.
 
+### Character suggestions
+
+`ICharacterConceptService` is the wizard's "fill in the rest" button. It sends the campaign
+premise, `RAGService.GeneratePlotContextAsync` (the narrator's own context block) and the
+existing party, and asks for one JSON object back.
+
+Two constraints are non-negotiable and easy to lose. **Race and background must come back as
+values the wizard offers** — they are matched against `ICharacterCreationFactory`'s catalogues
+and dropped when nothing matches, because an unmatched value renders as a silently empty MUI
+dropdown rather than an error. And **attributes are forced onto the standard array by rank**:
+models return point-buy totals, a 17, or five of the six, and the wizard warns about anything
+that isn't the standard array — so an unconstrained suggestion would arrive pre-flagged as
+suspect. Ranking keeps which ability the model thought mattered most.
+
+Whatever the player has already typed is fixed and echoed back; both fields empty is the
+"invent everything" path. The call goes through
+`INarrativeGenerationFactory.GenerateStructuredAsync`, which shares preset resolution and LLM
+logging with narration but deliberately applies neither the GM persona nor
+`Game.LanguageDirective` — the directive would have translated the race and background ids too,
+and they are matched against an English catalogue.
+
 ### Roll prompts are messages, not banners
 
 A roll request and a reroll offer are real `Message` rows addressed to one player via

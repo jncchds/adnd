@@ -20,6 +20,10 @@ import {
   FactCheck as ConsistencyIcon,
   Description as LogsIcon,
   SmartToy as AgentIcon,
+  Home as HomeIcon,
+  Login as LoginIcon,
+  PersonAdd as RegisterIcon,
+  NewReleases as ReleaseNotesIcon,
 } from '@mui/icons-material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -33,6 +37,16 @@ interface NavItem {
   label: string
   icon: ReactNode
   path: string
+  /**
+   * Marks the item active for a whole subtree rather than one exact path. Needed for
+   * Characters, which owns /game/:id/characters, the creation wizard and every sheet —
+   * without it those pages render the game nav with nothing highlighted.
+   */
+  activePrefix?: string
+}
+
+function isActive(item: NavItem, pathname: string) {
+  return item.activePrefix ? pathname.startsWith(item.activePrefix) : pathname === item.path
 }
 
 interface Props {
@@ -70,7 +84,7 @@ function NavBtn({ item, collapsed, active }: { item: NavItem; collapsed: boolean
 }
 
 export default function SidePanel({ collapsed, onToggle, gameId, section }: Props) {
-  const { user, logout } = useAuth()
+  const { user, loading, logout } = useAuth()
   const { mode, toggleColorMode } = useColorMode()
   const location = useLocation()
   const theme = useTheme()
@@ -79,16 +93,35 @@ export default function SidePanel({ collapsed, onToggle, gameId, section }: Prop
   const isCreator = !!game && !!user && game.creatorId === user.id
   const inAdmin = section === 'admin' && !!gameId
 
-  const mainNav: NavItem[] = [
+  const signedInNav: NavItem[] = [
     { label: 'Games', icon: <DiceIcon fontSize="small" />, path: '/dashboard' },
     { label: 'LLM Presets', icon: <PresetsIcon fontSize="small" />, path: '/llm-presets' },
     { label: 'Systems', icon: <SystemsIcon fontSize="small" />, path: '/systems' },
+    { label: 'Release Notes', icon: <ReleaseNotesIcon fontSize="small" />, path: '/release-notes' },
     { label: 'Settings', icon: <SettingsIcon fontSize="small" />, path: '/user-settings' },
   ]
 
+  // The signed-out navigation. /release-notes is the one page both states share, which is why
+  // it is a route of its own rather than a section of the landing page.
+  const publicNav: NavItem[] = [
+    { label: 'Home', icon: <HomeIcon fontSize="small" />, path: '/' },
+    { label: 'Sign In', icon: <LoginIcon fontSize="small" />, path: '/login' },
+    { label: 'Register', icon: <RegisterIcon fontSize="small" />, path: '/register' },
+    { label: 'Release Notes', icon: <ReleaseNotesIcon fontSize="small" />, path: '/release-notes' },
+  ]
+
+  // While the session is still being restored we know neither nav is right, and rendering the
+  // signed-out one would flash "Sign In" at a returning player on every reload.
+  const mainNav: NavItem[] = loading ? [] : user ? signedInNav : publicNav
+
   const gameNav: NavItem[] = gameId ? [
     { label: 'Chat', icon: <ChatIcon fontSize="small" />, path: `/game/${gameId}` },
-    { label: 'Characters', icon: <CharactersIcon fontSize="small" />, path: `/game/${gameId}/characters` },
+    {
+      label: 'Characters', icon: <CharactersIcon fontSize="small" />,
+      path: `/game/${gameId}/characters`,
+      // Also covers /character/new and /character/:characterId under this game.
+      activePrefix: `/game/${gameId}/character`,
+    },
     ...(isCreator ? [{ label: 'Admin', icon: <AdminIcon fontSize="small" />, path: `/admin/${gameId}` }] : []),
   ] : []
 
@@ -171,7 +204,7 @@ export default function SidePanel({ collapsed, onToggle, gameId, section }: Prop
       {/* Main nav */}
       <Box sx={{ flex: 1, py: 1, px: 0.5, display: 'flex', flexDirection: 'column', gap: 0.25, overflowY: 'auto' }}>
         {mainNav.map(item => (
-          <NavBtn key={item.path} item={item} collapsed={collapsed} active={location.pathname === item.path} />
+          <NavBtn key={item.path} item={item} collapsed={collapsed} active={isActive(item, location.pathname)} />
         ))}
 
         {sectionNav.length > 0 && (
@@ -188,7 +221,7 @@ export default function SidePanel({ collapsed, onToggle, gameId, section }: Prop
             )}
 
             {sectionNav.map(item => (
-              <NavBtn key={item.path} item={item} collapsed={collapsed} active={location.pathname === item.path} />
+              <NavBtn key={item.path} item={item} collapsed={collapsed} active={isActive(item, location.pathname)} />
             ))}
           </>
         )}
@@ -215,7 +248,7 @@ export default function SidePanel({ collapsed, onToggle, gameId, section }: Prop
             {!collapsed && <Typography variant="body2">{mode === 'dark' ? 'Light mode' : 'Dark mode'}</Typography>}
           </Box>
         </Tooltip>
-        <Tooltip title={collapsed ? 'Logout' : ''} placement="right">
+        {user && <Tooltip title={collapsed ? 'Logout' : ''} placement="right">
           <Box
             onClick={logout}
             sx={{
@@ -231,7 +264,7 @@ export default function SidePanel({ collapsed, onToggle, gameId, section }: Prop
             </Box>
             {!collapsed && <Typography variant="body2">Logout</Typography>}
           </Box>
-        </Tooltip>
+        </Tooltip>}
       </Box>
     </Box>
   )

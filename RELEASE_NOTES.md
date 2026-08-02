@@ -1,5 +1,90 @@
 # Release Notes
 
+## v0.1.3 — 2026-08-03
+
+### There is something to see before you sign in
+
+The app used to answer every anonymous request with a login form. It now has a public half,
+inside the same shell as the signed-in app — same sidebar, same theme and theme toggle, same
+layout — so the first screen looks like the product rather than a door.
+
+| route | page |
+| --- | --- |
+| `/` | Landing page: what the platform does, in cards |
+| `/login`, `/register` | The auth forms, now separate pages rather than two tabs |
+| `/release-notes` | This file, rendered |
+
+`SidePanel` switches its own navigation on the auth state rather than being duplicated: signed
+out it offers Home / Sign In / Register / Release Notes and hides Logout. While the session is
+still being restored it renders neither list, so a returning player does not get "Sign In"
+flashed at them on every reload.
+
+Sign-in and registration are two routes because they are two navigation destinations — a tab
+index cannot be linked to. The form itself is still one component; only the display-name field
+and the labels differ.
+
+`/release-notes` is the one page both halves share, which is why it is a route rather than a
+section of the landing page. Its content is this file, baked in at build time by
+`vite.config.ts` alongside the version badge, so the page cannot drift from what the maintainer
+actually edits — and no anonymous API endpoint had to be opened to serve it.
+
+Two redirects changed. `/login` and `/register` now bounce a signed-in player to their games
+instead of showing a form asking them to sign in again, and the catch-all sends unknown paths
+to `/` — which resolves to the dashboard when signed in and to the landing page otherwise. It
+previously pointed at `/dashboard`, so a signed-out visitor mistyping a URL ended up at the
+login form.
+
+### The wizard starts from the character, not the paperwork
+
+`CharacterCreateWizard` now asks for name and backstory first, then race/class/background,
+then attributes. The old order made the player pick a background before they had decided who
+the character was — and, more to the point, everything after step 1 can be *derived* from
+step 1.
+
+### "Fill in the rest from this" / "Roll me a character"
+
+A button under the backstory (`POST /api/characters/suggest` → `ICharacterConceptService`)
+asks the game's own LLM preset to complete the character.
+
+- Grounded in the campaign: the game's title and plot seed, the same `GeneratePlotContextAsync`
+  block the narrator gets (recent table messages, NPCs in play, active plot threads), and the
+  rest of the party — so a character invented here arrives already entangled, and doesn't
+  duplicate an existing party member's niche.
+- Anything the player has already typed is **fixed**: a supplied name or backstory is echoed
+  back unchanged and the model works from it. With both empty the button becomes "roll me a
+  character" and invents those too. Everything it fills in stays editable in the wizard.
+- Suggestions are constrained to what the wizard actually offers. Race and background are
+  matched against the server catalogues and dropped if they match nothing — an unknown value
+  would render as a silently empty dropdown. Attributes are forced onto the standard array by
+  *rank*, keeping the model's intent about which ability matters most while guaranteeing a
+  spread the wizard won't immediately flag as suspect.
+- Rate limited under the existing `llm` policy, and open to any game member rather than the
+  creator: the player creating the character is the one who needs it.
+
+`INarrativeGenerationFactory.GenerateStructuredAsync` is the shared plumbing — preset
+resolution, key decryption and LLM logging, without the GM persona or the language directive,
+which applied verbatim would have translated the race and background ids into values that
+match nothing.
+
+### Characters live inside their game's URL
+
+A character has no meaning outside a game, so the routes now say so:
+
+| was | is |
+| --- | --- |
+| `/character/create?gameId=…` | `/game/:id/character/new` |
+| `/character/:id` | `/game/:id/character/:characterId` |
+
+The point is the navigation. `AppShell` derives the sidebar's game id from `:id` on `/game/*`,
+so the sheet and the creation wizard used to render with no game navigation at all — the only
+way back to the table was the browser's Back button. They now sit in the game section like
+every other in-game page, with Characters highlighted (`NavItem.activePrefix`, since one nav
+entry now owns a whole subtree rather than one exact path).
+
+The old top-level `/character/*` routes are gone rather than redirected: a stale
+`/character/:id` bookmark carries no game id to redirect *to*, and the catch-all already sends
+unknown paths to the dashboard.
+
 ## v0.1.2 — 2026-08-02
 
 ### Secret rolls are now actually secret

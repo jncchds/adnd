@@ -42,7 +42,7 @@ export default function AdminCharactersPage() {
                     HP: {char.currentHP}/{char.maxHP}
                   </Typography>
                   <Box sx={{ mt: 1 }}>
-                    <Button size="small" onClick={() => navigate(`/character/${char.id}`)}>View Sheet</Button>
+                    <Button size="small" onClick={() => navigate(`/game/${gameId}/character/${char.id}`)}>View Sheet</Button>
                   </Box>
                 </>
               ) : (
