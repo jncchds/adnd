@@ -134,7 +134,11 @@ public class CharacterCreationFactory(IFeatureCatalogue features) : ICharacterCr
 
         var skillsDict = bg.SkillProficiencies.ToDictionary(s => s, _ => true);
 
-        var defaultInventory = new[] { "Clothes", "Backpack", "Rations (5 days)", "Waterskin", "Tinderbox" };
+        var defaultInventory = new[]
+        {
+            new InventoryItem("Clothes", 1), new InventoryItem("Backpack", 1), new InventoryItem("Rations (days)", 5),
+            new InventoryItem("Waterskin", 1), new InventoryItem("Tinderbox", 1), new InventoryItem("Gold pieces", 10),
+        };
 
         // Granted up front rather than asked for: a Halfling player should not have to know
         // that Halfling Luck is the thing that makes the reroll prompt appear.
@@ -154,11 +158,11 @@ public class CharacterCreationFactory(IFeatureCatalogue features) : ICharacterCr
             MaxHP = 10 + level,
             Attributes = JsonSerializer.SerializeToElement(defaultAttributes),
             Skills = JsonSerializer.SerializeToElement(skillsDict),
-            Inventory = JsonSerializer.SerializeToElement(defaultInventory),
+            Inventory = JsonSerializer.SerializeToElement(defaultInventory, ClassRules.Json),
             Spells = JsonSerializer.SerializeToElement(new object()),
             Conditions = JsonSerializer.SerializeToElement(Array.Empty<string>()),
             CustomFields = JsonSerializer.SerializeToElement(new object()),
-            SpellSlots = JsonSerializer.SerializeToElement(new object()),
+            SpellSlots = JsonSerializer.SerializeToElement(ClassRules.RefitSlots(default, className, level), ClassRules.Json),
             Features = JsonSerializer.SerializeToElement(granted, FeatureJson.Options),
             Background = bg.Description,
             BackgroundSkills = string.Join(", ", bg.SkillProficiencies),

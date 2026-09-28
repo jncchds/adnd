@@ -10,7 +10,6 @@ public interface IAgentBus
     Task<string?> GetGMStatusAsync(Guid gameId);
     Task PauseGMAsync(Guid gameId);
     Task ResumeGMAsync(Guid gameId);
-    Task SendSwayAsync(Guid gameId, string direction, int intensity, string content);
 }
 
 public class AgentBus(AppDbContext db, IEventBus eventBus) : IAgentBus
@@ -41,7 +40,4 @@ public class AgentBus(AppDbContext db, IEventBus eventBus) : IAgentBus
         var game = await db.Games.FindAsync(gameId);
         if (game != null) { game.GMStatus = GMStatus.Running; await db.SaveChangesAsync(); }
     }
-
-    public async Task SendSwayAsync(Guid gameId, string direction, int intensity, string content)
-        => await eventBus.PublishAsync(new StorySwayed(gameId, direction, intensity, content));
 }

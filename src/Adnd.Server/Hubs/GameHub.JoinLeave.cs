@@ -32,13 +32,4 @@ public partial class GameHub
         if (await combats.GetActiveAsync(gameId) is { } combat)
             await Clients.Caller.SendCoreAsync("CombatUpdated", [combats.ToDto(combat)]);
     }
-
-    public async Task LeaveGameGroup(Guid gameId)
-    {
-        var userId = CurrentUserId;
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, gameId.ToString());
-        var player = await db.Players.FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId);
-        if (player != null) { player.IsConnected = false; await db.SaveChangesAsync(); }
-        await BroadcastToGameAsync(gameId, "PlayerDisconnected", new { userId });
-    }
 }

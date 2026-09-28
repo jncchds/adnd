@@ -7,9 +7,10 @@ export function useCharacter(characterId: string | null) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const refresh = useCallback(async () => {
+  // silent: a live update re-fetches without swapping the sheet for a spinner.
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     if (!characterId) return
-    setLoading(true)
+    if (!opts?.silent) setLoading(true)
     setError(null)
     try {
       const c = await api.characters.get(characterId)
@@ -17,7 +18,7 @@ export function useCharacter(characterId: string | null) {
     } catch (e) {
       setError((e as Error).message)
     } finally {
-      setLoading(false)
+      if (!opts?.silent) setLoading(false)
     }
   }, [characterId])
 

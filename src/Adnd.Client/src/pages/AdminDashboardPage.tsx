@@ -15,6 +15,7 @@ import { useGameHub } from '../api/hooks/useHub'
 import { api } from '../api/client'
 import type { GMActivity } from '../types'
 import { activityLabel } from '../utils/gmActivity'
+import NudgePanel from '../components/NudgePanel'
 
 function StatCard({ label, value, color }: { label: string; value: number | string; color?: string }) {
   return (
@@ -46,7 +47,7 @@ export default function AdminDashboardPage() {
       api.llmLogs.list(gameId),
     ]).then(([plots, npcs, calls, logs]) => {
       setStats({ plots: plots.length, npcs: npcs.length, agentCalls: calls.length, llmLogs: logs.total })
-    }).catch(() => {})
+    }).catch(e => setError(`Could not load the game's statistics: ${(e as Error).message}`))
   }, [gameId])
 
   // Game start runs a multi-step generation pipeline (plot threads, recap, opening
@@ -175,6 +176,12 @@ export default function AdminDashboardPage() {
             Invite code: <strong>{invite}</strong> (share this with players)
           </Alert>
         )}
+      </Paper>
+
+      {/* The creator's one lever on the story the LLM runs */}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5 }}>Nudge the Story</Typography>
+        <NudgePanel gameId={gameId!} />
       </Paper>
 
       {/* Details */}

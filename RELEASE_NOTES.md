@@ -14,6 +14,23 @@
 - fix: `generateLoot` no longer needs ids the GM was never given; by default it loots everyone defeated in the most recent fight
 - fix: players stayed marked as connected forever after closing the tab
 - migration: `CombatZones` adds `Combats.Zones` and `CombatParticipants.ZoneId`, and closes every combat left active by the old code
+- feat: the GM applies what its rolls decide — new tools `damage`, `heal` and `setCondition` (in and out of combat); until now hit points only changed through manual controls nobody could reach, so a fight the narrator ran never hurt anyone
+- feat: dying characters make death saves on their turn with the new `deathSave` tool — rolled for them, recorded, with a reroll offered first if they have one; dead and stable characters are skipped in the turn order
+- feat: inventory, spells, rests and levels are run by the GM — `giveItem`, `removeItem`, `castSpell` (spends a slot, upcasting when needed), `rest` (short or long) and `awardExperience`, which levels characters up with hit points, slots and class abilities; `generateLoot` now tells the GM to hand out what the party takes
+- feat: characters start with their class's hit die plus CON instead of a flat 11, 5e spell slots for their class, and inventory as stacks with starting gold
+- feat: the creator can nudge the story — a direction for the next few GM turns or until withdrawn, from the chat's Nudge button or the admin dashboard; the narrator and the plot weaver steer toward it and players never see it. Replaces "sway", whose text nothing ever read
+- feat: the character sheet updates live, shows experience, spell slots, conditions and stacked inventory, and is read-only for mechanics — only name, background, backstory and custom fields can be edited
+- feat: `searchPlotContext` searches the campaign's history, plot threads and NPCs instead of answering "not yet implemented"
+- feat: the chat shows your character's HP, who is online, and GM pause/resume as it happens; whispers can be OOC
+- fix: `requestPlayerRoll`, `sendWhisper` and `queryCharacter` address characters by name — they took ids the GM was never shown, so it invented them and rolls went to nobody
+- fix: only the player a roll was asked of can make or decline it
+- fix: the "Previously..." recap is pushed to the table instead of appearing only after a reload
+- fix: the custom fields editor no longer discards what you type while the JSON is incomplete
+- fix: the admin dashboard reports when its statistics fail to load
+- feat: the LLM is the GM, and humans only watch and nudge — players' own dice rolls and rests, the creator's manual combat, whisper and character-adjust controls, and the manual tool-execute endpoint are gone
+- build: twelve unused combat services and nine empty hub files are deleted
+- build: `dotnet-ef` is pinned as a repo-local tool (`dotnet-tools.json`) and migrations are scaffolded with the local toolchain
+- migration: `ExperienceAndStoryNudges` adds `Characters.Experience` and the `StoryNudges` table
 - build: `VERSION` at the repo root is the single source of truth — assembly version (via `Directory.Build.props`), UI badge and Docker image tags; images are tagged `latest` (main only), the version and `sha-<commit>`, carry the `org.opencontainers.image.version` label, and `v*` tags also publish
 
 ## v0.1.3 — 2026-08-03

@@ -132,6 +132,11 @@ public class CharactersController(
         if (dto.Attributes is { Count: > 0 })
             character.Attributes = JsonSerializer.SerializeToElement(dto.Attributes);
 
+        // Hit points follow the class's hit die and the CON the player just chose. The factory
+        // cannot do this — it runs before the attributes arrive — so every character used to
+        // start on a flat 11.
+        character.MaxHP = character.CurrentHP = ClassRules.FirstLevelHitPoints(character.Class, character.Attributes);
+
         character.Backstory = dto.Backstory;
 
         player.CharacterName = character.Name;
@@ -183,52 +188,11 @@ public class CharactersController(
         if (!await CanAccessCharacterAsync(character)) return Forbid();
 
         if (dto.Name is not null) character.Name = dto.Name;
-        if (dto.Class is not null) character.Class = dto.Class;
         if (dto.Background is not null) character.Background = dto.Background;
+        if (dto.BackgroundSkills is not null) character.BackgroundSkills = dto.BackgroundSkills;
+        if (dto.BackgroundFeatures is not null) character.BackgroundFeatures = dto.BackgroundFeatures;
         if (dto.Backstory is not null) character.Backstory = dto.Backstory;
-        if (dto.Attributes.HasValue) character.Attributes = dto.Attributes.Value;
-        if (dto.Skills.HasValue) character.Skills = dto.Skills.Value;
-        if (dto.Inventory.HasValue) character.Inventory = dto.Inventory.Value;
-        if (dto.Spells.HasValue) character.Spells = dto.Spells.Value;
-        if (dto.Conditions.HasValue) character.Conditions = dto.Conditions.Value;
         if (dto.CustomFields.HasValue) character.CustomFields = dto.CustomFields.Value;
-        if (dto.SpellSlots.HasValue) character.SpellSlots = dto.SpellSlots.Value;
-        if (dto.Race is not null) character.Race = dto.Race;
-        if (dto.Features.HasValue) character.Features = dto.Features.Value;
-
-        await db.SaveChangesAsync();
-        return Ok(character);
-    }
-
-    /// <summary>
-    /// Level and hit points are GM-controlled — a player editing their own sheet cannot
-    /// set them, which is why they are split out of <see cref="UpdateCharacterDto"/>.
-    /// </summary>
-    [HttpPatch("{id:guid}/adjust")]
-    public async Task<IActionResult> Adjust(Guid id, [FromBody] GMCharacterAdjustmentDto dto)
-    {
-        var character = await db.Characters.FirstOrDefaultAsync(c => c.Id == id);
-        if (character == null) return NotFound();
-
-        var owner = await db.Players
-            .IgnoreQueryFilters()
-            .Where(p => p.Id == character.PlayerId)
-            .Select(p => new { p.GameId })
-            .FirstOrDefaultAsync();
-
-        if (owner is null) return NotFound();
-
-        var userId = CurrentUserId;
-        var isCreator = await db.Games
-            .IgnoreQueryFilters()
-            .AnyAsync(g => g.Id == owner.GameId && g.CreatorId == userId && !g.IsDeleted);
-
-        if (!isCreator) return Forbid();
-
-        if (dto.Level.HasValue) character.Level = dto.Level.Value;
-        if (dto.MaxHP.HasValue) character.MaxHP = dto.MaxHP.Value;
-        if (dto.CurrentHP.HasValue) character.CurrentHP = Math.Clamp(dto.CurrentHP.Value, 0, character.MaxHP);
-        if (dto.ProficiencyBonus.HasValue) character.ProficiencyBonus = dto.ProficiencyBonus.Value;
 
         await db.SaveChangesAsync();
         return Ok(character);

@@ -11,8 +11,11 @@ Rules for anyone (or anything) making changes here:
 - **Do not start, stop or recreate containers.** No `docker compose up`, `restart`, `down`
   or `stop` — running the stack is the maintainer's call. Build, report the result, and stop.
 - **Never run `dotnet ef database update`.** Migrations apply on startup (see below).
-- Use the `sdk` profile for anything that needs the .NET toolchain
-  (`docker compose run --rm sdk …`); it does not touch the running app.
+- Use the local toolchain for day-to-day work: the .NET 10 SDK, `dotnet-ef` (pinned as a
+  repo-local tool in `dotnet-tools.json` — `dotnet tool restore` on a fresh clone) and npm in
+  `src/Adnd.Client`. Avoid `docker compose run sdk`: it writes `obj/`, `bin/` and scaffolded
+  files into the repo as root, which then blocks the local tools. If a tool is missing locally,
+  ask for it to be installed rather than routing around it.
 - The backend must build with **0 warnings** (`TreatWarningsAsErrors`), and the frontend
   must pass `tsc --noEmit && vite build`. Never suppress a warning to get green.
 
@@ -56,10 +59,10 @@ Required `.env` values: `POSTGRES_PASSWORD`, `JWT_SECRET_KEY`, `JWT_ISSUER`, `JW
 
 ## EF Core Migrations
 
-Always use the `sdk` Docker profile — never run `dotnet ef` against a local toolchain.
+Use the repo-local `dotnet-ef` (same version as EF Core; no database needed to scaffold).
 
 ```bash
-docker compose run --rm sdk dotnet ef migrations add <Name> --project src/Adnd.Server
+dotnet ef migrations add <Name> --project src/Adnd.Server
 ```
 
 Migrations are applied automatically on startup by `MigrationService.ApplyMigrationsAsync()`. **Never run `dotnet ef database update`** — starting the app is how migrations get applied.
@@ -67,7 +70,7 @@ Migrations are applied automatically on startup by `MigrationService.ApplyMigrat
 `DesignTimeDbContextFactory` builds the context for the EF tooling so `dotnet ef` does not boot the full host (which would demand a real JWT key and encryption key it has no need for).
 
 Current migrations: `InitialCreate`, `AddCharacterBackstory`, `AgentLoopToolCallState`, `PlotThreadResolvedAt`, `AddLlmInteractionLogStatus`, `AddAgentCallStepHistoryAndLlmReasoning`, `AddAgentCallRequestedByPlayer`, `NPCStatusAndLastSeen`, `ClearPrivateMessageEmbeddings`,
-`CharacterFeaturesAndSecretRolls`, `RollPromptMessageLink`, `CombatZones`.
+`CharacterFeaturesAndSecretRolls`, `RollPromptMessageLink`, `CombatZones`, `ExperienceAndStoryNudges`.
 
 **Check scaffolded migrations before accepting them.** EF emits `jsonb NOT NULL DEFAULT ''` for new `JsonElement` columns; `''` is not valid JSON and the `ALTER TABLE` fails. The converter's sentinel is the literal `"null"`.
 
@@ -81,11 +84,10 @@ src/
     Data/               # AppDbContext, MigrationService, migrations
     Events/             # GameEvents records (Wolverine message types)
     Handlers/           # Wolverine message handlers
-    Hubs/               # SignalR GameHub (partial class, ~19 files)
+    Hubs/               # SignalR GameHub (partial class: chat, narrate/suggest, join)
     Models/             # EF entities + Enums.cs
     Services/           # All domain services
       Llm/              # ILLMProvider + per-provider implementations
-      Combat*/          # 12 scoped combat sub-services
   Adnd.Client/          # React 19 + TypeScript + Vite 6 (compiled into wwwroot at Docker build time)
 docker-compose.yml
 DESIGN_DOCUMENT.md
@@ -96,6 +98,13 @@ The React frontend is compiled during the Docker build stage and served as stati
 ## Architecture
 
 **ADnD** is a multiplayer TTRPG platform where an AI Game Master runs campaigns in real time.
+
+**The LLM is the GM** (and the narrator — they may become separate agents). Humans have
+exactly two levers: the game's creator can **inspect the internals** (the admin pages) and
+**nudge the narration** (`IStoryNudgeService`). Nobody else changes game state by hand:
+players never roll dice, and neither the creator nor the players deal damage, move
+combatants, hand out items or edit a sheet's mechanics. Every such change is a GM tool. Do not
+add manual controls or player roll buttons; add a tool.
 
 ```
 Browser (React 19 + MUI v7)
@@ -130,7 +139,28 @@ AgentCallQueued → AgentSaga.Start
 
 ### GM Tool Registry
 
-19 registered tools: `narrate`, `rollDice`, `skillCheck`, `requestPlayerRoll`, `queryCharacter`, `queryNPCs`, `registerNPC`, `updateNPCStatus`, `searchPlotContext`, `updateGameState`, `sendWhisper`, `startCombat`, `addCombatParticipant`, `moveParticipant`, `setZones`, `nextTurn`, `endCombat`, `generateLoot`, `wait`. Executed sequentially by `CoordinatorHandler`.
+28 registered tools. Narration and world: `narrate`, `wait`, `rollDice` (NPCs and the world),
+`queryNPCs`, `registerNPC`, `updateNPCStatus`, `searchPlotContext` (substring search over
+narrator-visible history, plot threads and NPCs), `updateGameState`, `sendWhisper`. Player
+characters: `requestPlayerRoll`, `deathSave`, `queryCharacter`, `damage`, `heal`,
+`setCondition`, `giveItem`, `removeItem`, `castSpell`, `rest`, `awardExperience`. Combat:
+`startCombat`, `addCombatParticipant`, `moveParticipant`, `setZones`, `nextTurn`, `endCombat`,
+`generateLoot`. Executed sequentially by `ToolExecutionHandler`; the saga advances through them.
+
+**Tools address everything by name, never by id.** The model is only ever shown names — player
+characters, NPCs, combatants, zones — so an id argument is one it invented. `requestPlayerRoll`
+used to take a `playerId` for exactly this reason and rolled for nobody. `ICharacterStateService`
+resolves a character by name within the game; unknown names return an error listing the party,
+which the model corrects itself from on its follow-up.
+
+**A character's mechanics change only through tools.** `ICharacterStateService` owns hit points
+and conditions outside combat, inventory (stacks, `[{name, quantity}]`; older sheets hold bare
+strings and read as quantity 1), spell slots, rests and experience; `ICombatTracker` owns them
+in a fight and writes a PC's HP and conditions through to the sheet. Both push
+`CharacterUpdated`. `ClassRules` holds the numbers: hit dice, the full/half/pact slot tables,
+proficiency and the XP thresholds — level-ups are applied by `awardExperience`, never set.
+`PUT /api/characters/{id}` accepts only who the character is (name, background, backstory,
+custom fields).
 
 `registerNPC` is how an NPC introduced in narration becomes a real row instead of a name that scrolls out of the RAG window and comes back as a different person. It is deliberately a *same-turn* tool: `BuildNarrateSystemPromptAsync` lists the NPCs in play and tells the model to call it alongside `narrate` in the same response, so there is no second LLM pass to bill or to fail. Matching is by **name**, case-insensitively scoped to the game — never by an id, which the model would have to invent — and an existing name updates rather than duplicating. Only fields the model actually supplied are written, so a later attitude-only call doesn't blank the description.
 
@@ -150,8 +180,8 @@ The game is played in chat, so combat has no grid. A fight is laid out as 2-5 na
 "I run to the tower door"; the narrator calls `moveParticipant`. The client's combat strip only
 shows where everyone is — nothing is dragged.
 
-**`ICombatTracker` is the only thing that changes combat state.** The creator's hub methods and
-the AI's combat tools both go through it, and after every change it pushes the whole combat as
+**`ICombatTracker` is the only thing that changes combat state**, and only the AI's combat tools
+call it — there are no manual combat controls. After every change it pushes the whole combat as
 `CombatUpdated` (also sent to a client on `JoinGameGroup`, so a reload restores the panel). The
 old per-change events mostly had no client listener, and the AI's `startCombat` broadcast
 nothing at all, so fights the narrator started were invisible. Tools address combatants and
@@ -174,10 +204,12 @@ and approval only ever meant "yes, apply the rules to me". Optional rolls still 
 confirmation. `IGMToolRegistry.RequiresConfirmation` therefore takes the *arguments*, not just
 the tool name.
 
-**Every roll attributed to a player goes through `IPlayerRollService`** — the hub's `RollDice`
-/`RollSkillCheck`/`RollAttack`, the `requestPlayerRoll` tool, and any reroll. That is what
-makes "does this character have a reroll for this?" one question answered in one place rather
-than four call sites that will not all remember to ask it.
+**Players never roll.** Every roll attributed to a player is the GM's `requestPlayerRoll` or
+`deathSave`, made for them through `IPlayerRollService` — optional rolls ask first, mandatory
+ones are rolled and reported — and any reroll offer holds the turn. `IGMToolRegistry.IsPlayerRoll`
+routes both tools through `ToolExecutionHandler`'s roll path; `PlanPlayerRollAsync` resolves the
+named character at every stage (ask, confirm, reroll) and `FinishPlayerRollAsync` applies the
+settled number — a death save is recorded only after any reroll is decided.
 
 `IRerollService` answers it, against `Character.Features` (`[{id, name, usesRemaining}]`) and
 `IFeatureCatalogue`. The character row stores only the id and the remaining uses; the trigger,
@@ -185,7 +217,8 @@ the maximum and which rest restores it live in the catalogue, so a rules fix is 
 change and not a backfill across every campaign. Triggers are `AnyRoll`, `NaturalOne` (needs
 `DiceResult.NaturalD20` — a natural 1 is a property of the die, not of `Total`, which the
 modifier has already moved) and `FailedCheck` (only offered when the roll had a stated DC, since
-a roll with no DC cannot be known to have failed). `GameHub.TakeRest` refills them.
+a roll with no DC cannot be known to have failed). The GM's `rest` tool refills them (through
+`IRerollService.RestoreOnRestAsync`) — there is no player rest button.
 
 **A reroll offer holds the GM's turn open.** `ToolExecutionHandler` parks the `GMToolCall` in
 `AwaitingReroll` rather than publishing `ToolCallCompleted`, so the narrator is told the final
@@ -234,6 +267,16 @@ The pending tool list lives on `ToolCallCoordinator.ToolCalls` — **not** on `A
 
 Tool arguments are LLM-generated: parse ids with `TryGetGuid` rather than `Guid.Parse`, and always scope looked-up entities to `gameId`.
 
+### Nudging the narration
+
+`IStoryNudgeService` is the creator's lever: a direction ("bring the cult back in") applied for
+N narrator turns or until withdrawn (`/api/games/{gameId}/nudges`, creator-only, UI in the chat
+page's Nudge dialog and on the admin dashboard). `BuildNarrateSystemPromptAsync` and the opening
+narration spend a turn from each limited nudge (`TakeForNarrationAsync`); `PlotWeaver` reads
+them without spending one, and creating one triggers a plot review. They are never shown to
+players and never enter `RAGService` context — that block also feeds player-facing OOC
+answers. This replaced "sway", whose direction text nothing ever read.
+
 ### LLM Provider Abstraction
 
 `ILLMProviderFactory` resolves to `ILLMProvider` based on `LLMPreset.ProviderType`. Supported values: `ollama`, `openaicompatible`, `openai`, `google`. API keys stored encrypted at rest via AES-256-GCM (`ApiKeyEncryptionService`).
@@ -272,7 +315,7 @@ routing — that would hide it from the narrator too.
 
 `GameHub` is a partial class split across ~19 files (combat, dice, spells, inventory, whispers, character creation, etc.). JWT is extracted from the WebSocket query string (`?access_token=…`). Online players tracked in a static `ConcurrentDictionary<string, string>` (connectionId → userId).
 
-**Every hub method that takes a `gameId` must start with `RequireMemberAsync(gameId)` or `RequireCreatorAsync(gameId)`** (both on `GameHub.cs`). `Clients.Group(...)` does *not* require the caller to be in the group, so an unchecked method lets any authenticated user act in any game. Combat methods additionally call `RequireCombatInGameAsync` / `RequireParticipantAsync` so ids cannot be borrowed across games. Prefer `Clients.User(userId)` over scanning `_playerConnections`.
+**Every hub method that takes a `gameId` must start with `RequireMemberAsync(gameId)`** (on `GameHub.cs`). `Clients.Group(...)` does *not* require the caller to be in the group, so an unchecked method lets any authenticated user act in any game. The hub is deliberately small — chatting, whispering, asking the GM — because nothing a human does changes game state directly. Prefer `Clients.User(userId)` over scanning `_playerConnections`.
 
 ### JSONB Storage
 

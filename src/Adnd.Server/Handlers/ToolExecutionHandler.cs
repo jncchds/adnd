@@ -18,8 +18,6 @@ public class ToolExecutionHandler(
     IGmActivityBroadcaster activity,
     ILogger<ToolExecutionHandler> logger)
 {
-    private const string PlayerRollTool = "requestPlayerRoll";
-
     public async Task HandleAsync(ToolCallRequested msg, CancellationToken ct)
     {
         var call = await db.AgentCalls.FindAsync([msg.AgentCallId], ct);
@@ -31,15 +29,28 @@ public class ToolExecutionHandler(
 
         var arguments = JsonSerializer.Deserialize<JsonElement>(msg.ArgumentsJson);
 
+        if (!toolRegistry.IsPlayerRoll(msg.ToolName))
+        {
+            await ExecuteAndPublishAsync(msg.AgentCallId, msg.GameId, msg.ToolName, msg.ArgumentsJson, msg.ToolIndex, ct);
+            return;
+        }
+
+        var pendingSession = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
+        var plan = await toolRegistry.PlanPlayerRollAsync(msg.ToolName, arguments, msg.GameId, pendingSession.Id, ct);
+        if (plan.Request is not { } request)
+        {
+            // Nobody to roll for — the model named someone who isn't there. Told so, it can
+            // correct the call on its follow-up instead of the turn stalling on an ask no
+            // player will ever see.
+            await PublishToolCompletedAsync(msg.AgentCallId, msg.GameId, msg.ToolName, plan.Error ?? "The roll could not be made.", msg.ToolIndex, ct);
+            return;
+        }
+
         // Mandatory rolls fall straight through this: the player is not asked whether the
         // rules may apply to them, only whether they want to spend an ability afterwards.
         if (toolRegistry.RequiresConfirmation(msg.ToolName, arguments))
         {
-            Guid? targetPlayerId = null;
-            if (arguments.TryGetProperty("playerId", out var pid) && Guid.TryParse(pid.GetString(), out var g))
-                targetPlayerId = g;
-
-            var pendingSession = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
+            var targetPlayerId = request.PlayerId;
 
             // Record the pending tool call so it can be surfaced via /api/gmtools/pending
             // and resolved later. Without this the saga simply stalled until the 5-minute timeout.
@@ -59,11 +70,9 @@ public class ToolExecutionHandler(
             await db.SaveChangesAsync(ct);
 
             // The ask goes into the chat log addressed to that player, and the roll will
-            // replace it there. Only requestPlayerRoll names a player; anything else gated in
-            // future has nobody to address, so it stays on /api/gmtools/pending alone.
+            // replace it there.
             if (targetPlayerId is { } askedPlayer)
             {
-                var request = GMToolRegistry.BuildPlayerRollRequest(arguments, msg.GameId, pendingSession.Id);
                 var promptId = await prompts.AskAsync(msg.GameId, pendingSession.Id, askedPlayer, "RollRequest",
                     DescribeRequest(request),
                     new
@@ -83,14 +92,8 @@ public class ToolExecutionHandler(
             return;
         }
 
-        if (msg.ToolName == PlayerRollTool)
-        {
-            // Mandatory: no prompt was ever posted, so the roll posts its own message.
-            await RollForPlayerAsync(msg.AgentCallId, msg.GameId, arguments, msg.ToolIndex, null, ct);
-            return;
-        }
-
-        await ExecuteAndPublishAsync(msg.AgentCallId, msg.GameId, msg.ToolName, msg.ArgumentsJson, msg.ToolIndex, ct);
+        // Mandatory: no prompt was ever posted, so the roll posts its own message.
+        await RollForPlayerAsync(msg.AgentCallId, msg.GameId, msg.ToolName, arguments, msg.ToolIndex, null, ct);
     }
 
     /// <summary>Resumes the chain once a player confirms or declines a gated tool call.</summary>
@@ -115,10 +118,10 @@ public class ToolExecutionHandler(
             return;
         }
 
-        if (msg.ToolName == PlayerRollTool)
+        if (toolRegistry.IsPlayerRoll(msg.ToolName))
         {
             var arguments = JsonSerializer.Deserialize<JsonElement>(msg.ArgumentsJson);
-            await RollForPlayerAsync(msg.AgentCallId, msg.GameId, arguments, msg.ToolIndex, promptMessageId, ct);
+            await RollForPlayerAsync(msg.AgentCallId, msg.GameId, msg.ToolName, arguments, msg.ToolIndex, promptMessageId, ct);
             return;
         }
 
@@ -138,6 +141,8 @@ public class ToolExecutionHandler(
     public async Task HandleAsync(RerollResolved msg, CancellationToken ct)
     {
         var content = msg.InterimContent;
+        var total = msg.InterimTotal;
+        var arguments = JsonSerializer.Deserialize<JsonElement>(msg.ArgumentsJson);
 
         if (msg.FeatureId is null)
         {
@@ -148,16 +153,16 @@ public class ToolExecutionHandler(
         }
         else
         {
-            var arguments = JsonSerializer.Deserialize<JsonElement>(msg.ArgumentsJson);
             var session = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
-            var request = GMToolRegistry.BuildPlayerRollRequest(arguments, msg.GameId, session.Id)
-                with { PostMessage = msg.PromptMessageId is null };
-
-            var rerolled = await playerRolls.RerollAsync(request, msg.CharacterId, msg.FeatureId, ct);
+            var plan = await toolRegistry.PlanPlayerRollAsync(msg.ToolName, arguments, msg.GameId, session.Id, ct);
+            var rerolled = plan.Request is { } request
+                ? await playerRolls.RerollAsync(request with { PostMessage = msg.PromptMessageId is null }, msg.CharacterId, msg.FeatureId, ct)
+                : null;
 
             if (rerolled is not null)
             {
                 content = rerolled.Content;
+                total = rerolled.Total;
                 if (msg.PromptMessageId is { } promptId)
                     await prompts.ResolveAsync(msg.GameId, promptId, "DiceRoll", rerolled.Content,
                         new { total = rerolled.Total, dc = rerolled.Dc, success = rerolled.Success },
@@ -177,7 +182,8 @@ public class ToolExecutionHandler(
             }
         }
 
-        await PublishToolCompletedAsync(msg.AgentCallId, msg.GameId, PlayerRollTool, content, msg.ToolIndex, ct);
+        content = await FinishAsync(msg.ToolName, arguments, msg.GameId, total, content, ct);
+        await PublishToolCompletedAsync(msg.AgentCallId, msg.GameId, msg.ToolName, content, msg.ToolIndex, ct);
     }
 
     /// <summary>
@@ -186,13 +192,19 @@ public class ToolExecutionHandler(
     /// GM must never narrate a failure the player then rerolls into a success.
     /// </summary>
     private async Task RollForPlayerAsync(
-        Guid agentCallId, Guid gameId, JsonElement arguments, int toolIndex, Guid? promptMessageId, CancellationToken ct)
+        Guid agentCallId, Guid gameId, string toolName, JsonElement arguments, int toolIndex, Guid? promptMessageId, CancellationToken ct)
     {
         try
         {
             var session = await sessions.GetOrCreateCurrentSessionAsync(gameId);
-            var request = GMToolRegistry.BuildPlayerRollRequest(arguments, gameId, session.Id)
-                with { PostMessage = promptMessageId is null };
+            var plan = await toolRegistry.PlanPlayerRollAsync(toolName, arguments, gameId, session.Id, ct);
+            if (plan.Request is null)
+            {
+                // Planned fine when asked; the situation changed while the player decided.
+                await PublishToolCompletedAsync(agentCallId, gameId, toolName, plan.Error ?? "The roll could not be made.", toolIndex, ct);
+                return;
+            }
+            var request = plan.Request with { PostMessage = promptMessageId is null };
 
             var result = await playerRolls.RollAsync(request, ct);
 
@@ -204,7 +216,8 @@ public class ToolExecutionHandler(
 
             if (result.RerollOptions.Count == 0 || result.CharacterId is not { } characterId)
             {
-                await PublishToolCompletedAsync(agentCallId, gameId, PlayerRollTool, result.Content, toolIndex, ct);
+                var final = await FinishAsync(toolName, arguments, gameId, result.Total, result.Content, ct);
+                await PublishToolCompletedAsync(agentCallId, gameId, toolName, final, toolIndex, ct);
                 return;
             }
 
@@ -213,7 +226,7 @@ public class ToolExecutionHandler(
                 AgentCallId = agentCallId,
                 GameId = gameId,
                 SessionId = session.Id,
-                ToolName = PlayerRollTool,
+                ToolName = toolName,
                 Arguments = arguments,
                 ToolIndex = toolIndex,
                 Status = GMToolCallStatus.AwaitingReroll,
@@ -244,7 +257,22 @@ public class ToolExecutionHandler(
         catch (Exception ex)
         {
             logger.LogError(ex, "Player roll failed for agent call {AgentCallId}", agentCallId);
-            await PublishToolCompletedAsync(agentCallId, gameId, PlayerRollTool, $"Error: {ex.Message}", toolIndex, ct);
+            await PublishToolCompletedAsync(agentCallId, gameId, toolName, $"Error: {ex.Message}", toolIndex, ct);
+        }
+    }
+
+    /// <summary>Applies the settled number — a death save is recorded only once any reroll is
+    /// done — and never lets a failure there lose the roll the player already saw.</summary>
+    private async Task<string> FinishAsync(string toolName, JsonElement arguments, Guid gameId, int total, string content, CancellationToken ct)
+    {
+        try
+        {
+            return await toolRegistry.FinishPlayerRollAsync(toolName, arguments, gameId, total, content, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Applying {ToolName} result failed for game {GameId}", toolName, gameId);
+            return $"{content}\nError applying the result: {ex.Message}";
         }
     }
 

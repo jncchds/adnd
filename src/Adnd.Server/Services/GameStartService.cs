@@ -63,14 +63,20 @@ public class GameStartService(
             var recap = await narrativeFactory.GenerateSessionRecapAsync(gameId, priorSessions.Id, ct);
             if (!string.IsNullOrEmpty(recap))
             {
-                db.Messages.Add(new Message
+                var recapMsg = new Message
                 {
                     SessionId = session.Id,
                     Content = $"**Previously...** {recap}",
                     Type = "GM",
                     CreatedAt = DateTimeOffset.UtcNow
-                });
+                };
+                db.Messages.Add(recapMsg);
                 await db.SaveChangesAsync(ct);
+
+                // Saved but never pushed, the recap only appeared for someone who reloaded —
+                // a table already sitting in chat went straight to the opening scene.
+                await hub.Clients.Group(gameId.ToString()).SendAsync("NewMessage",
+                    new MessageDto(recapMsg.Id, recapMsg.SessionId, null, recapMsg.Content, recapMsg.Type, false, recapMsg.CreatedAt, null), ct);
             }
         }
 

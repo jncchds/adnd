@@ -17,8 +17,8 @@ public class CombatRuleException(string message) : Exception(message);
 public record ZoneSpec(string Name, IReadOnlyList<string> Tags);
 
 /// <summary>
-/// The one place combat state changes. The hub's creator controls and the AI GM's tools both
-/// go through it, so both reach the table the same way: every change is followed by a
+/// The one place combat state changes. Only the AI GM's tools call it — the LLM runs the
+/// fight, and the game's creator has no manual controls — and every change is followed by a
 /// <c>CombatUpdated</c> push carrying the whole combat. The AI's <c>startCombat</c> used to
 /// write rows and broadcast nothing, so a fight the narrator started never appeared for anyone.
 ///
@@ -33,16 +33,22 @@ public interface ICombatTracker
     /// <summary>Starts a fight with every player character already in it, initiative rolled.</summary>
     Task<CombatEntity> StartAsync(Guid gameId, Guid sessionId, string name, IReadOnlyList<ZoneSpec> zones, string? partyZone, CancellationToken ct = default);
     Task<CombatParticipant> AddParticipantAsync(CombatEntity combat, string name, int hp, int ac, string? zone, float? initiative, CancellationToken ct = default);
-    Task RemoveParticipantAsync(CombatEntity combat, Guid participantId, CancellationToken ct = default);
     Task SetZonesAsync(CombatEntity combat, IReadOnlyList<ZoneSpec> zones, CancellationToken ct = default);
     Task<CombatParticipant> MoveAsync(CombatEntity combat, string participantName, string zoneName, CancellationToken ct = default);
-    Task RollInitiativeAsync(CombatEntity combat, Guid? participantId, CancellationToken ct = default);
-    Task<CombatParticipant?> AdvanceTurnAsync(CombatEntity combat, bool backwards = false, CancellationToken ct = default);
+    Task<CombatParticipant?> AdvanceTurnAsync(CombatEntity combat, CancellationToken ct = default);
 
-    /// <summary>Negative amount is damage. A player character's sheet follows its participant.</summary>
-    Task ChangeHpAsync(CombatEntity combat, Guid participantId, int amount, CancellationToken ct = default);
+    /// <summary>A combatant by display name, case-insensitively — how the model addresses them.</summary>
+    CombatParticipant? FindByName(CombatEntity combat, string name);
+
+    /// <summary>True for a player character at 0 HP who is neither dead nor stable.</summary>
+    bool IsDying(CombatParticipant participant);
+
+    /// <summary>Negative amount is damage. A player character's sheet follows its participant.
+    /// Returns the combatant's hit points afterwards.</summary>
+    Task<int> ChangeHpAsync(CombatEntity combat, Guid participantId, int amount, CancellationToken ct = default);
     Task SetConditionAsync(CombatEntity combat, Guid participantId, string condition, bool applied, CancellationToken ct = default);
-    Task RecordDeathSaveAsync(CombatEntity combat, Guid participantId, int roll, CancellationToken ct = default);
+    /// <summary>Returns the outcome as the log states it.</summary>
+    Task<string> RecordDeathSaveAsync(CombatEntity combat, Guid participantId, int roll, CancellationToken ct = default);
     Task EndAsync(CombatEntity combat, string? outcome, CancellationToken ct = default);
 
     CombatDto ToDto(CombatEntity combat);
@@ -109,6 +115,8 @@ public class CombatTracker(
                 // Initiative is a roll the rules give nobody a choice about, so it is simply made.
                 Initiative = dice.Roll("1d20").Total + dex,
                 ZoneId = startZone.Id,
+                // A poisoned character walks into the fight still poisoned.
+                Conditions = ch.Conditions.ValueKind == JsonValueKind.Array ? ch.Conditions.Clone() : JsonSerializer.SerializeToElement(Array.Empty<string>()),
             });
         }
 
@@ -164,21 +172,6 @@ public class CombatTracker(
         return participant;
     }
 
-    public async Task RemoveParticipantAsync(CombatEntity combat, Guid participantId, CancellationToken ct = default)
-    {
-        var p = Require(combat, participantId);
-        var anchor = Current(combat);
-        combat.Participants.Remove(p);
-        db.CombatParticipants.Remove(p);
-        // Removing someone shifts the order; keep the turn with whoever had it, or with the
-        // next in line if it was the removed combatant's turn.
-        Reanchor(combat, anchor == p ? null : anchor);
-        await db.SaveChangesAsync(ct);
-
-        await PushAsync(combat, ct);
-        await eventBus.PublishAsync(new ParticipantRemoved(combat.GameId, combat.Id, participantId), ct);
-    }
-
     public async Task SetZonesAsync(CombatEntity combat, IReadOnlyList<ZoneSpec> zones, CancellationToken ct = default)
     {
         combat.Zones = BuildZones(zones);
@@ -203,53 +196,29 @@ public class CombatTracker(
         return p;
     }
 
-    public async Task RollInitiativeAsync(CombatEntity combat, Guid? participantId, CancellationToken ct = default)
-    {
-        var targets = participantId is { } id ? [Require(combat, id)] : combat.Participants.ToList();
-        foreach (var p in targets)
-            p.Initiative = dice.Roll("1d20").Total + await DexModifierForAsync(p, ct);
-
-        // Re-rolling everyone reorders everyone, so the round restarts from the top; a single
-        // re-roll keeps the turn with whoever has it.
-        if (participantId is null) combat.CurrentTurnIndex = 0;
-        else Reanchor(combat, Current(combat));
-
-        await db.SaveChangesAsync(ct);
-        await PushAsync(combat, ct);
-    }
-
-    public async Task<CombatParticipant?> AdvanceTurnAsync(CombatEntity combat, bool backwards = false, CancellationToken ct = default)
+    public async Task<CombatParticipant?> AdvanceTurnAsync(CombatEntity combat, CancellationToken ct = default)
     {
         var order = Ordered(combat).ToList();
         if (order.Count == 0) return null;
 
-        var step = backwards ? -1 : 1;
         var index = combat.CurrentTurnIndex;
-        // Defeated enemies are skipped rather than removed, so the log still shows them. A
-        // downed player character still gets a turn — that is when they make death saves.
+        // Defeated enemies are skipped rather than removed, so the log still shows them, and so
+        // are player characters who are dead or stable — neither has anything to do. A dying
+        // character still gets a turn: that is when they make their death save.
         for (var i = 0; i < order.Count; i++)
         {
-            index += step;
+            index++;
             if (index >= order.Count) { index = 0; combat.CurrentRound++; }
-            else if (index < 0)
-            {
-                if (combat.CurrentRound == 1) { index = 0; break; }
-                index = order.Count - 1;
-                combat.CurrentRound--;
-            }
-            if (!IsDefeatedEnemy(order[index])) break;
+            if (!IsOutOfTheFight(order[index])) break;
         }
 
         combat.CurrentTurnIndex = index;
         var current = order[index];
-        if (!backwards)
-        {
-            // The action economy was never reset, so whatever the panel showed stayed spent forever.
-            current.ActionsRemaining = 1;
-            current.BonusActionsRemaining = 1;
-            current.ReactionsRemaining = 1;
-            current.MovementsRemaining = 30;
-        }
+        // The action economy was never reset, so whatever the panel showed stayed spent forever.
+        current.ActionsRemaining = 1;
+        current.BonusActionsRemaining = 1;
+        current.ReactionsRemaining = 1;
+        current.MovementsRemaining = 30;
         combat.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
 
@@ -260,7 +229,13 @@ public class CombatTracker(
         return current;
     }
 
-    public async Task ChangeHpAsync(CombatEntity combat, Guid participantId, int amount, CancellationToken ct = default)
+    public CombatParticipant? FindByName(CombatEntity combat, string name) => FindParticipant(combat, name);
+
+    public bool IsDying(CombatParticipant p)
+        => p.ParticipantType == CombatParticipantType.Character && p.HP == 0
+           && ReadDeathSaves(p.DeathSaveState) is not { IsDead: true } and not { IsStable: true };
+
+    public async Task<int> ChangeHpAsync(CombatEntity combat, Guid participantId, int amount, CancellationToken ct = default)
     {
         var p = Require(combat, participantId);
         var wasDown = p.HP == 0;
@@ -285,6 +260,7 @@ public class CombatTracker(
             await eventBus.PublishAsync(new CombatDamageDealt(combat.GameId, combat.Id, participantId, -amount, "Physical"), ct);
         else
             await eventBus.PublishAsync(new CombatHealed(combat.GameId, combat.Id, participantId, amount), ct);
+        return p.HP;
     }
 
     public async Task SetConditionAsync(CombatEntity combat, Guid participantId, string condition, bool applied, CancellationToken ct = default)
@@ -293,11 +269,19 @@ public class CombatTracker(
         var conditions = ReadConditions(p.Conditions).Where(c => !c.Equals(condition, StringComparison.OrdinalIgnoreCase)).ToList();
         if (applied) conditions.Add(condition);
         p.Conditions = JsonSerializer.SerializeToElement(conditions);
+
+        // A player character's conditions outlast the fight, so the sheet carries them too.
+        if (p.CharacterId is { } characterId
+            && await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId, ct) is { } character)
+            character.Conditions = CharacterStateService.WithCondition(character.Conditions, condition, applied);
+
         await db.SaveChangesAsync(ct);
         await PushAsync(combat, ct);
+        if (p.CharacterId is { } changed)
+            await hub.Clients.Group(combat.GameId.ToString()).SendAsync("CharacterUpdated", new { characterId = changed }, ct);
     }
 
-    public async Task RecordDeathSaveAsync(CombatEntity combat, Guid participantId, int roll, CancellationToken ct = default)
+    public async Task<string> RecordDeathSaveAsync(CombatEntity combat, Guid participantId, int roll, CancellationToken ct = default)
     {
         var p = Require(combat, participantId);
         if (p.HP > 0) throw new CombatRuleException($"{p.DisplayName} is not dying.");
@@ -309,8 +293,9 @@ public class CombatTracker(
         {
             // A natural 20 brings the character back with 1 hit point.
             await ChangeHpAsync(combat, participantId, 1, ct);
-            await PostAsync(combat, $"💀 {p.DisplayName} rolls a 20 on a death save and regains consciousness!", ct);
-            return;
+            var revived = $"💀 {p.DisplayName} rolls a 20 on a death save and regains consciousness with 1 hit point!";
+            await PostAsync(combat, revived, ct);
+            return revived;
         }
 
         var successes = state.Successes + (roll >= 10 ? 1 : 0);
@@ -327,8 +312,10 @@ public class CombatTracker(
         var outcome = dead ? " — they die." : stable ? " — they are stable." : $" ({successes}✓ {failures}✗)";
 
         await db.SaveChangesAsync(ct);
-        await PostAsync(combat, $"💀 {p.DisplayName} death save: {roll}{outcome}", ct);
+        var line = $"💀 {p.DisplayName} death save: {roll}{outcome}";
+        await PostAsync(combat, line, ct);
         await PushAsync(combat, ct);
+        return line;
     }
 
     public async Task EndAsync(CombatEntity combat, string? outcome, CancellationToken ct = default)
@@ -375,7 +362,10 @@ public class CombatTracker(
             var kind = p.ParticipantType == CombatParticipantType.Character ? " (PC)" : "";
             var zone = FindZoneById(combat, p.ZoneId)?.Name ?? "?";
             var conditions = ReadConditions(p.Conditions);
+            var saves = ReadDeathSaves(p.DeathSaveState);
             var state = IsDefeatedEnemy(p) ? " — DEFEATED"
+                : saves is { IsDead: true } ? " — DEAD"
+                : saves is { IsStable: true } ? " — unconscious but stable"
                 : p.HP == 0 ? " — DOWN, making death saves"
                 : conditions.Count > 0 ? $" — {string.Join(", ", conditions)}" : "";
             sb.AppendLine($"{marker}{p.DisplayName}{kind} — {zone} — HP {p.HP}/{p.MaxHP}, AC {p.AC}{state}");
@@ -391,7 +381,8 @@ public class CombatTracker(
         }
 
         sb.AppendLine("Combat rules: combatants in the same zone can reach each other in melee. Moving to an adjacent zone takes the combatant's move; further takes their action too (a dash). Ranged attacks reach any zone; more than one zone away is long range (disadvantage).");
-        sb.AppendLine("Call moveParticipant whenever someone changes zone. When the acting combatant's turn is resolved, call nextTurn. On an enemy's turn, decide what it does, roll for it with rollDice, narrate it, then call nextTurn. Add newly arriving combatants with addCombatParticipant. Call endCombat when one side is defeated, flees or surrenders.");
+        sb.AppendLine("Hit points and conditions change ONLY through tools: call damage when an attack or effect hits (after the roll has decided it does), heal for healing, and setCondition to apply or remove a condition. Narrating a wound does not change anyone's hit points. An enemy at 0 HP is defeated; a player character at 0 HP is dying.");
+        sb.AppendLine("Call moveParticipant whenever someone changes zone. When the acting combatant's turn is resolved, call nextTurn. On an enemy's turn, decide what it does, roll for it with rollDice, apply the result with damage, narrate it, then call nextTurn. On a player character's turn, ask for their attack or save with requestPlayerRoll. When a dying player character's turn comes, call deathSave for them. Add newly arriving combatants with addCombatParticipant. Call endCombat when one side is defeated, flees or surrenders.");
         return sb.ToString();
     }
 
@@ -425,6 +416,9 @@ public class CombatTracker(
     private static bool IsDefeatedEnemy(CombatParticipant p)
         => p.ParticipantType != CombatParticipantType.Character && p.HP == 0;
 
+    private static bool IsOutOfTheFight(CombatParticipant p)
+        => IsDefeatedEnemy(p) || ReadDeathSaves(p.DeathSaveState) is { IsDead: true } or { IsStable: true };
+
     private static List<CombatZone> BuildZones(IReadOnlyList<ZoneSpec> zones)
     {
         var built = zones
@@ -453,13 +447,6 @@ public class CombatTracker(
            && attributes.TryGetProperty("DEX", out var dex) && dex.TryGetInt32(out var score)
             ? AbilityScoreHelper.GetModifier(score)
             : 0;
-
-    private async Task<int> DexModifierForAsync(CombatParticipant p, CancellationToken ct)
-    {
-        if (p.CharacterId is not { } id) return 0;
-        var attributes = await db.Characters.Where(c => c.Id == id).Select(c => c.Attributes).FirstOrDefaultAsync(ct);
-        return DexModifier(attributes);
-    }
 
     private async Task PushAsync(CombatEntity combat, CancellationToken ct)
         => await hub.Clients.Group(combat.GameId.ToString()).SendAsync("CombatUpdated", ToDto(combat), ct);

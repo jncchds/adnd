@@ -23,7 +23,8 @@ public class PlotWeaver(
     IApiKeyEncryptionService encryption,
     IEmbeddingService embeddingService,
     ILogger<PlotWeaver> logger,
-    ILLMInteractionLogger llmLogger) : IPlotWeaver
+    ILLMInteractionLogger llmLogger,
+    IStoryNudgeService nudges) : IPlotWeaver
 {
     public async Task ReviewAndAdaptAsync(Guid gameId, CancellationToken ct = default)
     {
@@ -43,6 +44,11 @@ public class PlotWeaver(
 
         var provider = factory.CreateFromPreset(preset);
         var context = await rag.GeneratePlotContextAsync(gameId, ct);
+
+        // The creator's direction shapes the plan as well as the next scene. Read without
+        // spending a turn — turns are counted in narration, which is what players experience.
+        if (nudges.Describe(await nudges.ActiveAsync(gameId, ct)) is { } direction)
+            context = $"{context}\n\n{direction}";
 
         await ArchiveOldThreadsAsync(gameId, ct);
 

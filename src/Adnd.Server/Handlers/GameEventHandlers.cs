@@ -62,10 +62,10 @@ public class PlotWeaverHandler(IPlotWeaver plotWeaver, ILogger<PlotWeaverHandler
         await SafeReviewAsync(msg.GameId);
     }
 
-    // S9 — trigger PlotWeaver on story sway
-    public async Task HandleAsync(StorySwayed msg)
+    // The creator nudged the story: re-plan threads with the new direction in view.
+    public async Task HandleAsync(StoryNudged msg)
     {
-        logger.LogInformation("PlotWeaver triggered by StorySwayed for game {GameId}", msg.GameId);
+        logger.LogInformation("PlotWeaver triggered by StoryNudged for game {GameId}", msg.GameId);
         await SafeReviewAsync(msg.GameId);
     }
 

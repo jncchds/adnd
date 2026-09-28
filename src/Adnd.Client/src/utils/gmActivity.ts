@@ -20,8 +20,8 @@ export const STEP_LABELS: Record<string, string> = {
 
 export const TOOL_LABELS: Record<string, string> = {
   rollDice: 'Rolling dice…',
-  skillCheck: 'Checking a skill…',
-  requestPlayerRoll: 'Waiting on your roll…',
+  requestPlayerRoll: 'Rolling for a character…',
+  deathSave: 'A death save…',
   queryCharacter: 'Looking up a character…',
   queryNPCs: 'Looking up NPCs…',
   registerNPC: 'Noting down someone new…',
@@ -31,7 +31,19 @@ export const TOOL_LABELS: Record<string, string> = {
   sendWhisper: 'Sending a whisper…',
   startCombat: 'Starting combat…',
   addCombatParticipant: 'Adding a combatant…',
+  moveParticipant: 'Moving a combatant…',
+  setZones: 'Redrawing the battlefield…',
+  nextTurn: 'Passing the turn…',
+  endCombat: 'Ending combat…',
   generateLoot: 'Generating loot…',
+  damage: 'Dealing damage…',
+  heal: 'Healing…',
+  setCondition: 'Applying a condition…',
+  giveItem: 'Handing something over…',
+  removeItem: 'Updating an inventory…',
+  castSpell: 'Casting a spell…',
+  rest: 'Resting…',
+  awardExperience: 'Awarding experience…',
   narrate: 'Narrating…',
   // A wait-only turn never reaches ToolExecution — the saga completes it silently — so this
   // only shows for the odd response that asks to wait alongside doing something else.

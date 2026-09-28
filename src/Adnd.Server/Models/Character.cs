@@ -11,6 +11,10 @@ public class Character : ISoftDelete
     public string Class { get; set; } = string.Empty;
     public string? Race { get; set; }
     public int Level { get; set; } = 1;
+
+    /// <summary>Awarded by the GM's <c>awardExperience</c> tool; crossing a threshold in
+    /// <see cref="Services.ClassRules"/> levels the character up.</summary>
+    public int Experience { get; set; }
     public int ProficiencyBonus { get; set; } = 2;
     public int CurrentHP { get; set; }
     public int MaxHP { get; set; }

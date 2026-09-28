@@ -9,7 +9,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Controllers;
 
-public record GMToolExecuteRequest(string ToolName, JsonElement Arguments, Guid GameId, Guid SessionId);
 public record GMToolDeclineRequest(string? Reason);
 
 /// <param name="FeatureId">The ability to spend, or null to keep the original roll.</param>
@@ -156,7 +155,8 @@ public class GMToolController(
         {
             await eventBus.PublishAsync(new RerollResolved(
                 agentCallId, toolCall.GameId, toolCall.Arguments.GetRawText(), toolCall.ToolIndex,
-                characterId, featureId, ReadInterimContent(toolCall.Result), toolCall.PromptMessageId), ct);
+                characterId, featureId, ReadInterimContent(toolCall.Result), toolCall.PromptMessageId,
+                toolCall.ToolName, ReadInterimTotal(toolCall.Result)), ct);
         }
 
         return NoContent();
@@ -169,6 +169,13 @@ public class GMToolController(
            && options.EnumerateArray().Any(o =>
                o.TryGetProperty("featureId", out var id)
                && string.Equals(id.GetString(), featureId, StringComparison.OrdinalIgnoreCase));
+
+    private static int ReadInterimTotal(JsonElement result)
+        => result.ValueKind == JsonValueKind.Object
+           && result.TryGetProperty("total", out var total)
+           && total.ValueKind == JsonValueKind.Number
+            ? total.GetInt32()
+            : 0;
 
     private static string ReadInterimContent(JsonElement result)
         => result.ValueKind == JsonValueKind.Object
@@ -191,7 +198,20 @@ public class GMToolController(
         if (toolCall is null)
             return NotFound(new { error = "Tool call not found." });
 
-        if (await RequireMemberAsync(toolCall.GameId) is { } failure) return failure;
+        // The roll was asked of one player. Membership alone let anyone at the table roll —
+        // or decline — on someone else's behalf.
+        Player caller;
+        try
+        {
+            caller = await auth.RequirePlayerAsync(toolCall.GameId, userIdProvider.GetUserId());
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, new { error = ex.Message });
+        }
+
+        if (toolCall.TargetPlayerId is { } target && target != caller.Id)
+            return StatusCode(403, new { error = "This roll was asked of another player." });
 
         if (toolCall.Status != GMToolCallStatus.AwaitingConfirmation)
             return BadRequest(new { error = "This tool call has already been resolved." });
@@ -209,45 +229,6 @@ public class GMToolController(
         }
 
         return NoContent();
-    }
-
-    /// <summary>Execute a GM tool by name.</summary>
-    [HttpPost("execute")]
-    public async Task<IActionResult> ExecuteTool([FromBody] GMToolExecuteRequest request, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(request.ToolName))
-            return BadRequest(new { error = "ToolName is required." });
-
-        // Without this the endpoint ran GM tools against any caller-supplied game.
-        if (await RequireCreatorAsync(request.GameId) is { } failure) return failure;
-
-        if (gmToolRegistry.RequiresConfirmation(request.ToolName, request.Arguments))
-            return Accepted(new { message = "Awaiting confirmation", toolName = request.ToolName });
-
-        try
-        {
-            var result = await gmToolRegistry.ExecuteToolAsync(
-                request.ToolName, request.Arguments, request.GameId, request.SessionId, ct);
-
-            return Ok(new { result });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
-    }
-
-    private async Task<IActionResult?> RequireMemberAsync(Guid gameId)
-    {
-        try
-        {
-            await auth.RequirePlayerAsync(gameId, userIdProvider.GetUserId());
-            return null;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return StatusCode(403, new { error = ex.Message });
-        }
     }
 
     private async Task<IActionResult?> RequireCreatorAsync(Guid gameId)

@@ -170,6 +170,9 @@ namespace Adnd.Server.Migrations
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("Experience")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Features")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -1173,6 +1176,39 @@ namespace Adnd.Server.Migrations
                     b.ToTable("SessionNotes");
                 });
 
+            modelBuilder.Entity("Adnd.Server.Models.StoryNudge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AuthorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ExpiredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("GameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int?>("TurnsRemaining")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GameId", "ExpiredAt");
+
+                    b.ToTable("StoryNudges");
+                });
+
             modelBuilder.Entity("Adnd.Server.Models.ToolCallCoordinator", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1481,6 +1517,17 @@ namespace Adnd.Server.Migrations
                 });
 
             modelBuilder.Entity("Adnd.Server.Models.SessionNote", b =>
+                {
+                    b.HasOne("Adnd.Server.Models.Game", "Game")
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Game");
+                });
+
+            modelBuilder.Entity("Adnd.Server.Models.StoryNudge", b =>
                 {
                     b.HasOne("Adnd.Server.Models.Game", "Game")
                         .WithMany()

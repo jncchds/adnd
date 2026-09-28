@@ -3,11 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, TextField, Button, IconButton, Chip, CircularProgress,
   Select, MenuItem, FormControl, Paper, Divider, Alert, Collapse,
-  Tooltip, LinearProgress,
+  Tooltip, LinearProgress, Dialog, DialogTitle, DialogContent,
 } from '@mui/material'
 import {
   Send as SendIcon, ExpandLess, ExpandMore, Shield as ShieldIcon,
-  Warning as DeathIcon, SmartToy as GMIcon, Person as CharIcon,
+  Warning as DeathIcon, SmartToy as GMIcon, Person as CharIcon, Explore as NudgeIcon,
 } from '@mui/icons-material'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -19,9 +19,10 @@ import { useAuth } from '../context/AuthContext'
 import { api } from '../api/client'
 import type {
   Message, Combat, CombatParticipant, Player, Character,
-  GMActivity, RerollOption,
+  GMActivity, RerollOption, GMStatus,
 } from '../types'
 import { activityLabel } from '../utils/gmActivity'
+import NudgePanel from '../components/NudgePanel'
 
 type ReceiverType = 'All' | 'GM' | string
 
@@ -277,7 +278,7 @@ function PromptActions({ msg, onRoll, onDecline, onReroll }: {
   msg: Message
   onRoll: (toolCallId: string) => void
   onDecline: (toolCallId: string) => void
-  onReroll: (toolCallId: string | null, featureId: string | null) => void
+  onReroll: (toolCallId: string, featureId: string | null) => void
 }) {
   const [busy, setBusy] = useState(false)
   const meta = (msg.metadata ?? {}) as {
@@ -301,21 +302,22 @@ function PromptActions({ msg, onRoll, onDecline, onReroll }: {
     )
   }
 
-  if (meta.kind === 'rerollOffer') {
+  if (meta.kind === 'rerollOffer' && meta.toolCallId) {
+    const id = meta.toolCallId
     return (
       <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
         {(meta.options ?? []).map(o => (
           <Tooltip key={o.featureId} title={o.description}>
             <span>
               <Button size="small" variant="outlined" disabled={busy}
-                onClick={() => run(() => onReroll(meta.toolCallId ?? null, o.featureId))}>
+                onClick={() => run(() => onReroll(id, o.featureId))}>
                 {o.name}{o.usesRemaining != null ? ` (${o.usesRemaining} left)` : ''}
               </Button>
             </span>
           </Tooltip>
         ))}
         <Button size="small" color="inherit" disabled={busy}
-          onClick={() => run(() => onReroll(meta.toolCallId ?? null, null))}>
+          onClick={() => run(() => onReroll(id, null))}>
           Keep the roll
         </Button>
       </Box>
@@ -329,23 +331,34 @@ export default function GameChatPage() {
   const { id: gameId } = useParams<{ id: string }>()
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { game, loading: gameLoading } = useGame(gameId ?? null)
-  const { players } = usePlayers(gameId ?? null)
+  const { game, setGame, loading: gameLoading } = useGame(gameId ?? null)
+  const { players, setPlayers } = usePlayers(gameId ?? null)
   const [myCharacter, setMyCharacter] = useState<Character | null | undefined>(undefined)
   const [characters, setCharacters] = useState<Character[]>([])
+  const [rosterError, setRosterError] = useState<string | null>(null)
+  const [nudgeOpen, setNudgeOpen] = useState(false)
+
+  const loadCharacters = useCallback(async () => {
+    if (!gameId) return
+    // The Creator can also play a character (they're a table admin, not the GM — the LLM
+    // is), so they need the same character check as any other player.
+    try {
+      const [mine, all] = await Promise.all([
+        api.characters.getMy(gameId).catch(() => null),
+        // Whole-party roster so chat can label senders by their character's actual name.
+        api.characters.listForGame(gameId),
+      ])
+      setMyCharacter(mine ?? null)
+      setCharacters(all)
+      setRosterError(null)
+    } catch (e) {
+      setRosterError((e as Error).message || 'Could not load the party.')
+    }
+  }, [gameId])
 
   useEffect(() => {
-    if (!gameId || gameLoading) return
-    // The Creator can also play a character (they're a table admin, not the GM — see
-    // CLAUDE.md), so they need the same character check as any other player.
-    api.characters.getMy(gameId)
-      .then(c => setMyCharacter(c ?? null))
-      .catch(() => setMyCharacter(null))
-    // Whole-party roster so chat can label senders by their character's actual name.
-    api.characters.listForGame(gameId)
-      .then(setCharacters)
-      .catch(() => setCharacters([]))
-  }, [gameId, gameLoading])
+    if (!gameLoading) loadCharacters()
+  }, [gameLoading, loadCharacters])
   const hub = useGameHub()
   const { messages, loading: msgsLoading, hasMore, loadInitial, loadOlder, appendLive, replaceLive, removeLive } = useMessagesInfiniteScroll(game?.currentSessionId ?? null)
   const [combat, setCombat] = useState<Combat | null>(null)
@@ -392,6 +405,15 @@ export default function GameChatPage() {
     const handleCombatUpdated = (c: Combat) => setCombat(c.status === 'Finished' ? null : c)
     const handleCombatEnded = () => setCombat(null)
     const handleError = (message: string) => setGmError(message)
+    // Hit points, inventory, slots, conditions and level all change through the GM's tools;
+    // each change is pushed so the roster (and the HP on your own chip) doesn't go stale.
+    const handleCharacterUpdated = () => { loadCharacters() }
+    const handleGMStatusChanged = ({ status }: { status: GMStatus }) =>
+      setGame(g => (g ? { ...g, gmStatus: status } : g))
+    const handlePlayerReconnected = (p: Player) =>
+      setPlayers(ps => ps.map(x => (x.id === p.id ? { ...x, isConnected: true } : x)))
+    const handlePlayerDisconnected = ({ userId }: { userId: string }) =>
+      setPlayers(ps => ps.map(x => (x.userId === userId ? { ...x, isConnected: false } : x)))
 
     hub.on('NewMessage', handleNewMessage)
     hub.on('Error', handleError)
@@ -401,6 +423,10 @@ export default function GameChatPage() {
     hub.on('GMError', handleGMError)
     hub.on('CombatUpdated', handleCombatUpdated)
     hub.on('CombatEnded', handleCombatEnded)
+    hub.on('CharacterUpdated', handleCharacterUpdated)
+    hub.on('GMStatusChanged', handleGMStatusChanged)
+    hub.on('PlayerReconnected', handlePlayerReconnected)
+    hub.on('PlayerDisconnected', handlePlayerDisconnected)
 
     return () => {
       hub.off('NewMessage', handleNewMessage)
@@ -411,8 +437,12 @@ export default function GameChatPage() {
       hub.off('GMError', handleGMError)
       hub.off('CombatUpdated', handleCombatUpdated)
       hub.off('CombatEnded', handleCombatEnded)
+      hub.off('CharacterUpdated', handleCharacterUpdated)
+      hub.off('GMStatusChanged', handleGMStatusChanged)
+      hub.off('PlayerReconnected', handlePlayerReconnected)
+      hub.off('PlayerDisconnected', handlePlayerDisconnected)
     }
-  }, [hub, appendLive, replaceLive, removeLive])
+  }, [hub, appendLive, replaceLive, removeLive, loadCharacters, setGame, setPlayers])
 
   useEffect(() => {
     if (isAtBottom.current) bottomRef.current?.scrollIntoView()
@@ -429,33 +459,16 @@ export default function GameChatPage() {
   }, [])
 
   /**
-   * A roll made for a GM request has a turn held open on it and resolves through
-   * /api/gmtools; a roll the player made themselves has nothing waiting, so it resolves over
-   * the hub. The prompt message carries which one it is.
+   * Players never roll on their own — every roll is the GM's, made for them — so every
+   * reroll offer has a GM turn held open on it and resolves through /api/gmtools.
    */
-  const resolveReroll = useCallback(async (toolCallId: string | null, featureId: string | null) => {
-    if (!gameId) return
+  const resolveReroll = useCallback(async (toolCallId: string, featureId: string | null) => {
     try {
-      if (toolCallId) {
-        await api.toolCalls.reroll(toolCallId, featureId)
-      } else if (featureId) {
-        await hub.invoke('TakeReroll', gameId, featureId)
-      } else {
-        await hub.invoke('WaiveReroll', gameId)
-      }
+      await api.toolCalls.reroll(toolCallId, featureId)
     } catch (e) {
       setSendError((e as Error).message || 'That reroll could not be applied.')
     }
-  }, [gameId, hub])
-
-  const takeRest = useCallback(async (restType: 'ShortRest' | 'LongRest') => {
-    if (!gameId) return
-    try {
-      await hub.invoke('TakeRest', gameId, restType)
-    } catch (e) {
-      setSendError((e as Error).message || 'That rest could not be taken.')
-    }
-  }, [gameId, hub])
+  }, [])
 
   const handleScroll = useCallback(() => {
     const el = chatRef.current
@@ -488,7 +501,8 @@ export default function GameChatPage() {
         // stops silently DMing the human who happens to have created the game.
         await hub.invoke('TriggerSuggest', gameId, content)
       } else if (receiver !== 'All') {
-        await hub.invoke('SendWhisper', gameId, receiver, content)
+        // OOC is a modifier on a whisper too; it used to be ignored here.
+        await hub.invoke(isOOC ? 'SendOOCWhisper' : 'SendWhisper', gameId, receiver, content)
       } else if (isOOC) {
         await hub.invoke('SendOOCMessage', gameId, content)
       } else {
@@ -511,6 +525,7 @@ export default function GameChatPage() {
 
   const otherPlayers = players.filter(p => p.userId !== user?.id)
   const myPlayerId = players.find(p => p.userId === user?.id)?.id ?? null
+  const isCreator = !!game && !!user && game.creatorId === user.id
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -543,13 +558,10 @@ export default function GameChatPage() {
         </Alert>
       )}
 
-      {/* Resting is a table action, not a private one — it happens here rather than on the
-          solo character sheet, and everyone sees it. */}
-      {myCharacter && (
-        <Box sx={{ px: 2, pb: 1, display: 'flex', gap: 1 }}>
-          <Button size="small" variant="outlined" onClick={() => takeRest('ShortRest')}>Short rest</Button>
-          <Button size="small" variant="outlined" onClick={() => takeRest('LongRest')}>Long rest</Button>
-        </Box>
+      {rosterError && (
+        <Alert severity="warning" onClose={() => setRosterError(null)} sx={{ mx: 2 }}>
+          {rosterError}
+        </Alert>
       )}
 
       {/* Zone B: Chat */}
@@ -604,7 +616,9 @@ export default function GameChatPage() {
               <MenuItem value="All">To All</MenuItem>
               <MenuItem value="GM">To GM</MenuItem>
               {otherPlayers.map(p => (
-                <MenuItem key={p.id} value={p.id}>To {p.displayName ?? p.characterName ?? 'Player'}</MenuItem>
+                <MenuItem key={p.id} value={p.id}>
+                  {p.isConnected ? '● ' : '○ '}To {p.displayName ?? p.characterName ?? 'Player'}
+                </MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -642,15 +656,30 @@ export default function GameChatPage() {
           {myCharacter && (
             <Chip
               icon={<CharIcon sx={{ fontSize: '14px !important' }} />}
-              label={myCharacter.name}
+              label={`${myCharacter.name} · ${myCharacter.currentHP}/${myCharacter.maxHP} HP`}
               size="small"
               variant="outlined"
               onClick={() => navigate(`/game/${gameId}/character/${myCharacter.id}`)}
               sx={{ ml: 1, cursor: 'pointer' }}
             />
           )}
+          {isCreator && gameId && (
+            <Tooltip title="Nudge the story — tell the GM which way you'd like it to go">
+              <Chip icon={<NudgeIcon sx={{ fontSize: '14px !important' }} />} label="Nudge" size="small"
+                variant="outlined" onClick={() => setNudgeOpen(true)} sx={{ ml: 'auto', cursor: 'pointer' }} />
+            </Tooltip>
+          )}
         </Box>
       </Box>
+
+      {isCreator && gameId && (
+        <Dialog open={nudgeOpen} onClose={() => setNudgeOpen(false)} fullWidth maxWidth="sm">
+          <DialogTitle>Nudge the story</DialogTitle>
+          <DialogContent>
+            <NudgePanel gameId={gameId} />
+          </DialogContent>
+        </Dialog>
+      )}
     </Box>
   )
 }

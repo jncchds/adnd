@@ -69,16 +69,19 @@ export interface Character {
   class: string
   race: string | null
   level: number
+  experience: number
   proficiencyBonus: number
   currentHP: number
   maxHP: number
   attributes: Record<string, number>
   skills: Record<string, unknown>
-  inventory: unknown[]
+  /** Stacks; sheets from before stacks were tracked hold bare strings. */
+  inventory: (InventoryItem | string)[]
   spells: unknown
-  conditions: unknown[]
+  conditions: string[]
   customFields: Record<string, unknown>
-  spellSlots: unknown
+  /** Keyed by spell level ("1".."9"). Empty for non-casters. */
+  spellSlots: Record<string, SpellSlotLevel> | null
   background: string | null
   backgroundSkills: string | null
   backgroundProficiencies: string | null
@@ -89,6 +92,26 @@ export interface Character {
   spellAttackBonus: number
   features: CharacterFeature[]
   isDeleted: boolean
+}
+
+export interface InventoryItem {
+  name: string
+  quantity: number
+}
+
+export interface SpellSlotLevel {
+  total: number
+  remaining: number
+}
+
+/** The fields PUT /api/characters/{id} accepts. Everything mechanical is the GM's alone. */
+export interface CharacterUpdate {
+  name?: string
+  background?: string | null
+  backgroundSkills?: string | null
+  backgroundFeatures?: string | null
+  backstory?: string | null
+  customFields?: Record<string, unknown>
 }
 
 /** One entry of Character.Features. The rules behind the id live on the server. */

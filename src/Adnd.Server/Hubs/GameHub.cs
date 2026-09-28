@@ -16,13 +16,11 @@ public partial class GameHub(
     IEventBus eventBus,
     ISessionManagementService sessionService,
     IAgentBus agentBus,
-    IPlayerRollService playerRolls,
-    IRerollService rerolls,
-    IRollPromptService prompts,
     IRAGService rag,
     INPCRelevanceService npcRelevance,
     IGmActivityBroadcaster gmActivity,
-    ICombatTracker combats) : Hub
+    ICombatTracker combats,
+    IStoryNudgeService nudges) : Hub
 {
     protected static readonly ConcurrentDictionary<string, string> _playerConnections = new();
 
@@ -56,23 +54,6 @@ public partial class GameHub(
         var userId = CurrentUserId;
         var player = await db.Players.FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId);
         return player ?? throw new HubForbiddenException("You are not a member of this game.");
-    }
-
-    /// <summary>GM-only actions: narration, GM whispers, combat control.</summary>
-    protected async Task<Player> RequireCreatorAsync(Guid gameId)
-    {
-        var player = await RequireMemberAsync(gameId);
-        if (player.Role != PlayerRole.Creator)
-            throw new HubForbiddenException("Only the Game Master can perform this action.");
-        return player;
-    }
-
-    /// <summary>Confirms the combat belongs to the game before acting on it.</summary>
-    protected async Task<Combat> RequireCombatInGameAsync(Guid gameId, Guid combatId)
-    {
-        var combat = await db.Combats.Include(c => c.Participants)
-            .FirstOrDefaultAsync(c => c.Id == combatId && c.GameId == gameId);
-        return combat ?? throw new HubForbiddenException("Combat does not belong to this game.");
     }
 
     public override async Task OnConnectedAsync()

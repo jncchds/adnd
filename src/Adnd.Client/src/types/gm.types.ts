@@ -13,8 +13,14 @@ export interface GMActivity {
   detail: string | null
 }
 
-export interface SwayRequest {
-  direction: string
-  intensity: number
-  content: string
+/**
+ * The creator's direction for a story the LLM runs (StoryNudgeDto). Put in front of the
+ * narrator for `turnsRemaining` more GM turns, or until withdrawn when that is null.
+ */
+export interface StoryNudge {
+  id: string
+  text: string
+  turnsRemaining: number | null
+  createdAt: string
+  expiredAt: string | null
 }

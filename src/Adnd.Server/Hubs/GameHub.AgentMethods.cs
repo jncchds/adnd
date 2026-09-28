@@ -91,7 +91,9 @@ public partial class GameHub
                 // "1d20+{strength}", which DiceEngine can't resolve.
                 var mods = AbilityScoreHelper.FormatModifiers(c.Attributes);
                 var modsSuffix = string.IsNullOrEmpty(mods) ? "" : $" — {mods}";
-                sb.AppendLine($"- {c.Name} (Level {c.Level} {c.Class}, HP {c.CurrentHP}/{c.MaxHP}){modsSuffix}");
+                var conditions = CombatTracker.ReadConditions(c.Conditions);
+                var conditionSuffix = conditions.Count > 0 ? $" — {string.Join(", ", conditions)}" : "";
+                sb.AppendLine($"- {c.Name} (Level {c.Level} {c.Race} {c.Class}, HP {c.CurrentHP}/{c.MaxHP}){modsSuffix}{conditionSuffix}");
             }
             sb.AppendLine();
         }
@@ -122,8 +124,9 @@ public partial class GameHub
             sb.AppendLine("When a fight breaks out, call startCombat in the same response as your narration: name the encounter and lay out 2-5 zones in order (neighbours are adjacent — e.g. Riverbank, Bridge, Tower door), with the zone the party stands in. The player characters join automatically. Then call addCombatParticipant once per enemy, with a distinct name, hit points, AC and zone.");
         }
 
-        sb.AppendLine("Narrate the scene vividly when the scene calls for it. Use the available tools (rollDice, skillCheck, startCombat, etc.) when appropriate.");
-        sb.AppendLine("When a roll is needed, use a fully-resolved dice formula such as \"1d20+3\" — add the relevant ability modifier listed above yourself. Never write a placeholder like \"1d20+{strength}\"; the dice engine cannot resolve it.");
+        sb.AppendLine("Narrate the scene vividly when the scene calls for it. You are the Game Master: the rules, the dice and the characters' sheets are yours to run, through your tools.");
+        sb.AppendLine("Players never roll dice themselves. Any roll a player character makes — a check, an attack, a save, their damage — goes through requestPlayerRoll, naming the character; rollDice is for NPCs, monsters and the world. When a roll is needed, use a fully-resolved dice formula such as \"1d20+3\" — add the relevant ability modifier listed above yourself. Never write a placeholder like \"1d20+{strength}\"; the dice engine cannot resolve it.");
+        sb.AppendLine("A character's sheet changes only through your tools, never through narration alone: damage and heal for hit points, setCondition for conditions, giveItem and removeItem whenever something is gained, bought, spent, used up or lost (coins are the item \"Gold pieces\"), castSpell whenever a levelled spell is cast, rest once the fiction has given them a short or long rest, and awardExperience when the party overcomes a fight or a challenge. Use queryCharacter to check what a character carries or has left.");
 
         // NPCs used to exist only if the human GM typed them into the admin UI, so anyone the
         // narration introduced was forgotten the moment they scrolled out of the RAG window,
@@ -145,6 +148,13 @@ public partial class GameHub
         // way to pass, the GM was structurally obliged to interject on every single one —
         // including the halves of a conversation the characters are having with each other.
         sb.AppendLine("Not every player line needs a response. When the characters are talking among themselves, planning, or bantering, and nothing in the world would react, call the \"wait\" tool as your only tool call and write no narration — the players simply keep talking. Answering a question put to an NPC, resolving an action against the world, or reacting to something that changes the scene is never a wait.");
+
+        // Spends a turn from each limited nudge: this prompt is one narrator turn.
+        if (nudges.Describe(await nudges.TakeForNarrationAsync(gameId)) is { } direction)
+        {
+            sb.AppendLine();
+            sb.AppendLine(direction);
+        }
 
         var silence = await CountTableMessagesSinceGMSpokeAsync(sessionId);
         if (silence >= WaitStreakLimit)
@@ -228,26 +238,5 @@ public partial class GameHub
             Input = System.Text.Json.JsonSerializer.Serialize(options)
         };
         await agentBus.SendCallAsync(call);
-    }
-
-    public async Task<string?> GetGMStatus(Guid gameId)
-    {
-        await RequireMemberAsync(gameId);
-        return await agentBus.GetGMStatusAsync(gameId);
-    }
-
-    // Halting the GM is a denial of service against everyone else at the table — creator only.
-    public async Task PauseGM(Guid gameId)
-    {
-        await RequireCreatorAsync(gameId);
-        await agentBus.PauseGMAsync(gameId);
-        await BroadcastToGameAsync(gameId, "GMStatusChanged", new GMStatusDto(gameId, "Paused", null));
-    }
-
-    public async Task ResumeGM(Guid gameId)
-    {
-        await RequireCreatorAsync(gameId);
-        await agentBus.ResumeGMAsync(gameId);
-        await BroadcastToGameAsync(gameId, "GMStatusChanged", new GMStatusDto(gameId, "Running", null));
     }
 }

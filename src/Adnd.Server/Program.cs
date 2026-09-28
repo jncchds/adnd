@@ -156,6 +156,8 @@ builder.Services.AddScoped<IAgentBus, AgentBus>();
 builder.Services.AddSingleton<IDeadLetterQueue, DeadLetterQueue>();
 builder.Services.AddScoped<IGMToolRegistry, GMToolRegistry>();
 builder.Services.AddScoped<ICombatTracker, CombatTracker>();
+builder.Services.AddScoped<ICharacterStateService, CharacterStateService>();
+builder.Services.AddScoped<IStoryNudgeService, StoryNudgeService>();
 builder.Services.AddScoped<IGMToolCallService, GMToolCallService>();
 builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
 builder.Services.AddHostedService(sp => (GameAgentManager)sp.GetRequiredService<IGameAgentManager>());
@@ -176,22 +178,6 @@ builder.Services.AddHangfire(config =>
           .UseRecommendedSerializerSettings()
           .UsePostgreSqlStorage(o => o.UseNpgsqlConnection(connStr)));
 builder.Services.AddHangfireServer(opts => opts.WorkerCount = 2);
-
-// ── Combat System ─────────────────────────────────────────────────────────────
-builder.Services.AddScoped<Adnd.Server.Services.Combat.CombatEventLogger>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatLifecycleService, Adnd.Server.Services.Combat.CombatLifecycleService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatParticipantService, Adnd.Server.Services.Combat.CombatParticipantService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatInitiativeService, Adnd.Server.Services.Combat.CombatInitiativeService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatTurnService, Adnd.Server.Services.Combat.CombatTurnService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatStateService, Adnd.Server.Services.Combat.CombatStateService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatSpellService, Adnd.Server.Services.Combat.CombatSpellService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatInventoryService, Adnd.Server.Services.Combat.CombatInventoryService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatProgressionService, Adnd.Server.Services.Combat.CombatProgressionService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatGridService, Adnd.Server.Services.Combat.CombatGridService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatAIService, Adnd.Server.Services.Combat.CombatAIService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatQueryService, Adnd.Server.Services.Combat.CombatQueryService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ISANService, Adnd.Server.Services.Combat.SANService>();
-builder.Services.AddScoped<Adnd.Server.Services.Combat.ICombatService, Adnd.Server.Services.Combat.CombatService>();
 
 // ── Wolverine ─────────────────────────────────────────────────────────────────
 builder.Host.UseWolverine(opts =>

@@ -29,6 +29,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<CombatParticipant> CombatParticipants => Set<CombatParticipant>();
     public DbSet<CombatEvent> CombatEvents => Set<CombatEvent>();
     public DbSet<SessionNote> SessionNotes => Set<SessionNote>();
+    public DbSet<StoryNudge> StoryNudges => Set<StoryNudge>();
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
     public DbSet<GameTemplate> GameTemplates => Set<GameTemplate>();
     public DbSet<EventRecord> EventRecords => Set<EventRecord>();
@@ -36,6 +37,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<StoryNudge>(e =>
+        {
+            e.Property(n => n.Text).HasMaxLength(2000);
+            e.HasIndex(n => new { n.GameId, n.ExpiredAt });
+        });
 
         var jsonComparer = new ValueComparer<JsonElement>(
             (a, b) => (a.ValueKind == JsonValueKind.Undefined ? "null" : a.GetRawText()) ==

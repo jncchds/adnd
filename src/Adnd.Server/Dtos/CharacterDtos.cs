@@ -21,29 +21,17 @@ public record SuggestCharacterDto(
     string? Backstory);
 
 /// <summary>
-/// Fields a player may edit on their own sheet. Update previously bound the Character
-/// entity itself, so the client could set its own Level, MaxHP and CurrentHP — a fully
-/// client-authoritative character sheet. Progression-affecting fields are GM-only
-/// (see <see cref="GMCharacterAdjustmentDto"/>).
+/// Fields a player may edit on their own sheet: who the character is, never what they can do.
+/// Everything mechanical — attributes, hit points, inventory, spells, slots, abilities,
+/// level — is changed only by the GM's tools, because the LLM runs the game. This DTO used
+/// to accept attributes, inventory, spell slots and features, so a player could grant
+/// themselves Lucky from the sheet; and BackgroundSkills/BackgroundFeatures, which the sheet
+/// does edit, were missing, so those edits were silently dropped.
 /// </summary>
 public record UpdateCharacterDto(
     string? Name,
-    string? Class,
     string? Background,
+    string? BackgroundSkills,
+    string? BackgroundFeatures,
     string? Backstory,
-    JsonElement? Attributes,
-    JsonElement? Skills,
-    JsonElement? Inventory,
-    JsonElement? Spells,
-    JsonElement? Conditions,
-    JsonElement? CustomFields,
-    JsonElement? SpellSlots,
-    string? Race,
-    JsonElement? Features);
-
-/// <summary>GM-only adjustments to a character's progression and current state.</summary>
-public record GMCharacterAdjustmentDto(
-    int? Level,
-    int? CurrentHP,
-    int? MaxHP,
-    int? ProficiencyBonus);
+    JsonElement? CustomFields);

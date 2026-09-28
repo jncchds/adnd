@@ -6,7 +6,7 @@ import type {
   Message, MessagePage,
   AgentCall, ToolCall, GMToolCallSummary,
   PlotThread, PlotContext, ConsistencyReport, PlotContinuation,
-  GMStatusResponse,
+  GMStatusResponse, StoryNudge, CharacterUpdate,
   PromptTemplate, GameTemplate, SessionNote,
   Combat,
 } from '../types'
@@ -140,8 +140,6 @@ class APIClient {
     gmStatus: (id: string) => this.get<GMStatusResponse>(`/gmstatus/${id}`),
     pauseGM: (id: string) => this.post<void>(`/gmstatus/${id}/pause`),
     resumeGM: (id: string) => this.post<void>(`/gmstatus/${id}/resume`),
-    sway: (id: string, direction: string, intensity: number, content: string) =>
-      this.post<void>(`/sway/${id}`, { direction, intensity, content }),
     getMessages: (sessionId: string, cursor?: string, limit = 30) =>
       this.get<MessagePage>(`/games/sessions/${sessionId}/messages?limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`),
   }
@@ -199,9 +197,6 @@ class APIClient {
     // featureId null keeps the original roll; either way the GM's held-open turn resumes.
     reroll: (id: string, featureId: string | null) =>
       this.post<void>(`/gmtools/${id}/reroll`, { featureId }),
-    // sessionId is required by GMToolExecuteRequest; omitting it bound Guid.Empty.
-    execute: (gameId: string, sessionId: string, toolName: string, args: Record<string, unknown>) =>
-      this.post<unknown>('/gmtools/execute', { gameId, sessionId, toolName, arguments: args }),
     list: (category?: string) =>
       this.get<unknown[]>(`/gmtools${category ? `?category=${category}` : ''}`),
   }
@@ -227,13 +222,22 @@ class APIClient {
     get: (id: string) => this.get<Combat>(`/combatlog/${id}`),
   }
 
+  // Nudges — the creator's direction for the narration
+  nudges = {
+    list: (gameId: string) => this.get<StoryNudge[]>(`/games/${gameId}/nudges`),
+    // turns null keeps it until withdrawn
+    create: (gameId: string, text: string, turns: number | null) =>
+      this.post<StoryNudge>(`/games/${gameId}/nudges`, { text, turns }),
+    withdraw: (gameId: string, nudgeId: string) => this.delete<void>(`/games/${gameId}/nudges/${nudgeId}`),
+  }
+
   // Characters
   characters = {
     get: (id: string) => this.get<Character>(`/characters/${id}`),
     getMy: (gameId: string) => this.get<Character>(`/characters/my?gameId=${gameId}`),
     listForGame: (gameId: string) => this.get<Character[]>(`/characters?gameId=${gameId}`),
     create: (data: CreateCharacterRequest) => this.post<Character>('/characters', data),
-    update: (id: string, data: Partial<Character>) => this.put<Character>(`/characters/${id}`, data),
+    update: (id: string, data: CharacterUpdate) => this.put<Character>(`/characters/${id}`, data),
     options: () => this.get<CharacterOptions>('/characters/options'),
     suggest: (data: SuggestCharacterRequest) =>
       this.post<CharacterConcept>('/characters/suggest', data),

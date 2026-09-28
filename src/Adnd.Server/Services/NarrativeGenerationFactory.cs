@@ -29,6 +29,7 @@ public class NarrativeGenerationFactory(
     ILLMProviderFactory factory,
     IApiKeyEncryptionService encryption,
     ILLMInteractionLogger llmLogger,
+    IStoryNudgeService nudges,
     ILogger<NarrativeGenerationFactory> logger) : INarrativeGenerationFactory
 {
     public async Task<string> GenerateOpeningNarrationAsync(Guid gameId, CancellationToken ct = default)
@@ -53,6 +54,10 @@ public class NarrativeGenerationFactory(
 
         if (!string.IsNullOrEmpty(context))
             userPrompt = $"{context}\n\n{userPrompt}";
+
+        // A session's opening scene is a narrator turn like any other, so it spends one too.
+        if (nudges.Describe(await nudges.TakeForNarrationAsync(gameId, ct)) is { } direction)
+            systemPrompt = $"{systemPrompt}\n\n{direction}";
 
         var opts = new LLMOptions
         {

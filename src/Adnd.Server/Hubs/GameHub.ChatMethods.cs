@@ -38,7 +38,7 @@ public partial class GameHub
         await PublishAsync(new MessageSent(gameId, session.Id, player.Id, content, msg.Type));
     }
 
-    public async Task SendWhisper(Guid gameId, Guid targetPlayerId, string content)
+    public async Task SendWhisper(Guid gameId, Guid targetPlayerId, string content, bool isOOC = false)
     {
         var player = await RequireMemberAsync(gameId);
 
@@ -54,7 +54,10 @@ public partial class GameHub
             SessionId = session.Id,
             PlayerId = player.Id,
             Content = content,
-            Type = "Whisper",
+            // OOC is a modifier on a whisper as much as on a public line — the client already
+            // renders OOCWhisper, but this used to store every whisper as plain "Whisper".
+            Type = isOOC ? "OOCWhisper" : "Whisper",
+            IsOOC = isOOC,
             WhisperFromId = player.Id,
             WhisperToId = targetPlayerId,
             CreatedAt = DateTimeOffset.UtcNow
@@ -62,7 +65,7 @@ public partial class GameHub
         db.Messages.Add(msg);
         await db.SaveChangesAsync();
 
-        var dto = new MessageDto(msg.Id, msg.SessionId, msg.PlayerId, msg.Content, msg.Type, false, msg.CreatedAt, null);
+        var dto = new MessageDto(msg.Id, msg.SessionId, msg.PlayerId, msg.Content, msg.Type, msg.IsOOC, msg.CreatedAt, null);
         await Clients.Caller.SendCoreAsync("NewMessage", [dto]);
         await Clients.User(targetPlayer.UserId.ToString()).SendCoreAsync("NewMessage", [dto]);
     }
@@ -71,5 +74,5 @@ public partial class GameHub
         => await SendMessage(gameId, content, isOOC: true);
 
     public async Task SendOOCWhisper(Guid gameId, Guid targetPlayerId, string content)
-        => await SendWhisper(gameId, targetPlayerId, content);
+        => await SendWhisper(gameId, targetPlayerId, content, isOOC: true);
 }
