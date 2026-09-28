@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <Product>ADnD by CHDS</Product>
+    <Company>CHDS</Company>
+    <Copyright>Copyright © CHDS</Copyright>
+    <!-- VERSION at the repo root is the single source of truth (assembly version, UI badge, Docker image tags). -->
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</Version>
+  </PropertyGroup>
+</Project>

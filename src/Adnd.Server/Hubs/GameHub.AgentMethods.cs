@@ -10,9 +10,9 @@ public partial class GameHub
     public async Task TriggerNarrate(Guid gameId, string prompt)
     {
         // Queues a billable LLM call against the game owner's API key.
-        await RequireMemberAsync(gameId);
+        var speaker = await RequireMemberAsync(gameId);
         var session = await ResolveGameSessionAsync(gameId);
-        var systemPrompt = await BuildNarrateSystemPromptAsync(gameId, session.Id);
+        var systemPrompt = await BuildNarrateSystemPromptAsync(gameId, session.Id, speaker.Id);
 
         // Without recent-message context each narrate call only ever saw the single line the
         // player just sent, with no memory of the last several exchanges — the GM re-invented
@@ -37,7 +37,7 @@ public partial class GameHub
         await agentBus.SendCallAsync(call);
     }
 
-    private async Task<string> BuildNarrateSystemPromptAsync(Guid gameId, Guid sessionId)
+    private async Task<string> BuildNarrateSystemPromptAsync(Guid gameId, Guid sessionId, Guid? speakerId = null)
     {
         var game = await db.Games.Include(g => g.Players).ThenInclude(p => p.User)
             .FirstOrDefaultAsync(g => g.Id == gameId);
@@ -109,6 +109,17 @@ public partial class GameHub
                 sb.AppendLine($"- {n.Name} ({n.Attitude}{faction}{status})");
             }
             sb.AppendLine();
+        }
+
+        // Without this the narrator had no idea a fight was on, who stood where, or whose turn
+        // it was — it could start a combat and then forget it existed on the next message.
+        if (await combats.DescribeForNarratorAsync(gameId, speakerId) is { } combatBlock)
+        {
+            sb.AppendLine(combatBlock);
+        }
+        else
+        {
+            sb.AppendLine("When a fight breaks out, call startCombat in the same response as your narration: name the encounter and lay out 2-5 zones in order (neighbours are adjacent — e.g. Riverbank, Bridge, Tower door), with the zone the party stands in. The player characters join automatically. Then call addCombatParticipant once per enemy, with a distinct name, hit points, AC and zone.");
         }
 
         sb.AppendLine("Narrate the scene vividly when the scene calls for it. Use the available tools (rollDice, skillCheck, startCombat, etc.) when appropriate.");

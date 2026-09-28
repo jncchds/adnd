@@ -155,6 +155,7 @@ builder.Services.AddScoped<IEventBus, EventBusWorker>();
 builder.Services.AddScoped<IAgentBus, AgentBus>();
 builder.Services.AddSingleton<IDeadLetterQueue, DeadLetterQueue>();
 builder.Services.AddScoped<IGMToolRegistry, GMToolRegistry>();
+builder.Services.AddScoped<ICombatTracker, CombatTracker>();
 builder.Services.AddScoped<IGMToolCallService, GMToolCallService>();
 builder.Services.AddSingleton<IGameAgentManager, GameAgentManager>();
 builder.Services.AddHostedService(sp => (GameAgentManager)sp.GetRequiredService<IGameAgentManager>());

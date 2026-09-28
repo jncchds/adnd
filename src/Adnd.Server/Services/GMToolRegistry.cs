@@ -20,7 +20,8 @@ public class GMToolRegistry(
     AppDbContext db,
     IDiceEngine diceEngine,
     IPlayerRollService playerRolls,
-    IHubContext<GameHub> hub) : IGMToolRegistry
+    IHubContext<GameHub> hub,
+    ICombatTracker combats) : IGMToolRegistry
 {
     /// <summary>
     /// Reads the arguments requestPlayerRoll shares with the saga path, so the tool and
@@ -75,6 +76,53 @@ public class GMToolRegistry(
         return string.IsNullOrEmpty(value) ? null : value;
     }
 
+    private static bool TryGetInt(JsonElement arguments, string property, out int value)
+    {
+        value = 0;
+        return arguments.ValueKind == JsonValueKind.Object
+            && arguments.TryGetProperty(property, out var element)
+            && element.ValueKind == JsonValueKind.Number
+            && element.TryGetInt32(out value);
+    }
+
+    /// <summary>Zones as the model writes them: objects with a name, or bare strings.</summary>
+    private static List<ZoneSpec> ReadZones(JsonElement arguments)
+    {
+        var zones = new List<ZoneSpec>();
+        if (arguments.ValueKind != JsonValueKind.Object
+            || !arguments.TryGetProperty("zones", out var el)
+            || el.ValueKind != JsonValueKind.Array)
+            return zones;
+
+        foreach (var z in el.EnumerateArray())
+        {
+            if (z.ValueKind == JsonValueKind.String && z.GetString() is { } bare)
+            {
+                zones.Add(new ZoneSpec(bare, []));
+            }
+            else if (ReadOptionalString(z, "name") is { } name)
+            {
+                var tags = z.TryGetProperty("tags", out var t) && t.ValueKind == JsonValueKind.Array
+                    ? t.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
+                    : [];
+                zones.Add(new ZoneSpec(name, tags));
+            }
+        }
+        return zones;
+    }
+
+    /// <summary>A broken combat rule goes back to the model as the tool result, so it can correct itself.</summary>
+    private static async Task<string> CombatToolAsync(Func<Task<string>> action)
+    {
+        try { return await action(); }
+        catch (CombatRuleException ex) { return ex.Message; }
+    }
+
+    private Task<string> ActiveCombatToolAsync(Guid gameId, CancellationToken ct, Func<CombatEntity, Task<string>> action)
+        => CombatToolAsync(async () => await combats.GetActiveAsync(gameId, ct) is { } combat
+            ? await action(combat)
+            : "No combat is in progress. Start one with startCombat.");
+
     public IEnumerable<ToolDefinition> GetToolDefinitions() =>
     [
         new("narrate", "Output narrative text to players",
@@ -99,12 +147,20 @@ public class GMToolRegistry(
             Schema("""{"type":"object","properties":{"state":{"type":"string"}},"required":["state"]}""")),
         new("sendWhisper", "Send a whisper message to a player",
             Schema("""{"type":"object","properties":{"targetPlayerId":{"type":"string"},"content":{"type":"string"}},"required":["targetPlayerId","content"]}""")),
-        new("startCombat", "Start a new combat encounter",
-            Schema("""{"type":"object","properties":{"name":{"type":"string"},"participantIds":{"type":"array","items":{"type":"string"}}},"required":["name"]}""")),
-        new("addCombatParticipant", "Add a participant to combat",
-            Schema("""{"type":"object","properties":{"combatId":{"type":"string"},"displayName":{"type":"string"},"hp":{"type":"integer"},"ac":{"type":"integer"},"initiative":{"type":"number"}},"required":["combatId","displayName","hp","ac"]}""")),
-        new("generateLoot", "Generate loot for a combat encounter",
-            Schema("""{"type":"object","properties":{"combatId":{"type":"string"},"defeatedNPCIds":{"type":"array","items":{"type":"string"}}},"required":["combatId","defeatedNPCIds"]}""")),
+        new("startCombat", "Start a combat encounter. The player characters join automatically with initiative rolled; add each enemy with addCombatParticipant in the same response. Position is by zone, not by square: lay out 2-5 named zones in order, neighbours being adjacent.",
+            Schema("""{"type":"object","properties":{"name":{"type":"string"},"zones":{"type":"array","description":"In order; neighbours are adjacent.","items":{"type":"object","properties":{"name":{"type":"string"},"tags":{"type":"array","items":{"type":"string"},"description":"Terrain the narrator rules on, e.g. difficult, cover, elevated"}},"required":["name"]}},"partyZone":{"type":"string","description":"Zone the party starts in; defaults to the first"}},"required":["name","zones"]}""")),
+        new("addCombatParticipant", "Add an enemy or other combatant to the combat in progress. Give each a distinct name (\"Goblin 1\", \"Goblin 2\"); a name matching a registered NPC links them.",
+            Schema("""{"type":"object","properties":{"name":{"type":"string"},"hp":{"type":"integer"},"ac":{"type":"integer"},"zone":{"type":"string"},"initiative":{"type":"number","description":"Omit to roll it"}},"required":["name","hp","ac"]}""")),
+        new("moveParticipant", "Move a combatant to another zone of the combat in progress. Call it whenever narration has someone change zone.",
+            Schema("""{"type":"object","properties":{"name":{"type":"string"},"zone":{"type":"string"}},"required":["name","zone"]}""")),
+        new("setZones", "Redraw the zones of the combat in progress, when the battlefield changes shape (a bridge collapses, the fight spills into the street). Anyone in a zone that no longer exists is moved to the first zone.",
+            Schema("""{"type":"object","properties":{"zones":{"type":"array","description":"In order; neighbours are adjacent.","items":{"type":"object","properties":{"name":{"type":"string"},"tags":{"type":"array","items":{"type":"string"},"description":"Terrain the narrator rules on, e.g. difficult, cover, elevated"}},"required":["name"]}}},"required":["zones"]}""")),
+        new("nextTurn", "End the acting combatant's turn and pass to the next in initiative order. Call it once the current turn is resolved.",
+            Schema("""{"type":"object","properties":{}}""")),
+        new("endCombat", "End the combat in progress — one side defeated, fled or surrendered.",
+            Schema("""{"type":"object","properties":{"outcome":{"type":"string","description":"One line on how it ended"}}}""")),
+        new("generateLoot", "Generate loot from defeated enemies that are registered NPCs. Defaults to the most recent combat and everyone defeated in it.",
+            Schema("""{"type":"object","properties":{"combatId":{"type":"string"},"defeatedNPCIds":{"type":"array","items":{"type":"string"}}}}""")),
         new("wait", "Stay silent this turn and let the players keep talking. Use this — as the ONLY tool call, with no narration text — when the characters are conversing among themselves, deliberating, or otherwise doing something that needs no ruling, no roll and no reaction from the world. Players see nothing at all; the scene simply continues. Do not use it as a way to avoid a question the players put to you, an NPC, or the world.",
             Schema("""{"type":"object","properties":{"reason":{"type":"string"}}}""")),
     ];
@@ -354,53 +410,87 @@ public class GMToolRegistry(
 
             case "startCombat":
             {
-                var name = arguments.GetProperty("name").GetString() ?? "Combat";
-                var combat = new CombatEntity
+                var name = ReadOptionalString(arguments, "name") ?? "Combat";
+                return await CombatToolAsync(async () =>
                 {
-                    GameId = gameId,
-                    SessionId = sessionId,
-                    Name = name
-                };
-                db.Combats.Add(combat);
-                await db.SaveChangesAsync(ct);
-                return JsonSerializer.Serialize(new { combat.Id, combat.Name });
+                    var combat = await combats.StartAsync(gameId, sessionId, name,
+                        ReadZones(arguments), ReadOptionalString(arguments, "partyZone"), ct);
+                    return $"Combat \"{combat.Name}\" started. Zones: {string.Join(", ", combat.Zones.Select(z => z.Name))}. "
+                        + $"In the fight: {string.Join(", ", combat.Participants.Select(p => p.DisplayName))}. Add the enemies now.";
+                });
             }
 
             case "addCombatParticipant":
             {
-                if (!TryGetGuid(arguments, "combatId", out var combatId))
-                    return "Invalid combatId";
-
-                // The combat must belong to this game, or the GM agent could write into
-                // another table's encounter via a hallucinated id.
-                if (!await db.Combats.AnyAsync(c => c.Id == combatId && c.GameId == gameId, ct))
-                    return "Combat not found in this game";
-
-                var displayName = arguments.GetProperty("displayName").GetString() ?? string.Empty;
-                var hp = arguments.GetProperty("hp").GetInt32();
-                var ac = arguments.GetProperty("ac").GetInt32();
-                var initiative = arguments.TryGetProperty("initiative", out var initEl) ? initEl.GetSingle() : 0f;
-                var participant = new CombatParticipant
+                // "displayName" was this tool's old argument name; a model that learned it still works.
+                var name = ReadOptionalString(arguments, "name") ?? ReadOptionalString(arguments, "displayName");
+                if (name is null) return "Missing name";
+                if (!TryGetInt(arguments, "hp", out var hp)) return "Missing or invalid hp";
+                if (!TryGetInt(arguments, "ac", out var ac)) return "Missing or invalid ac";
+                float? initiative = arguments.TryGetProperty("initiative", out var initEl) && initEl.TryGetSingle(out var i) ? i : null;
+                return await ActiveCombatToolAsync(gameId, ct, async combat =>
                 {
-                    CombatId = combatId,
-                    DisplayName = displayName,
-                    HP = hp,
-                    MaxHP = hp,
-                    AC = ac,
-                    Initiative = initiative
-                };
-                db.CombatParticipants.Add(participant);
-                await db.SaveChangesAsync(ct);
-                return JsonSerializer.Serialize(new { participant.Id, participant.DisplayName });
+                    var p = await combats.AddParticipantAsync(combat, name, hp, ac, ReadOptionalString(arguments, "zone"), initiative, ct);
+                    return $"{p.DisplayName} joins the combat (initiative {p.Initiative:0}).";
+                });
             }
+
+            case "moveParticipant":
+            {
+                var name = ReadOptionalString(arguments, "name");
+                var zone = ReadOptionalString(arguments, "zone");
+                if (name is null || zone is null) return "Missing name or zone";
+                return await ActiveCombatToolAsync(gameId, ct, async combat =>
+                {
+                    var p = await combats.MoveAsync(combat, name, zone, ct);
+                    return $"{p.DisplayName} is now in {zone}.";
+                });
+            }
+
+            case "setZones":
+                return await ActiveCombatToolAsync(gameId, ct, async combat =>
+                {
+                    await combats.SetZonesAsync(combat, ReadZones(arguments), ct);
+                    return $"Zones are now: {string.Join(", ", combat.Zones.Select(z => z.Name))}.";
+                });
+
+            case "nextTurn":
+                return await ActiveCombatToolAsync(gameId, ct, async combat =>
+                {
+                    var next = await combats.AdvanceTurnAsync(combat, ct: ct);
+                    return next is null
+                        ? "Nobody is in the combat."
+                        : $"Round {combat.CurrentRound}: it is now {next.DisplayName}'s turn"
+                          + (next.ParticipantType == CombatParticipantType.Character
+                              ? " — wait for their player to say what they do."
+                              : " — decide and narrate what they do, then call nextTurn.");
+                });
+
+            case "endCombat":
+                return await ActiveCombatToolAsync(gameId, ct, async combat =>
+                {
+                    await combats.EndAsync(combat, ReadOptionalString(arguments, "outcome"), ct);
+                    return "Combat ended.";
+                });
 
             case "generateLoot":
             {
-                if (!TryGetGuid(arguments, "combatId", out var lootCombatId))
-                    return "Invalid combatId";
-
-                if (!await db.Combats.AnyAsync(c => c.Id == lootCombatId && c.GameId == gameId, ct))
-                    return "Combat not found in this game";
+                // The model was never told a combat id, so by default this is the most recent
+                // fight in the game.
+                Guid lootCombatId;
+                if (TryGetGuid(arguments, "combatId", out var requestedCombatId))
+                {
+                    if (!await db.Combats.AnyAsync(c => c.Id == requestedCombatId && c.GameId == gameId, ct))
+                        return "Combat not found in this game";
+                    lootCombatId = requestedCombatId;
+                }
+                else
+                {
+                    var latest = await db.Combats.Where(c => c.GameId == gameId)
+                        .OrderByDescending(c => c.CreatedAt).Select(c => (Guid?)c.Id).FirstOrDefaultAsync(ct);
+                    if (latest is null) return "There has been no combat in this game";
+                    lootCombatId = latest.Value;
+                }
 
                 var defeatedIds = new List<Guid>();
                 if (arguments.TryGetProperty("defeatedNPCIds", out var idsEl) && idsEl.ValueKind == JsonValueKind.Array)
@@ -409,8 +499,14 @@ public class GMToolRegistry(
                         if (idEl.ValueKind == JsonValueKind.String && Guid.TryParse(idEl.GetString(), out var npcId))
                             defeatedIds.Add(npcId);
                 }
+                // Nor was it told NPC ids: everyone registered who went down in that fight.
                 if (defeatedIds.Count == 0)
-                    return "No valid defeatedNPCIds provided";
+                    defeatedIds = await db.CombatParticipants
+                        .Where(p => p.CombatId == lootCombatId && p.NPCId != null && p.HP == 0)
+                        .Select(p => p.NPCId!.Value)
+                        .ToListAsync(ct);
+                if (defeatedIds.Count == 0)
+                    return "No defeated registered NPCs in that combat";
 
                 // Ids are LLM-generated — only loot NPCs that actually fought in this combat,
                 // or a hallucinated id could pull loot from an unrelated NPC in the game.

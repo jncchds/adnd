@@ -64,6 +64,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
             v => JsonSerializer.Deserialize<List<AgentStepEvent>>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null)) ?? new List<AgentStepEvent>());
 
+        var zoneListComparer = new ValueComparer<List<CombatZone>>(
+            (a, b) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(b, (JsonSerializerOptions?)null),
+            v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
+            v => JsonSerializer.Deserialize<List<CombatZone>>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null)) ?? new List<CombatZone>());
+
         // ── Soft-delete global filters ──
         modelBuilder.Entity<Game>().HasQueryFilter(e => !e.IsDeleted);
         modelBuilder.Entity<Player>().HasQueryFilter(e => !e.IsDeleted);
@@ -191,6 +196,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         // ── Combat ──
         ConfigureJsonb<Combat>(modelBuilder, c => c.Notes, jsonComparer);
+        modelBuilder.Entity<Combat>()
+            .Property(c => c.Zones)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Deserialize<List<CombatZone>>(v) ?? new())
+            .Metadata.SetValueComparer(zoneListComparer);
 
         // ── CombatParticipant ──
         modelBuilder.Entity<CombatParticipant>()

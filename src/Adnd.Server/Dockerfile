@@ -15,6 +15,8 @@ RUN cd src/Adnd.Client && npm run build
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /repo
 
+# Directory.Build.props reads VERSION into the assembly version.
+COPY VERSION Directory.Build.props ./
 COPY src/Adnd.Server/Adnd.Server.csproj src/Adnd.Server/
 RUN dotnet restore src/Adnd.Server/Adnd.Server.csproj
 

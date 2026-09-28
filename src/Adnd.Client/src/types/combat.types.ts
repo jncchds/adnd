@@ -27,6 +27,18 @@ export interface CombatParticipant {
   reactionsRemaining: number
   movementsRemaining: number
   deathSaveState: DeathSaveState | null
+  /** CombatZone.id of the zone this combatant stands in. */
+  zoneId: string | null
+  /** Set for player characters — how the table knows whose turn is theirs. */
+  characterId: string | null
+  playerId: string | null
+}
+
+/** CombatZoneDto. Zones are in order; neighbours are adjacent. */
+export interface CombatZone {
+  id: string
+  name: string
+  tags: string[]
 }
 
 /** CombatDto */
@@ -37,31 +49,8 @@ export interface Combat {
   name: string
   status: CombatStatus
   currentRound: number
+  /** Index into `participants`, which arrive in turn order. */
   currentTurnIndex: number
+  zones: CombatZone[]
   participants: CombatParticipant[]
-}
-
-/** DamageDto */
-export interface DamageEvent {
-  combatId: string
-  targetId: string
-  amount: number
-  damageType: string
-  newHP: number
-}
-
-/** Anonymous payload broadcast by GameHub.HealParticipant */
-export interface HealEvent {
-  combatId: string
-  targetId: string
-  amount: number
-  newHP: number
-}
-
-/** ConditionDto */
-export interface ConditionEvent {
-  combatId: string
-  participantId: string
-  condition: string
-  applied: boolean
 }

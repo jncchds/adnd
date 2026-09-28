@@ -11,6 +11,8 @@ public class CombatParticipant
     public Guid? NPCId { get; set; }
     public Guid? PlayerId { get; set; }
     public string DisplayName { get; set; } = string.Empty;
+    /// <summary><see cref="CombatZone.Id"/> of the zone this combatant is in.</summary>
+    public string? ZoneId { get; set; }
     public float Initiative { get; set; }
     public float InitiativeCount { get; set; }
     public int HP { get; set; }

@@ -16,13 +16,13 @@ public partial class GameHub(
     IEventBus eventBus,
     ISessionManagementService sessionService,
     IAgentBus agentBus,
-    IDiceEngine diceEngine,
     IPlayerRollService playerRolls,
     IRerollService rerolls,
     IRollPromptService prompts,
     IRAGService rag,
     INPCRelevanceService npcRelevance,
-    IGmActivityBroadcaster gmActivity) : Hub
+    IGmActivityBroadcaster gmActivity,
+    ICombatTracker combats) : Hub
 {
     protected static readonly ConcurrentDictionary<string, string> _playerConnections = new();
 
@@ -83,7 +83,22 @@ public partial class GameHub(
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        _playerConnections.TryRemove(Context.ConnectionId, out _);
+        _playerConnections.TryRemove(Context.ConnectionId, out var userIdText);
+
+        // The client never calls LeaveGameGroup — it just closes the socket — so IsConnected
+        // used to go true on the first join and stay true forever. A user with another tab
+        // still open is still at the table.
+        if (userIdText is not null
+            && !_playerConnections.Values.Contains(userIdText)
+            && Guid.TryParse(userIdText, out var userId))
+        {
+            var seats = await db.Players.Where(p => p.UserId == userId && p.IsConnected).ToListAsync();
+            foreach (var seat in seats) seat.IsConnected = false;
+            if (seats.Count > 0) await db.SaveChangesAsync();
+            foreach (var seat in seats)
+                await BroadcastToGameAsync(seat.GameId, "PlayerDisconnected", new { userId });
+        }
+
         await base.OnDisconnectedAsync(exception);
     }
 

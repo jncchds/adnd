@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, TextField, Button, IconButton, Chip, CircularProgress,
   Select, MenuItem, FormControl, Paper, Divider, Alert, Collapse,
-  Tooltip, LinearProgress, Badge,
+  Tooltip, LinearProgress,
 } from '@mui/material'
 import {
   Send as SendIcon, ExpandLess, ExpandMore, Shield as ShieldIcon,
@@ -18,8 +18,8 @@ import { useMessagesInfiniteScroll } from '../api/hooks/useMessagesInfiniteScrol
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api/client'
 import type {
-  Message, Combat, Player, Character,
-  DamageEvent, HealEvent, ConditionEvent, GMActivity, RerollOption,
+  Message, Combat, CombatParticipant, Player, Character,
+  GMActivity, RerollOption,
 } from '../types'
 import { activityLabel } from '../utils/gmActivity'
 
@@ -33,6 +33,9 @@ function MsgBubble({ msg, players, characters, prompt }: {
 }) {
   const isGM = msg.type === 'GM'
   const isSystem = ['System', 'PlayerJoined', 'PlayerLeft', 'GameStarted', 'SessionCreated'].includes(msg.type)
+  // Combat milestones — the fight starting, whose turn it is, a death save — are posted by the
+  // tracker so the log reads as the table heard it.
+  const isCombat = msg.type === 'Combat'
   const isDice = ['DiceRoll', 'SkillCheck', 'AttackRoll'].includes(msg.type)
   // A prompt is addressed to one player, so it renders like a whisper — visually marked as
   // "only you can see this", which is exactly what it is.
@@ -56,6 +59,16 @@ function MsgBubble({ msg, players, characters, prompt }: {
     ? (accountName && accountName !== characterName ? `${characterName} (${accountName})` : characterName)
     : accountName
     ?? (msg.playerId ? 'Player' : null)
+
+  if (isCombat) {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
+        <Divider sx={{ flex: 1 }} />
+        <Typography variant="caption" color="primary" fontWeight={600} sx={{ textAlign: 'center' }}>{msg.content}</Typography>
+        <Divider sx={{ flex: 1 }} />
+      </Box>
+    )
+  }
 
   if (isSystem) {
     return (
@@ -137,68 +150,121 @@ function HPBar({ hp, maxHP }: { hp: number; maxHP: number }) {
   )
 }
 
+function ParticipantCard({ p, isCurrent }: { p: CombatParticipant; isCurrent: boolean }) {
+  const down = p.hp <= 0
+  const defeated = down && p.participantType !== 'Character'
+  const saves = p.deathSaveState
+  return (
+    <Box
+      sx={{
+        p: 0.75, borderRadius: 1, opacity: defeated ? 0.45 : 1,
+        bgcolor: isCurrent ? 'rgba(124,58,237,0.15)' : 'background.paper',
+        border: '1px solid', borderColor: isCurrent ? 'rgba(124,58,237,0.5)' : 'divider',
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Typography variant="body2" fontWeight={isCurrent ? 700 : 500} noWrap sx={{ flex: 1, minWidth: 0 }}
+          title={p.displayName}>
+          {isCurrent && '▶ '}{p.participantType === 'Character' ? '' : '• '}{p.displayName}
+        </Typography>
+        <Tooltip title={`Armour class ${p.ac} · initiative ${Math.round(p.initiative)}`}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
+            <ShieldIcon sx={{ fontSize: 12, color: 'text.secondary' }} />
+            <Typography variant="caption">{p.ac}</Typography>
+          </Box>
+        </Tooltip>
+      </Box>
+      {defeated ? (
+        <Typography variant="caption" color="text.secondary">Defeated</Typography>
+      ) : (
+        <HPBar hp={p.hp} maxHP={p.maxHP} />
+      )}
+      {down && saves && !defeated && (
+        <Typography variant="caption" color="error.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <DeathIcon sx={{ fontSize: 14 }} />
+          {saves.isDead ? 'Dead' : saves.isStable ? 'Stable' : `${saves.successes}✓ ${saves.failures}✗`}
+        </Typography>
+      )}
+      {p.conditions?.length > 0 && (
+        <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>{p.conditions.join(', ')}</Typography>
+      )}
+    </Box>
+  )
+}
+
+/**
+ * The fight as zones rather than squares: each column is a named area, and standing in the
+ * same column means melee reach. The table plays in chat — a player says "I run to the tower
+ * door" and the narrator moves them — so this strip only shows where everyone is; nothing
+ * here is dragged.
+ */
 function CombatPanel({ combat }: { combat: Combat }) {
   const [open, setOpen] = useState(true)
   const current = combat.participants[combat.currentTurnIndex]
+  const known = new Set(combat.zones.map(z => z.id))
+  const columns = [
+    ...combat.zones.map(z => ({ ...z, members: combat.participants.filter(p => p.zoneId === z.id) })),
+    // Combats from before zones existed, or anyone the narrator never placed.
+    ...(combat.participants.some(p => !p.zoneId || !known.has(p.zoneId))
+      ? [{ id: '', name: combat.zones.length ? 'Elsewhere' : 'Combatants', tags: [] as string[],
+          members: combat.participants.filter(p => !p.zoneId || !known.has(p.zoneId)) }]
+      : []),
+  ]
 
   return (
     <Paper elevation={2} sx={{ mb: 1, overflow: 'hidden' }}>
       <Box
-        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1, cursor: 'pointer', bgcolor: 'rgba(124,58,237,0.1)' }}
+        sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1, cursor: 'pointer', bgcolor: 'rgba(124,58,237,0.1)' }}
         onClick={() => setOpen(o => !o)}
       >
-        <Typography variant="subtitle2" fontWeight={600} color="primary">
-          ⚔️ Combat — Round {combat.currentRound}
+        <Typography variant="subtitle2" fontWeight={600} color="primary" noWrap sx={{ flex: 1, minWidth: 0 }}>
+          ⚔️ {combat.name} · Round {combat.currentRound}{current ? ` · ${current.displayName}'s turn` : ''}
         </Typography>
         {open ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
       </Box>
       <Collapse in={open}>
-        <Box sx={{ p: 1, display: 'flex', flexDirection: 'column', gap: 0.5, maxHeight: 250, overflowY: 'auto' }}>
-          {combat.participants.map((p, i) => (
-            <Box
-              key={p.id}
-              sx={{
-                display: 'flex', alignItems: 'center', gap: 1, p: 0.75,
-                borderRadius: 1,
-                bgcolor: i === combat.currentTurnIndex ? 'rgba(124,58,237,0.15)' : 'transparent',
-                border: i === combat.currentTurnIndex ? '1px solid rgba(124,58,237,0.4)' : '1px solid transparent',
-              }}
-            >
-              <Typography variant="caption" color="text.secondary" sx={{ width: 24, textAlign: 'center' }}>
-                {p.initiative}
-              </Typography>
-              <Typography variant="body2" sx={{ flex: 1 }} fontWeight={i === combat.currentTurnIndex ? 600 : 400}>
-                {p.displayName}
-                {p.conditions?.length > 0 && (
-                  <Typography component="span" variant="caption" color="warning.main" sx={{ ml: 0.5 }}>
-                    ({p.conditions.join(', ')})
-                  </Typography>
-                )}
-              </Typography>
-              <HPBar hp={p.hp} maxHP={p.maxHP} />
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                <ShieldIcon sx={{ fontSize: 12, color: 'text.secondary' }} />
-                <Typography variant="caption">{p.ac}</Typography>
+        <Box sx={{ display: 'flex', gap: 1, p: 1, overflowX: 'auto', maxHeight: 260, overflowY: 'auto' }}>
+          {columns.map(z => (
+            <Box key={z.id || '_elsewhere'} sx={{ flex: '1 0 150px', minWidth: 150, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, flexWrap: 'wrap' }}>
+                <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  {z.name}
+                </Typography>
+                {z.tags.map(t => (
+                  <Typography key={t} variant="caption" color="text.disabled">· {t}</Typography>
+                ))}
               </Box>
-              {p.deathSaveState && !p.deathSaveState.isStable && !p.deathSaveState.isDead && (
-                <Tooltip title={`Death saves: ${p.deathSaveState.successes}✓ ${p.deathSaveState.failures}✗`}>
-                  <Badge badgeContent={p.deathSaveState.failures} color="error">
-                    <DeathIcon sx={{ fontSize: 16, color: 'error.main' }} />
-                  </Badge>
-                </Tooltip>
+              {z.members.map(p => <ParticipantCard key={p.id} p={p} isCurrent={p.id === current?.id} />)}
+              {z.members.length === 0 && (
+                <Typography variant="caption" color="text.disabled" fontStyle="italic">empty</Typography>
               )}
             </Box>
           ))}
         </Box>
-        {current && (
-          <Box sx={{ px: 2, py: 1, bgcolor: 'action.hover', display: 'flex', gap: 1 }}>
-            <Chip label={`${current.actionsRemaining} action`} size="small" />
-            <Chip label={`${current.bonusActionsRemaining} bonus`} size="small" variant="outlined" />
-            <Chip label={`${current.movementsRemaining}ft`} size="small" variant="outlined" />
-          </Box>
-        )}
       </Collapse>
     </Paper>
+  )
+}
+
+/** Above the input: whose turn it is, and what you have left when it is yours. */
+function TurnBar({ combat, myPlayerId }: { combat: Combat; myPlayerId: string | null }) {
+  const current = combat.participants[combat.currentTurnIndex]
+  if (!current) return null
+  const mine = myPlayerId != null && current.playerId === myPlayerId
+  if (!mine) {
+    return (
+      <Typography variant="caption" color="text.secondary">
+        Waiting for {current.displayName} — what you say now is table talk or a reaction.
+      </Typography>
+    )
+  }
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+      <Typography variant="caption" color="primary" fontWeight={700} sx={{ mr: 0.5 }}>Your turn</Typography>
+      <Chip label={`${current.actionsRemaining} action`} size="small" color="primary" />
+      <Chip label={`${current.bonusActionsRemaining} bonus`} size="small" variant="outlined" />
+      <Chip label={`move ${current.movementsRemaining}ft`} size="small" variant="outlined" />
+    </Box>
   )
 }
 
@@ -320,40 +386,12 @@ export default function GameChatPage() {
     const handleMessageUpdated = (m: Message) => replaceLive(m)
     const handleMessageRemoved = ({ messageId }: { messageId: string }) => removeLive(messageId)
     const handleGMError = ({ message }: { message: string }) => { setGmError(message); setGmActivity(null) }
-    const handleCombatStarted = (c: Combat) => setCombat(c)
+    // The server pushes the whole combat after every change, and to a joining client on
+    // connect — so a reload mid-fight restores the panel. It used to send a different partial
+    // event per change, most of which nothing here listened for.
+    const handleCombatUpdated = (c: Combat) => setCombat(c.status === 'Finished' ? null : c)
     const handleCombatEnded = () => setCombat(null)
-    const handleTurnAdvanced = (c: Combat) => setCombat(c)
     const handleError = (message: string) => setGmError(message)
-
-    // These events carry DamageDto / ConditionDto, NOT a Combat. Assigning them straight
-    // to setCombat wiped `participants`, and CombatPanel then threw on undefined —
-    // a white screen in the middle of a fight. Patch the existing state instead.
-    const handleDamage = (d: DamageEvent) =>
-      setCombat(prev => prev && prev.id === d.combatId
-        ? { ...prev, participants: prev.participants.map(p => p.id === d.targetId ? { ...p, hp: d.newHP } : p) }
-        : prev)
-
-    const handleHealed = (h: HealEvent) =>
-      setCombat(prev => prev && prev.id === h.combatId
-        ? { ...prev, participants: prev.participants.map(p => p.id === h.targetId ? { ...p, hp: h.newHP } : p) }
-        : prev)
-
-    const handleCondition = (c: ConditionEvent) =>
-      setCombat(prev => prev && prev.id === c.combatId
-        ? {
-            ...prev,
-            participants: prev.participants.map(p => {
-              if (p.id !== c.participantId) return p
-              const current = p.conditions ?? []
-              return {
-                ...p,
-                conditions: c.applied
-                  ? (current.includes(c.condition) ? current : [...current, c.condition])
-                  : current.filter(x => x !== c.condition),
-              }
-            }),
-          }
-        : prev)
 
     hub.on('NewMessage', handleNewMessage)
     hub.on('Error', handleError)
@@ -361,13 +399,8 @@ export default function GameChatPage() {
     hub.on('MessageUpdated', handleMessageUpdated)
     hub.on('MessageRemoved', handleMessageRemoved)
     hub.on('GMError', handleGMError)
-    hub.on('CombatStarted', handleCombatStarted)
+    hub.on('CombatUpdated', handleCombatUpdated)
     hub.on('CombatEnded', handleCombatEnded)
-    hub.on('TurnAdvanced', handleTurnAdvanced)
-    hub.on('CombatDamageDealt', handleDamage)
-    hub.on('CombatHealed', handleHealed)
-    hub.on('CombatConditionApplied', handleCondition)
-    hub.on('CombatConditionRemoved', handleCondition)
 
     return () => {
       hub.off('NewMessage', handleNewMessage)
@@ -376,13 +409,8 @@ export default function GameChatPage() {
       hub.off('MessageUpdated', handleMessageUpdated)
       hub.off('MessageRemoved', handleMessageRemoved)
       hub.off('GMError', handleGMError)
-      hub.off('CombatStarted', handleCombatStarted)
+      hub.off('CombatUpdated', handleCombatUpdated)
       hub.off('CombatEnded', handleCombatEnded)
-      hub.off('TurnAdvanced', handleTurnAdvanced)
-      hub.off('CombatDamageDealt', handleDamage)
-      hub.off('CombatHealed', handleHealed)
-      hub.off('CombatConditionApplied', handleCondition)
-      hub.off('CombatConditionRemoved', handleCondition)
     }
   }, [hub, appendLive, replaceLive, removeLive])
 
@@ -482,6 +510,7 @@ export default function GameChatPage() {
   }
 
   const otherPlayers = players.filter(p => p.userId !== user?.id)
+  const myPlayerId = players.find(p => p.userId === user?.id)?.id ?? null
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -559,6 +588,7 @@ export default function GameChatPage() {
 
       {/* Zone C: Input */}
       <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        {combat && <TurnBar combat={combat} myPlayerId={myPlayerId} />}
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
           <Button
             size="small"

@@ -1,5 +1,21 @@
 # Release Notes
 
+## v0.1.5 — 2026-09-28
+
+- feat: combat is played in zones instead of on a grid — the GM lays a fight out as 2-5 named areas in order (neighbours adjacent), same zone is melee reach, the next zone is a move; players say where they go in chat and the GM moves them
+- feat: a combat strip above the chat shows the zones as columns with each combatant's HP, AC, conditions and death saves, and whose turn it is; the bar above the input shows "Your turn" with action, bonus action and movement, or who the table is waiting for
+- feat: the party joins a fight automatically with initiative rolled; the start, every turn and the end are posted to the log
+- feat: new GM tools `moveParticipant`, `setZones`, `nextTurn` and `endCombat`; `startCombat` takes zones and `addCombatParticipant` a zone; combatants and zones are addressed by name, never by id
+- feat: the narrator is told the state of the fight on every turn and whether the player speaking is the one acting — speaking out of turn is table talk or a reaction
+- fix: a combat the GM started was never shown to anyone, left the party out and could not be moved, advanced or ended
+- fix: reloading mid-fight lost the combat panel; the server now sends the fight on join and pushes the whole combat (`CombatUpdated`) after every change
+- fix: damage to a player character in combat is written to their sheet; the action economy resets at the start of each turn
+- fix: death saves are recorded — three successes stabilise, three failures kill, a natural 1 counts twice, a natural 20 brings the character back at 1 HP
+- fix: `generateLoot` no longer needs ids the GM was never given; by default it loots everyone defeated in the most recent fight
+- fix: players stayed marked as connected forever after closing the tab
+- migration: `CombatZones` adds `Combats.Zones` and `CombatParticipants.ZoneId`, and closes every combat left active by the old code
+- build: `VERSION` at the repo root is the single source of truth — assembly version (via `Directory.Build.props`), UI badge and Docker image tags; images are tagged `latest` (main only), the version and `sha-<commit>`, carry the `org.opencontainers.image.version` label, and `v*` tags also publish
+
 ## v0.1.3 — 2026-08-03
 
 ### There is something to see before you sign in

@@ -267,6 +267,10 @@ namespace Adnd.Server.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Zones")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.HasKey("Id");
 
                     b.ToTable("Combats");
@@ -383,6 +387,9 @@ namespace Adnd.Server.Migrations
                     b.Property<string>("TemporaryHP")
                         .IsRequired()
                         .HasColumnType("jsonb");
+
+                    b.Property<string>("ZoneId")
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 

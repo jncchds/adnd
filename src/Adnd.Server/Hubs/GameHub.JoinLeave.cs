@@ -26,6 +26,11 @@ public partial class GameHub
         // on whatever's in progress right now.
         if (gmActivity.GetCurrent(gameId) is { } current)
             await Clients.Caller.SendCoreAsync("GMActivity", [current]);
+
+        // Same for a fight in progress: combat only ever arrived as live pushes, so a reload
+        // mid-fight lost the panel until something happened to change it.
+        if (await combats.GetActiveAsync(gameId) is { } combat)
+            await Clients.Caller.SendCoreAsync("CombatUpdated", [combats.ToDto(combat)]);
     }
 
     public async Task LeaveGameGroup(Guid gameId)
