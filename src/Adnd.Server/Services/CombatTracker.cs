@@ -46,6 +46,12 @@ public interface ICombatTracker
     /// <summary>True for a player character at 0 HP who is neither dead nor stable.</summary>
     bool IsDying(CombatParticipant participant);
 
+    bool IsDead(CombatParticipant participant);
+
+    /// <summary>What to tell the GM when one side has nobody left who can act, or null while
+    /// the fight is still on.</summary>
+    string? FightOver(CombatEntity combat);
+
     /// <summary>Negative amount is damage. A player character's sheet follows its participant.
     /// Returns the combatant's hit points afterwards.</summary>
     Task<int> ChangeHpAsync(CombatEntity combat, Guid participantId, int amount, CancellationToken ct = default, bool critical = false);
@@ -104,7 +110,7 @@ public class CombatTracker(
             .Where(c => c.Player.GameId == gameId)
             .ToListAsync(ct);
 
-        foreach (var ch in characters)
+        foreach (var ch in characters.Where(c => !CharacterStateService.IsDead(c)))
         {
             var dex = DexModifier(ch.Attributes);
             combat.Participants.Add(new CombatParticipant
@@ -156,17 +162,29 @@ public class CombatTracker(
         var lowered = name.ToLowerInvariant();
         var npc = await db.NPCs.FirstOrDefaultAsync(n => n.GameId == combat.GameId && n.Name.ToLower() == lowered, ct);
 
-        var anchor = Current(combat);
+        // A player character who was not there when the fight began — brought in to replace
+        // one who died in it — joins as themselves, on their own sheet's hit points.
+        var pc = npc is not null ? null : await db.Characters.FirstOrDefaultAsync(
+            c => c.Player.GameId == combat.GameId && c.Name.ToLower() == lowered, ct);
+        if (pc is not null && CharacterStateService.IsDead(pc))
+            throw new CombatRuleException($"{pc.Name} is dead and cannot join the fight.");
+
+        // Before anyone has acted the turn belongs to whoever is first in the order, and that
+        // may be the combatant being added: kept with the party, as it was, a wolf that
+        // out-rolled them lost its first turn.
+        var anchor = combat.CurrentRound == 1 && combat.CurrentTurnIndex == 0 ? null : Current(combat);
         var participant = new CombatParticipant
         {
             CombatId = combat.Id,
-            ParticipantType = CombatParticipantType.NPC,
+            ParticipantType = pc is null ? CombatParticipantType.NPC : CombatParticipantType.Character,
             NPCId = npc?.Id,
-            DisplayName = name,
-            HP = hp,
-            MaxHP = hp,
-            AC = ac,
-            Initiative = initiative ?? dice.Roll("1d20").Total,
+            CharacterId = pc?.Id,
+            PlayerId = pc?.PlayerId,
+            DisplayName = pc?.Name ?? name,
+            HP = pc?.CurrentHP ?? hp,
+            MaxHP = pc?.MaxHP ?? hp,
+            AC = pc is null ? ac : 10 + DexModifier(pc.Attributes),
+            Initiative = initiative ?? dice.Roll("1d20").Total + (pc is null ? 0 : DexModifier(pc.Attributes)),
             ZoneId = targetZone?.Id,
         };
         // Added to the DbSet only. EF's fix-up puts it into combat.Participants, so adding
@@ -246,6 +264,23 @@ public class CombatTracker(
         => p.ParticipantType == CombatParticipantType.Character && p.HP == 0
            && ReadDeathSaves(p.DeathSaveState) is not { IsDead: true } and not { IsStable: true };
 
+    public bool IsDead(CombatParticipant p) => ReadDeathSaves(p.DeathSaveState) is { IsDead: true };
+
+    public string? FightOver(CombatEntity combat)
+    {
+        // With nobody left who could ever answer, the fight would go round among the enemies
+        // until the turn ran out of steps.
+        var party = combat.Participants.Where(p => p.ParticipantType == CombatParticipantType.Character).ToList();
+        if (party.Count > 0 && party.All(IsOutOfTheFight))
+            return "No player character can act any more: the fight is over. Your next reply must call endCombat, saying how it ended; then tell the table what becomes of the party.";
+
+        var others = combat.Participants.Where(p => p.ParticipantType != CombatParticipantType.Character).ToList();
+        if (others.Count > 0 && others.All(p => p.HP == 0))
+            return "Nobody is left standing against the party: the fight is over. Your next reply must call endCombat, saying how it ended; then tell the table what they see.";
+
+        return null;
+    }
+
     public async Task<int> ChangeHpAsync(CombatEntity combat, Guid participantId, int amount, CancellationToken ct = default, bool critical = false)
     {
         var p = Require(combat, participantId);
@@ -276,6 +311,9 @@ public class CombatTracker(
             && await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId, ct) is { } character)
         {
             character.CurrentHP = p.HP;
+            // Death outlasts the fight, so it goes on the sheet; hit points coming back —
+            // only magic that raises the dead gets this far — take it off again.
+            character.Conditions = CharacterStateService.WithCondition(character.Conditions, CharacterStateService.Dead, IsDead(p));
         }
 
         await db.SaveChangesAsync(ct);
@@ -339,10 +377,16 @@ public class CombatTracker(
         });
         var outcome = dead ? " — they die." : stable ? " — they are stable." : $" ({successes}✓ {failures}✗)";
 
+        if (dead && p.CharacterId is { } characterId
+            && await db.Characters.FirstOrDefaultAsync(c => c.Id == characterId, ct) is { } character)
+            character.Conditions = CharacterStateService.WithCondition(character.Conditions, CharacterStateService.Dead, true);
+
         await db.SaveChangesAsync(ct);
         var line = $"💀 {p.DisplayName} death save: {roll}{outcome}";
         await PostAsync(combat, line, ct);
         await PushAsync(combat, ct);
+        if (dead && p.CharacterId is { } died)
+            await hub.Clients.Group(combat.GameId.ToString()).SendAsync("CharacterUpdated", new { characterId = died }, ct);
         return line;
     }
 
@@ -409,9 +453,9 @@ public class CombatTracker(
         }
 
         sb.AppendLine("Combat rules: combatants in the same zone can reach each other in melee. Moving to an adjacent zone takes the combatant's move; further takes their action too (a dash). Ranged attacks reach any zone; more than one zone away is long range (disadvantage).");
-        sb.AppendLine("Hit points and conditions change ONLY through tools: call damage when an attack or effect hits (after the roll has decided it does), heal for healing, and setCondition to apply or remove a condition. Narrating a wound does not change anyone's hit points. An enemy at 0 HP is defeated; a player character at 0 HP is dying.");
-        sb.AppendLine("Call moveParticipant whenever someone changes zone. A player character's attack: requestPlayerRoll for the attack with dc set to the target's AC; then stop and read the result, and only if it hit, requestPlayerRoll for the damage with mandatory true, and once you have that number, damage. Do exactly what their player said and nothing more — never add a second attack or a choice of your own for them. An enemy's attack is one call to attack, which rolls to hit, rolls the damage and applies it.");
-        sb.AppendLine("Turn order is strict: only the combatant marked ▶ acts. When a player character has done what their player said, call nextTurn before any enemy does anything. When the turn passes to an enemy, play that enemy's turn, call nextTurn, and go on until the turn is a player character's — never leave the fight on an enemy's turn, and never play a player character's turn for them. When a dying player character's turn comes, call deathSave for them — that is their whole turn and it passes the turn on. Add newly arriving combatants with addCombatParticipant. Call endCombat when one side is defeated, flees or surrenders, then tell the table how it ended.");
+        sb.AppendLine("Hit points and conditions change ONLY through tools: attack for an attack, damage for any other harm (a spell, a fall, a trap — once the roll has decided it lands), heal for healing, and setCondition to apply or remove a condition. Narrating a wound does not change anyone's hit points. An enemy at 0 HP is defeated; a player character at 0 HP is dying.");
+        sb.AppendLine("Every attack — a player character's or an enemy's — is one call to attack: it rolls to hit against the target's AC, on a hit rolls and applies the damage, and ends the attacker's turn (endTurn false if they have more to do; moveTo moves them into reach first). For a player character, take the bonus from their sheet — the ability modifier (DEX for a ranged weapon, the better of STR and DEX for a finesse one, otherwise STR) plus their proficiency bonus — and the damage from their weapon's dice plus the same ability modifier. Do exactly what their player said and nothing more: never add a second attack, a target or a choice of your own for them. Call moveParticipant when someone changes zone without attacking.");
+        sb.AppendLine("Turn order is strict: only the combatant marked ▶ acts. When the turn passes to an enemy, play it: one attack call is that enemy's whole turn, and when several enemies act one after another you may put all their attack calls in one reply, in turn order, with a sentence on what each attempts — each is told how the one before it fared only afterwards, so do not write the outcome. Use nextTurn to end a turn that made no attack, including a player character's once they have done what their player said. Go on until the turn is a player character's — never leave the fight on an enemy's turn, and never play a player character's turn for them. When a dying player character's turn comes, call deathSave for them — that is their whole turn and it passes the turn on. Add newly arriving combatants with addCombatParticipant. Call endCombat when one side is defeated, flees or surrenders, then tell the table how it ended.");
         return sb.ToString();
     }
 
@@ -419,11 +463,7 @@ public class CombatTracker(
     {
         if (await GetActiveAsync(gameId, ct) is not { } combat || Current(combat) is not { } current) return null;
 
-        // With nobody left who could ever answer, the fight would go round among the enemies
-        // until the turn ran out of steps.
-        var party = combat.Participants.Where(p => p.ParticipantType == CombatParticipantType.Character).ToList();
-        if (party.Count > 0 && party.All(IsOutOfTheFight))
-            return "No player character can act any more: the fight is over. Your next reply must call endCombat, saying how it ended; then tell the table what becomes of the party.";
+        if (FightOver(combat) is { } over) return over;
 
         if (IsDying(current))
             return $"The fight is not waiting on a player: it is {current.DisplayName}'s turn and they are dying. Your next reply must call deathSave for {current.DisplayName}; that is their whole turn, and the turn passes on by itself.";
@@ -432,7 +472,7 @@ public class CombatTracker(
         if (current.ParticipantType == CombatParticipantType.Character)
             return null;
 
-        return $"The fight is not waiting on a player: it is {current.DisplayName}'s turn, and you play them. Your next reply must contain the tool calls for their turn — attack resolves an attack in one call, and nextTurn ends the turn — with a sentence of narration in the same reply. If the fight is over, call endCombat instead.";
+        return $"The fight is not waiting on a player: it is {current.DisplayName}'s turn, and you play them. Your next reply must contain the tool call for their turn — attack resolves an attack and ends the turn in one call; nextTurn ends a turn without one — with a sentence of narration in the same reply. If the fight is over, call endCombat instead.";
     }
 
     // ── helpers ──
@@ -451,7 +491,7 @@ public class CombatTracker(
     private static void Reanchor(CombatEntity combat, CombatParticipant? anchor)
     {
         var order = Ordered(combat).ToList();
-        var index = anchor is null ? -1 : order.IndexOf(anchor);
+        var index = anchor is null ? 0 : order.IndexOf(anchor);
         combat.CurrentTurnIndex = index >= 0 ? index : Math.Clamp(combat.CurrentTurnIndex, 0, Math.Max(order.Count - 1, 0));
     }
 

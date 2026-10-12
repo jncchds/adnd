@@ -1,5 +1,6 @@
 using Adnd.Server.Events;
 using Adnd.Server.Models;
+using Adnd.Server.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,8 +14,14 @@ public partial class GameHub
 
         // In-character speech implies a character to speak as; OOC table talk does not.
         // Client-side already warns via a banner, but that's UI-only — enforce it here too.
-        if (!isOOC && !await db.Characters.AnyAsync(c => c.PlayerId == player.Id))
-            throw new HubForbiddenException("Create a character before speaking in character.");
+        if (!isOOC)
+        {
+            var speaker = await db.Characters.FirstOrDefaultAsync(c => c.PlayerId == player.Id)
+                ?? throw new HubForbiddenException("Create a character before speaking in character.");
+            // The dead do not act, and an in-character line starts a GM turn.
+            if (CharacterStateService.IsDead(speaker))
+                throw new HubForbiddenException($"{speaker.Name} is dead. Create a new character to rejoin the story — you can still talk out of character.");
+        }
 
         var session = await ResolveGameSessionAsync(gameId);
 

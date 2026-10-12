@@ -14,7 +14,7 @@ public record InventoryItem(string Name, int Quantity);
 /// XP table. Class is free text on the sheet, so anything unrecognised falls back to a d8
 /// non-caster rather than failing — the GM can still run that character, it just gets no slots.
 /// </summary>
-public static class ClassRules
+public static partial class ClassRules
 {
     public static readonly JsonSerializerOptions Json = new()
     {
@@ -60,6 +60,35 @@ public static class ClassRules
     ];
 
     public static int HitDie(string? className) => Lookup(className).HitDie;
+
+    /// <summary>
+    /// What a new character of the class is armed with. The damage is part of the item's
+    /// name on purpose: a sheet used to start with rations and a tinderbox and no weapon, so
+    /// every attack began with the GM looking the sheet up and then inventing a sword. Named
+    /// like this, the narrator's prompt can list each character's weapons and their dice.
+    /// </summary>
+    public static IReadOnlyList<string> StartingWeapons(string? className) => (className ?? "").Trim().ToLowerInvariant() switch
+    {
+        "barbarian" => ["Greataxe (1d12 slashing)", "Javelin (1d6 piercing, thrown)"],
+        "fighter" => ["Longsword (1d8 slashing)", "Light crossbow (1d8 piercing, ranged)"],
+        "paladin" => ["Longsword (1d8 slashing)", "Javelin (1d6 piercing, thrown)"],
+        "ranger" => ["Longbow (1d8 piercing, ranged)", "Shortsword (1d6 piercing, finesse)"],
+        "bard" => ["Rapier (1d8 piercing, finesse)", "Dagger (1d4 piercing, finesse)"],
+        "cleric" => ["Mace (1d6 bludgeoning)", "Light crossbow (1d8 piercing, ranged)"],
+        "druid" => ["Scimitar (1d6 slashing, finesse)", "Sling (1d4 bludgeoning, ranged)"],
+        "monk" => ["Shortsword (1d6 piercing, finesse)", "Dart (1d4 piercing, thrown)"],
+        "rogue" => ["Rapier (1d8 piercing, finesse)", "Shortbow (1d6 piercing, ranged)"],
+        "warlock" or "sorcerer" => ["Dagger (1d4 piercing, finesse)", "Light crossbow (1d8 piercing, ranged)"],
+        "wizard" => ["Quarterstaff (1d6 bludgeoning)", "Dagger (1d4 piercing, finesse)"],
+        _ => ["Dagger (1d4 piercing, finesse)"],
+    };
+
+    /// <summary>The items on a sheet that are weapons — the ones that name their damage dice.</summary>
+    public static IEnumerable<string> Weapons(JsonElement inventory)
+        => ReadInventory(inventory).Select(i => i.Name).Where(n => WeaponDice().IsMatch(n));
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\(\d*d\d+")]
+    private static partial System.Text.RegularExpressions.Regex WeaponDice();
 
     public static int ProficiencyBonus(int level) => 2 + (Math.Clamp(level, 1, MaxLevel) - 1) / 4;
 

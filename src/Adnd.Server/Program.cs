@@ -170,6 +170,8 @@ builder.Services.AddScoped<ICharacterCreationFactory, CharacterCreationFactory>(
 builder.Services.AddScoped<ICharacterConceptService, CharacterConceptService>();
 builder.Services.AddScoped<INarrativeGenerationFactory, NarrativeGenerationFactory>();
 builder.Services.AddScoped<IGameStartService, GameStartService>();
+builder.Services.AddScoped<INarratorPromptService, NarratorPromptService>();
+builder.Services.AddScoped<IGmTurnQueue, GmTurnQueue>();
 
 // ── Hangfire (background jobs, PostgreSQL-backed) ─────────────────────────────
 builder.Services.AddHangfire(config =>

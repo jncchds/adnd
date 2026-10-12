@@ -18,6 +18,8 @@ public class CharactersController(
     ICharacterCreationFactory factory,
     IFeatureCatalogue features,
     ICharacterConceptService concepts,
+    ICharacterStateService characterState,
+    ISessionManagementService sessions,
     IUserIdProvider userIdProvider,
     IGameAuthorizationService auth,
     ILogger<CharactersController> logger) : GameScopedController(auth, userIdProvider)
@@ -124,8 +126,20 @@ public class CharactersController(
         if (player == null)
             return BadRequest("You are not a player in this game.");
 
-        if (player.Character != null)
-            return Conflict("You already have a character in this game.");
+        // A dead character is the one case a player may make another: the dead one stays on
+        // record, and its sheet stops being theirs to play.
+        var fallen = player.Character;
+        if (fallen != null)
+        {
+            if (!CharacterStateService.IsDead(fallen))
+                return Conflict("You already have a character in this game.");
+            fallen.IsDeleted = true;
+            fallen.DeletedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+            // Let go of it before the new one takes its place: EF deletes the dependent a
+            // one-to-one's principal is given a replacement for, and this row is to be kept.
+            db.Entry(fallen).State = EntityState.Detached;
+        }
 
         var character = factory.CreateFromBackground(dto.Background, player.Id, dto.Name, dto.Class, dto.Race);
 
@@ -137,11 +151,24 @@ public class CharactersController(
         // start on a flat 11.
         character.MaxHP = character.CurrentHP = ClassRules.FirstLevelHitPoints(character.Class, character.Attributes);
 
+        var kit = ClassRules.ReadInventory(character.Inventory);
+        kit.AddRange(ClassRules.StartingWeapons(character.Class).Select(w => new InventoryItem(w, 1)));
+        character.Inventory = JsonSerializer.SerializeToElement(kit, ClassRules.Json);
+
         character.Backstory = dto.Backstory;
 
         player.CharacterName = character.Name;
         db.Characters.Add(character);
         await db.SaveChangesAsync();
+
+        // Said at the table, so the players and the narrator both learn there is someone new
+        // to bring into the scene.
+        if (fallen != null)
+        {
+            var session = await sessions.GetOrCreateCurrentSessionAsync(dto.GameId);
+            await characterState.AnnounceAsync(dto.GameId, session.Id,
+                $"🕯️ {fallen.Name} is dead. Their player joins the story as {character.Name}, a {character.Race} {character.Class}.".Replace("  ", " "));
+        }
         return CreatedAtAction(nameof(Get), new { id = character.Id }, character);
     }
 

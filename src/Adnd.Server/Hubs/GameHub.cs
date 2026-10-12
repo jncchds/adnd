@@ -17,10 +17,8 @@ public partial class GameHub(
     ISessionManagementService sessionService,
     IAgentBus agentBus,
     IRAGService rag,
-    INPCRelevanceService npcRelevance,
     IGmActivityBroadcaster gmActivity,
-    ICombatTracker combats,
-    IStoryNudgeService nudges) : Hub
+    ICombatTracker combats) : Hub
 {
     protected static readonly ConcurrentDictionary<string, string> _playerConnections = new();
 

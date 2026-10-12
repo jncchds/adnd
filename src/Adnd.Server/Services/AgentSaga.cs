@@ -47,18 +47,26 @@ public class AgentSaga : Wolverine.Saga
     // message solely to the saga's Start/Handle methods; a separate plain handler class for
     // the same message type is never invoked (silently — no exception), so the orchestration
     // that used to live in SagaOrchestratorHandler has to happen here.
-    public async Task Start(AgentCallQueued msg, IMessageContext context, AppDbContext db, IGmActivityBroadcaster activity, ILogger<AgentSaga> logger)
+    public async Task Start(AgentCallQueued msg, IMessageContext context, AppDbContext db, IGmActivityBroadcaster activity,
+        IGmTurnQueue turns, INarratorPromptService prompts, ILogger<AgentSaga> logger)
     {
         Id = msg.AgentCallId;
         AgentCallId = msg.AgentCallId;
         GameId = msg.GameId;
         CurrentState = "Init";
 
+        // Another turn is still running in this game: the call stays Pending and is queued
+        // again when that turn ends (ReleaseNextAsync). No saga is kept for it meanwhile —
+        // a saga completed in Start is never stored.
+        var call = await turns.TryBeginAsync(msg.AgentCallId);
+        if (call == null)
+        {
+            MarkCompleted();
+            return;
+        }
+
         await context.ScheduleAsync(new SagaTimeout(Id, Round), TimeSpan.FromMinutes(5));
 
-        var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
-        if (call == null) return;
-        call.Status = AgentCallStatus.Running;
         call.AdvanceStep(SagaStep.Init);
         await db.SaveChangesAsync();
         await activity.BroadcastAsync(msg.GameId, SagaStep.Init);
@@ -69,6 +77,25 @@ public class AgentSaga : Wolverine.Saga
             var opts = string.IsNullOrEmpty(call.Input)
                 ? null
                 : JsonSerializer.Deserialize<GMDispatchOptions>(call.Input);
+
+            if (opts?.Pending is not null)
+            {
+                // Built now and written back, so every later step and any retry reads the
+                // same prompts from Input.
+                try
+                {
+                    opts = await prompts.BuildAsync(call, opts);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Building the narrator prompt failed for agent call {AgentCallId}", call.Id);
+                    await context.PublishAsync(new AgentCallAbandoned(call.Id, call.GameId, "The GM could not prepare this turn."));
+                    return;
+                }
+                call.Input = JsonSerializer.Serialize(opts);
+                await db.SaveChangesAsync();
+            }
+
             systemPrompt = opts?.SystemPrompt ?? "";
             userPrompt = opts?.UserPrompt ?? "";
         }
@@ -96,7 +123,7 @@ public class AgentSaga : Wolverine.Saga
     // separate LLMResponseHandler class used to sit alongside it and was silently never
     // invoked, so the orchestration lives here.
     public async Task Handle(LLMResponseReceived msg, IMessageContext context, AppDbContext db, ISessionManagementService sessions,
-        IGmActivityBroadcaster activity, ICombatTracker combats, IHubContext<GameHub> hub)
+        IGmActivityBroadcaster activity, ICombatTracker combats, IHubContext<GameHub> hub, IGmTurnQueue turns)
     {
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
         if (call == null) return;
@@ -127,7 +154,10 @@ public class AgentSaga : Wolverine.Saga
         // players talking among themselves shouldn't force the world to react to every line.
         // Restricted to Narrate because the other actions are explicit GM/admin requests for
         // output, where silence would just look broken.
-        var waitOnly = call.Action == AgentAction.Narrate && toolCalls.Count > 0 && toolCalls.All(t => t.Name == "wait");
+        // A turn no player started — the opening scene, a narration the creator asked for — is
+        // an explicit request for output too.
+        var waitOnly = call.Action == AgentAction.Narrate && call.FromAgent == AgentType.Player
+            && toolCalls.Count > 0 && toolCalls.All(t => t.Name == "wait");
 
         if (toolCalls.Count == 0 || waitOnly)
         {
@@ -135,11 +165,11 @@ public class AgentSaga : Wolverine.Saga
             {
                 var pending = await GetOrAddCoordinatorAsync(db);
                 var soFar = TurnLog.Read(pending.ToolResults);
-                if (!waitOnly && text.Length > 0 && !TurnLog.AlreadySaid(soFar, text))
+                if (!waitOnly && TurnLog.Unsaid(soFar, text) is { Length: > 0 } unsaid)
                 {
                     var session = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
-                    await PostNarrationAsync(db, hub, session.Id, call, text);
-                    soFar.Add(new TurnLogEntry(Round, TurnLog.Said, "", null, text));
+                    await PostNarrationAsync(db, hub, session.Id, call, unsaid);
+                    soFar.Add(new TurnLogEntry(Round, TurnLog.Said, "", null, unsaid));
                 }
                 // Words alone are the usual way a turn stalls here: the model announces the
                 // attack and stops, waiting to be asked again.
@@ -173,6 +203,7 @@ public class AgentSaga : Wolverine.Saga
                 await CleanUpCoordinatorAsync(db);
                 await db.SaveChangesAsync();
                 await activity.BroadcastAsync(msg.GameId, SagaStep.Completed);
+                await ReleaseNextAsync(context, turns);
                 MarkCompleted();
                 return;
             }
@@ -181,10 +212,10 @@ public class AgentSaga : Wolverine.Saga
             // ordinary step asks it to "continue", and it does — observed live giving a
             // player character a second attack nobody asked for. All that is missing is the
             // telling, so that is all it is asked for.
+            var unspoken = await db.ToolCallCoordinators.FirstOrDefaultAsync(c => c.AgentCallId == msg.AgentCallId);
+            var done = TurnLog.Read(unspoken?.ToolResults);
             if (text.Length == 0)
             {
-                var unspoken = await db.ToolCallCoordinators.FirstOrDefaultAsync(c => c.AgentCallId == msg.AgentCallId);
-                var done = TurnLog.Read(unspoken?.ToolResults);
                 if (unspoken != null && done.Count > 0 && !TurnLog.HasSpoken(done) && done[^1].Kind != TurnLog.Close)
                 {
                     done.Add(new TurnLogEntry(Round, TurnLog.Close, "", null,
@@ -202,7 +233,8 @@ public class AgentSaga : Wolverine.Saga
             await activity.BroadcastAsync(msg.GameId, SagaStep.NarrativeReady);
 
             var current = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
-            await context.PublishAsync(new NarrativeReady(msg.AgentCallId, msg.GameId, current.Id, msg.ResponseText ?? ""));
+            // A closing reply that only retells what the turn already said adds nothing.
+            await context.PublishAsync(new NarrativeReady(msg.AgentCallId, msg.GameId, current.Id, TurnLog.Unsaid(done, text)));
             return;
         }
 
@@ -217,11 +249,11 @@ public class AgentSaga : Wolverine.Saga
         // Text that comes with tool calls is said before they run, so the log reads in the
         // order things happened: the swing, then the roll, then what the roll meant. It used
         // to be thrown away in favour of the closing narration.
-        if (text.Length > 0 && !TurnLog.AlreadySaid(log, text))
+        if (TurnLog.Unsaid(log, text) is { Length: > 0 } fresh)
         {
             var session = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
-            await PostNarrationAsync(db, hub, session.Id, call, text);
-            log.Add(new TurnLogEntry(Round, TurnLog.Said, "", null, text));
+            await PostNarrationAsync(db, hub, session.Id, call, fresh);
+            log.Add(new TurnLogEntry(Round, TurnLog.Said, "", null, fresh));
         }
 
         coordinator.ToolResults = TurnLog.Write(log);
@@ -255,9 +287,24 @@ public class AgentSaga : Wolverine.Saga
             : null;
         var log = TurnLog.Read(coordinator.ToolResults);
         log.Add(new TurnLogEntry(Round, TurnLog.Tool, msg.ToolName, arguments, msg.ResultJson));
-        coordinator.ToolResults = TurnLog.Write(log);
         coordinator.CompletedTools++;
         coordinator.CurrentToolIndex++;
+
+        // A reply's calls are chosen together, each assuming the ones before it happen. When
+        // the engine refuses one — an attack out of turn, a strike at someone already down —
+        // running the rest played out a scene that was not happening: observed live, the
+        // table was told of a second goblin's lunge and a death save, neither of which ran.
+        if (msg.ResultJson.StartsWith(TurnLog.Refused, StringComparison.Ordinal))
+        {
+            for (; coordinator.CurrentToolIndex < toolCalls.Count; coordinator.CurrentToolIndex++)
+            {
+                var skipped = toolCalls[coordinator.CurrentToolIndex];
+                log.Add(new TurnLogEntry(Round, TurnLog.Tool, skipped.Name, skipped.Arguments.GetRawText(),
+                    "Not run, and not shown to the table: the call before it was not done. Decide again from here."));
+            }
+        }
+
+        coordinator.ToolResults = TurnLog.Write(log);
         await db.SaveChangesAsync();
 
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
@@ -275,7 +322,7 @@ public class AgentSaga : Wolverine.Saga
         // fight ever started. Two in a row is a model narrating through the tool a round at a
         // time, and that is the end of the turn.
         var previous = log.Where(e => e.Round == Round - 1).ToList();
-        if (toolCalls.All(t => t.Name is "narrate" or "wait")
+        if (toolCalls.All(t => t.Name is "narrate" or "wait") && toolCalls.Count > 0
             && previous.Count > 0 && previous.All(e => e.Kind == TurnLog.Said || e.Name is "narrate" or "wait"))
         {
             if (await FightWaitsOnGmAsync(call, combats) is { } directive)
@@ -302,7 +349,7 @@ public class AgentSaga : Wolverine.Saga
     // Narrative ready — save + broadcast the message and complete the saga. Saga-owned
     // message: the standalone NarrativeHandler class that used to do this was silently never
     // invoked, so every turn reached this point and vanished.
-    public async Task Handle(NarrativeReady msg, IMessageContext context, AppDbContext db, IHubContext<GameHub> hub, IGmActivityBroadcaster activity)
+    public async Task Handle(NarrativeReady msg, IMessageContext context, AppDbContext db, IHubContext<GameHub> hub, IGmActivityBroadcaster activity, IGmTurnQueue turns)
     {
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
         var blank = string.IsNullOrWhiteSpace(msg.NarrativeText);
@@ -341,12 +388,13 @@ public class AgentSaga : Wolverine.Saga
         if (!blank && msg.SessionId != Guid.Empty)
             await PostNarrationAsync(db, hub, msg.SessionId, call, msg.NarrativeText.Trim());
 
+        await ReleaseNextAsync(context, turns);
         MarkCompleted();
     }
 
     // Retries exhausted — terminal. AgentCallFailed is deliberately NOT handled here;
     // AgentCallFailedHandler owns the retry decision and publishes this when it gives up.
-    public async Task Handle(AgentCallAbandoned msg, AppDbContext db, IGmActivityBroadcaster activity, IHubContext<GameHub> hub)
+    public async Task Handle(AgentCallAbandoned msg, IMessageContext context, AppDbContext db, IGmActivityBroadcaster activity, IHubContext<GameHub> hub, IGmTurnQueue turns)
     {
         CurrentState = "Failed";
 
@@ -368,13 +416,14 @@ public class AgentSaga : Wolverine.Saga
         // completely silently.
         await hub.Clients.Group(msg.GameId.ToString()).SendAsync("GMError", new { message = msg.Error });
 
+        await ReleaseNextAsync(context, turns);
         MarkCompleted();
     }
 
     // Timeout — fail stuck sagas. Wolverine still delivers the scheduled message after the
     // saga completes, so this must tolerate being called on an already-finished saga, and a
     // timeout scheduled for an earlier round says nothing about the current one.
-    public async Task Handle(SagaTimeout msg, AppDbContext db, IGmActivityBroadcaster activity)
+    public async Task Handle(SagaTimeout msg, IMessageContext context, AppDbContext db, IGmActivityBroadcaster activity, IGmTurnQueue turns)
     {
         if (CurrentState is "Completed" or "Failed") return;
         if (msg.Round != Round) return;
@@ -392,6 +441,7 @@ public class AgentSaga : Wolverine.Saga
         await CleanUpCoordinatorAsync(db);
         await db.SaveChangesAsync();
         await activity.BroadcastAsync(GameId, SagaStep.Failed, "Saga timed out after 5 minutes");
+        await ReleaseNextAsync(context, turns);
         MarkCompleted();
     }
 
@@ -407,6 +457,14 @@ public class AgentSaga : Wolverine.Saga
         if (await combats.PendingGmTurnAsync(GameId) is not { } directive) return null;
         Continuations++;
         return directive;
+    }
+
+    /// <summary>This turn is over, whichever way it ended: start the line that waited behind
+    /// it. Called only after the call's final status has been saved — the queue reads it.</summary>
+    private async Task ReleaseNextAsync(IMessageContext context, IGmTurnQueue turns)
+    {
+        if (await turns.NextAsync(GameId) is { } next)
+            await context.PublishAsync(new AgentCallQueued(next, GameId));
     }
 
     /// <summary>Back to the model. LLMDispatchHandler adds the turn so far to the prompt.</summary>

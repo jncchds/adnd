@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Adnd.Server.Data;
+using Adnd.Server.Dtos;
 using Adnd.Server.Hubs;
 using Adnd.Server.Models;
 using Microsoft.AspNetCore.SignalR;
@@ -18,6 +20,7 @@ public class GameStartService(
     IPlotWeaver plotWeaver,
     INarrativeGenerationFactory narrativeFactory,
     IHubContext<GameHub> hub,
+    IAgentBus agentBus,
     IGmActivityBroadcaster activity,
     ILogger<GameStartService> logger) : IGameStartService
 {
@@ -28,10 +31,8 @@ public class GameStartService(
         // Create (or get) the initial session
         var session = await sessions.GetOrCreateCurrentSessionAsync(gameId);
 
-        // This path generates the opening narration directly rather than going through
-        // AgentSaga, so it never publishes GameNarrationStarted — the event that normally
-        // flips Game.Status from Starting to Active. Without this, a freshly-started game
-        // stays stuck at Starting forever (no admin-dashboard button matches that status).
+        // Flipped here rather than left to GameNarrationStarted, which only arrives if the
+        // opening turn succeeds: a game stuck at Starting matches no admin-dashboard button.
         var game = await db.Games.FindAsync([gameId], ct);
         if (game is not null && game.Status == GameStatus.Starting)
         {
@@ -80,35 +81,21 @@ public class GameStartService(
             }
         }
 
-        // Generate and broadcast opening narration directly
-        logger.LogInformation("Generating opening narration for game {GameId}", gameId);
-        await activity.BroadcastAsync(gameId, "GeneratingNarration", ct: ct);
-        var narration = await narrativeFactory.GenerateOpeningNarrationAsync(gameId, ct);
-        if (!string.IsNullOrEmpty(narration))
+        // The opening scene is a GM turn like any other and goes through the same loop. It
+        // used to be one tool-less call made here, so a scene that opened on an ambush
+        // announced "combat begins" with invented hit points while the tracker stayed empty —
+        // and the first player to act found no fight to act in. The saga posts the narration
+        // and broadcasts the activity, Completed included.
+        logger.LogInformation("Queueing opening narration for game {GameId}", gameId);
+        await agentBus.SendCallAsync(new AgentCall
         {
-            var msg = new Message
-            {
-                SessionId = session.Id,
-                Content = narration,
-                Type = "GM",
-                CreatedAt = DateTimeOffset.UtcNow
-            };
-            db.Messages.Add(msg);
-            await db.SaveChangesAsync(ct);
-
-            var dto = new MessageDto(msg.Id, msg.SessionId, null, msg.Content, msg.Type, false, msg.CreatedAt, null);
-            await hub.Clients.Group(gameId.ToString()).SendAsync("NewMessage", dto, ct);
-        }
-
-        // Always broadcast Completed, success or not. The client used to clear its activity
-        // chip purely by observing a GM NewMessage arrive, which worked as long as nothing
-        // remembered activity state server-side. Now that IGmActivityBroadcaster caches the
-        // last activity per game (so a client joining mid-generation can catch up), leaving
-        // this unbroadcast on the success path meant the cache stayed stuck on
-        // "GeneratingNarration" forever, and anyone who reconnected afterwards — e.g. a player
-        // navigating away to create a character and back — got replayed that stale "Writing
-        // the opening scene…" chip despite the turn having finished ages ago.
-        await activity.BroadcastAsync(gameId, "Completed", ct: ct);
+            GameId = gameId,
+            SessionId = session.Id,
+            FromAgent = AgentType.GM,
+            ToAgent = AgentType.GM,
+            Action = AgentAction.Narrate,
+            Input = JsonSerializer.Serialize(new GMDispatchOptions("", "", Pending: GMDispatchOptions.PendingOpening))
+        });
     }
 
     private async Task SeedPromptTemplatesAsync(Guid gameId, CancellationToken ct)

@@ -70,5 +70,6 @@ public record ToolCallConfirmationResolved(Guid AgentCallId, Guid GameId, string
 /// </summary>
 // ToolName and InterimTotal are trailing and defaulted so a message persisted before they
 // existed still deserialises: the only player-roll tool then was requestPlayerRoll, and it
-// never needed the kept roll's total.
-public record RerollResolved(Guid AgentCallId, Guid GameId, string ArgumentsJson, int ToolIndex, Guid CharacterId, string? FeatureId, string InterimContent, Guid? PromptMessageId, string ToolName = "requestPlayerRoll", int InterimTotal = 0);
+// never needed the kept roll's total. InterimNatural is the d20's face, which an attack needs
+// to know a critical hit from a high total.
+public record RerollResolved(Guid AgentCallId, Guid GameId, string ArgumentsJson, int ToolIndex, Guid CharacterId, string? FeatureId, string InterimContent, Guid? PromptMessageId, string ToolName = "requestPlayerRoll", int InterimTotal = 0, int? InterimNatural = null);

@@ -70,7 +70,8 @@ Migrations are applied automatically on startup by `MigrationService.ApplyMigrat
 `DesignTimeDbContextFactory` builds the context for the EF tooling so `dotnet ef` does not boot the full host (which would demand a real JWT key and encryption key it has no need for).
 
 Current migrations: `InitialCreate`, `AddCharacterBackstory`, `AgentLoopToolCallState`, `PlotThreadResolvedAt`, `AddLlmInteractionLogStatus`, `AddAgentCallStepHistoryAndLlmReasoning`, `AddAgentCallRequestedByPlayer`, `NPCStatusAndLastSeen`, `ClearPrivateMessageEmbeddings`,
-`CharacterFeaturesAndSecretRolls`, `RollPromptMessageLink`, `CombatZones`, `ExperienceAndStoryNudges`.
+`CharacterFeaturesAndSecretRolls`, `RollPromptMessageLink`, `CombatZones`, `ExperienceAndStoryNudges`,
+`LivingCharacterPerPlayer`.
 
 **Check scaffolded migrations before accepting them.** EF emits `jsonb NOT NULL DEFAULT ''` for new `JsonElement` columns; `''` is not valid JSON and the `ALTER TABLE` fails. The converter's sentinel is the literal `"null"`.
 
@@ -136,7 +137,22 @@ AgentCallQueued → AgentSaga.Start
 - **Text that arrives with tool calls is posted at once** (as is the `narrate` tool), before the tools run, so the chat reads in the order things happened. A line already said this turn is dropped — a model sent back for more tends to repeat itself.
 - **A turn ends only when the next move is a player's.** `ICombatTracker.PendingGmTurnAsync` says whether the fight is waiting on the GM (an enemy's turn, a death save, nobody left standing); if so the saga sends the model back with a note instead of completing. `AgentSaga.MaxRounds` (60) and `MaxContinuations` (20) bound it, and the last round is made without tools, so a turn always ends in narration. Silence never triggers the GM — only a player's line starts a turn.
 - **A blank reply after tools ran is answered with a tool-less "tell the table" step** (`TurnLog.Close`), not a plain retry. Retried as an ordinary step the model "continued" and gave a player character a second attack nobody asked for.
-- One round that only spoke (`narrate`/`wait`) goes back to the model — it is usually describing the attempt before reaching for the dice. Two in a row end the turn, or a model that narrates through the tool keeps narrating a round at a time.
+- **A turn's prompts are built when it starts, and one turn runs per game.** `TriggerNarrate` and
+  `GameStartService` queue an `AgentCall` whose `Input` has `GMDispatchOptions.Pending` set;
+  `AgentSaga.Start` claims the game through `IGmTurnQueue.TryBeginAsync` (an advisory lock makes
+  the check and the claim one step), has `INarratorPromptService` build the prompts and writes
+  them back to `Input`. A line sent while a turn is running stays `Pending` — its `Start`
+  completes without storing a saga — and every way a turn can end (`ReleaseNextAsync`) queues
+  the oldest waiting one again. Two sagas on one fight meant two models advancing one turn
+  order. `AgentCall.UpdatedAt` is touched by `AdvanceStep`; a `Running` turn that has not moved
+  for ten minutes is treated as a crash's leftover and does not block the game.
+- **The opening scene is a GM turn** (`Pending = "opening"`), not a separate tool-less call: it
+  used to announce a fight in prose while the tracker stayed empty. It may not `wait` — only a
+  turn a player started (`FromAgent == Player`) can end in silence.
+- **Narration the table has already heard this turn is dropped** — `TurnLog.Unsaid` compares by
+  words, not by string, and strips retold sentences from a reply that goes on to add something.
+- One round that only spoke (`narrate`/`wait`) goes back to the model — it is usually describing the attempt before reaching for the dice. Two in a row end the turn, or a model that narrates through the tool keeps narrating a round at a time. On the step after a speech-only round `LLMDispatchHandler` does not offer `narrate` at all: asked to go on, the model narrated the same swing a second time and the attack was never rolled.
+- **A refused call stops the rest of that reply's calls.** A tool result that starts with `TurnLog.Refused` (a combat rule broken, an attack out of turn, a roll for nobody) makes `Handle(ToolCallCompleted)` log the remaining calls as not run and go back to the model. They were chosen assuming the refused one would happen; run anyway, they told the table about a lunge and a death save that never took place.
 
 **A saga-routed message (one carrying `[property: SagaIdentity]`) is delivered only to that saga's `Start`/`Handle` methods.** A separate plain-handler class registered for the same message type is silently never invoked — no exception, no log, the message just doesn't reach it. This cost a full gameplay loop, four separate times over: `SagaOrchestratorHandler` (for `AgentCallQueued`), `LLMResponseHandler` (for `LLMResponseReceived`), `CoordinatorHandler` (for `ToolCallCompleted`), and `NarrativeHandler` (for `NarrativeReady`) each used to sit *alongside* the saga's own `Handle` method for the same message, silently dead on arrival every time — Wolverine gave no error, so each one shipped, got tested with a code path that happened not to exercise it, and only surfaced later. In the `NarrativeReady` case specifically, this meant the saga reached "Completed" while the chat message was never saved or broadcast and `AgentCall.Status` never left `Running` — from the admin UI it looked identical to a hung LLM call. All four are now merged directly into `AgentSaga`'s own `Handle` methods, and the standalone handler classes are deleted. Do not add a standalone handler for a message type a saga already owns — put the logic in the saga's `Handle` method, and grep for an existing plain handler on the same message type before assuming one doesn't already conflict.
 
@@ -166,7 +182,8 @@ and conditions outside combat, inventory (stacks, `[{name, quantity}]`; older sh
 strings and read as quantity 1), spell slots, rests and experience; `ICombatTracker` owns them
 in a fight and writes a PC's HP and conditions through to the sheet. Both push
 `CharacterUpdated`. `ClassRules` holds the numbers: hit dice, the full/half/pact slot tables,
-proficiency and the XP thresholds — level-ups are applied by `awardExperience`, never set.
+proficiency, the XP thresholds and each class's starting weapons (their damage dice are part of
+the item name, e.g. `Longsword (1d8 slashing)`, which is how the narrator's prompt can list them) — level-ups are applied by `awardExperience`, never set.
 `PUT /api/characters/{id}` accepts only who the character is (name, background, backstory,
 custom fields).
 
@@ -203,15 +220,32 @@ line out of turn is table talk or a reaction, not a full turn. Turn changes and 
 start and end are posted as `Type "Combat"` messages, so the log reads as the table heard it.
 Damage to a player character's participant is written through to `Character.CurrentHP`.
 
-**The engine enforces the turn order; the prompt only describes it.** `attack` resolves an
-enemy's whole attack in one call — to-hit against the target's AC, damage, hit points — and
-refuses unless the attacker is the combatant whose turn it is, because a model told the order in
-prose still rolled for goblins on the player's turn. Player characters attack through
-`requestPlayerRoll` (the reroll offer needs it). `deathSave` is the dying character's whole
+**The engine enforces the turn order; the prompt only describes it.** `attack` resolves a
+whole attack in one call — to-hit against the target's AC, damage, hit points — for an enemy
+or a player character, and by default ends the attacker's turn, so an enemy's turn is one tool
+call and a run of enemies can be one model reply. It refuses unless the attacker is the
+combatant whose turn it is (or `reaction` is set), because a model told the order in prose
+still rolled for goblins on the player's turn, and it refuses to strike a player character who
+is already dying unless `evenIfDown` is set — calls in one reply are chosen blind, and the
+second goblin would otherwise pile onto whoever the first dropped. A player character's `attack`
+is a player roll: `PlanPlayerRollAsync` turns it into the to-hit roll (DC = the target's AC, so
+a reroll is offered on a miss) and `FinishPlayerRollAsync` lands it with the settled total and
+the d20's face; for anyone else the plan comes back `Direct` and the tool is simply executed. `deathSave` is the dying character's whole
 turn: it is refused off-turn and advances the turn itself, or the model is asked for it twice.
 Damage to a character already at 0 HP fails a death save (two on a critical hit); it used to
-*clear* them, so a downed character could be hit every round and never die. When no player
-character can act any more, `PendingGmTurnAsync` tells the GM to end the fight.
+*clear* them, so a downed character could be hit every round and never die. When either side has
+nobody left who can act, `ICombatTracker.FightOver` says so — `PendingGmTurnAsync`, `attack` and
+`nextTurn` all return it instead of passing the turn on — and the GM is told to end the fight.
+
+**Death is written to the sheet.** Three failed death saves put the condition
+`CharacterStateService.Dead` on the character (the fight ends; the sheet is what the next scene
+goes by). A dead character is left out of new fights, cannot be rolled for, and their player
+cannot speak in character (`SendMessage` refuses — an in-character line starts a GM turn) but can
+still talk OOC. `heal` does nothing for the dead unless the GM sets `revive`. The player's way
+back is a new character: `POST /api/characters` accepts one when the existing character is dead,
+soft-deletes the dead one (it stays on record — hence the filtered unique index on
+`Characters.PlayerId`) and announces the newcomer in the log; `addCombatParticipant` naming a
+player character adds them as themselves, so they can join a fight already under way.
 
 ### Rolls, rerolls, and who is asked what
 
@@ -222,10 +256,10 @@ and approval only ever meant "yes, apply the rules to me". Optional rolls still 
 confirmation. `IGMToolRegistry.RequiresConfirmation` therefore takes the *arguments*, not just
 the tool name.
 
-**Players never roll.** Every roll attributed to a player is the GM's `requestPlayerRoll` or
-`deathSave`, made for them through `IPlayerRollService` — optional rolls ask first, mandatory
+**Players never roll.** Every roll attributed to a player is the GM's `requestPlayerRoll`,
+`deathSave` or a player character's `attack`, made for them through `IPlayerRollService` — optional rolls ask first, mandatory
 ones are rolled and reported — and any reroll offer holds the turn. `IGMToolRegistry.IsPlayerRoll`
-routes both tools through `ToolExecutionHandler`'s roll path; `PlanPlayerRollAsync` resolves the
+routes them through `ToolExecutionHandler`'s roll path; `PlanPlayerRollAsync` resolves the
 named character at every stage (ask, confirm, reroll) and `FinishPlayerRollAsync` applies the
 settled number — a death save is recorded only after any reroll is decided.
 

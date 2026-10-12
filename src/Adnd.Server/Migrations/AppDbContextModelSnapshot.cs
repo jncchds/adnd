@@ -227,7 +227,8 @@ namespace Adnd.Server.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("PlayerId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("NOT \"IsDeleted\"");
 
                     b.ToTable("Characters");
                 });

@@ -1,3 +1,4 @@
+using Adnd.Server.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Hubs;
@@ -24,8 +25,10 @@ public partial class GameHub
         // means every GMActivity push that already fired was missed, showing a static
         // "GM Active" for the rest of the ~30-60s game-start pipeline. Catch this caller up
         // on whatever's in progress right now.
-        if (gmActivity.GetCurrent(gameId) is { } current)
-            await Clients.Caller.SendCoreAsync("GMActivity", [current]);
+        // And when nothing is in progress, say so: a client that was disconnected while the
+        // turn ended would otherwise come back still showing the chip it left with.
+        await Clients.Caller.SendCoreAsync("GMActivity",
+            [gmActivity.GetCurrent(gameId) ?? new GMActivityDto(gameId, nameof(SagaStep.Completed), null)]);
 
         // Same for a fight in progress: combat only ever arrived as live pushes, so a reload
         // mid-fight lost the panel until something happened to change it.

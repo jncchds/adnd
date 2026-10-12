@@ -6,6 +6,20 @@
 - feat: enemies act on their own — when a turn passes to an enemy the GM plays it, and the next, until it is a player character's turn; a fight is never left waiting on the GM
 - feat: the GM narrates as it goes — what it says alongside its rolls appears in the chat in order, instead of one paragraph after everything is over
 - feat: new GM tool `attack` resolves an enemy's attack in one step (to hit against AC, damage, hit points) and only for the combatant whose turn it is
+- feat: `attack` now resolves a player character's attack too — one step instead of three, with the reroll offer kept — and ends the attacker's turn, so a round of enemies takes one GM reply instead of two per enemy
+- feat: the opening scene is a full GM turn: a session that opens on a fight really starts one, instead of announcing it in prose with nobody in the turn order
+- feat: a character who fails three death saves is dead on their sheet — they take no further part, their player can still talk out of character, and is offered a new character to bring into the story (also into a fight already under way)
+- feat: `heal` can raise a dead character when the GM sets `revive`; ordinary healing does nothing for the dead
+- feat: new characters start with their class's weapons, and the GM is shown each character's weapons and proficiency bonus instead of looking the sheet up before every attack
+- fix: a second player speaking while the GM was still resolving a turn started a second GM on the same fight; lines now wait their turn and are answered in order, each with the scene as the one before left it
+- fix: the GM is told which character said the line it is answering
+- fix: an enemy no longer strikes a character who is already down unless the GM means it to
+- fix: the GM repeating itself in other words within a turn — a reworded line is dropped, and a reply that retells before adding keeps only what is new
+- fix: a fight with no enemy left standing, or no character left who can act, is ended instead of going on to the next turn
+- fix: when the engine refuses one of the GM's actions, the rest of that reply is not played out — the table was told about attacks and rolls that never happened
+- fix: the GM describing an attack twice and never rolling it
+- fix: an enemy that rolled higher initiative than the party lost its first turn
+- fix: the activity chip stays up for the whole GM turn instead of flickering off at every line, and is cleared on reconnect when the turn ended meanwhile
 - fix: a dying character makes one death save per turn and the turn then passes on by itself
 - fix: damage to a character at 0 hit points fails a death save (two on a critical hit) instead of clearing them, so a downed character can die
 - fix: a fight ends when no player character can act any more, instead of going round among the enemies
@@ -13,6 +27,7 @@
 - fix: a combatant joining a fight no longer appears twice in the combat strip until the next update
 - fix: the first game started on a fresh database failed with a server error — the vector type was unknown until the app was restarted
 - fix: `narrate` shows its text to the table; it used to return it to the GM only
+- migration: `LivingCharacterPerPlayer` makes the one-character-per-player index cover living characters only, so a dead one can stay on record beside its replacement
 
 ## v0.1.5 — 2026-09-28
 

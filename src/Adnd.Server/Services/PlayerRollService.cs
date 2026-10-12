@@ -29,7 +29,8 @@ public record PlayerRollResult(
     int? Dc,
     bool? Success,
     Guid? CharacterId,
-    IReadOnlyList<RerollOption> RerollOptions);
+    IReadOnlyList<RerollOption> RerollOptions,
+    int? NaturalD20 = null);
 
 public interface IPlayerRollService
 {
@@ -71,7 +72,7 @@ public class PlayerRollService(
             ? await rerolls.GetOptionsAsync(cid, roll, request.Dc, ct)
             : [];
 
-        return new PlayerRollResult(content, roll.Total, request.Dc, success, characterId, options);
+        return new PlayerRollResult(content, roll.Total, request.Dc, success, characterId, options, roll.NaturalD20);
     }
 
     public async Task<PlayerRollResult?> RerollAsync(PlayerRollRequest request, Guid characterId, string featureId, CancellationToken ct = default)
@@ -89,7 +90,7 @@ public class PlayerRollService(
 
         // No second offer: the abilities modelled here all say the new roll stands, and an
         // ability that could chain would need its own rule rather than this fall-through.
-        return new PlayerRollResult(content, roll.Total, request.Dc, success, characterId, []);
+        return new PlayerRollResult(content, roll.Total, request.Dc, success, characterId, [], roll.NaturalD20);
     }
 
     private async Task PersistAndBroadcastAsync(

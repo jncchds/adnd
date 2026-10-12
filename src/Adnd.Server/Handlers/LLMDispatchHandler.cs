@@ -118,8 +118,15 @@ public class LLMDispatchHandler(
             {
                 // The GM tool registry must be offered to the model — passing an empty list here
                 // meant the GM could never call a tool, and pushed Ollama into its JSON-mode fallback.
+                // After a reply that only described the attempt, narrate is taken off the
+                // table. Asked to go on, a model that narrates through the tool narrated the
+                // same swing again — observed live, twice running — and the turn ended with the
+                // attack never rolled. It can still end the turn in plain words.
+                var tools = TurnLog.LastRoundOnlySpoke(turnSoFar)
+                    ? toolRegistry.GetToolDefinitions().Where(t => t.Name != "narrate")
+                    : toolRegistry.GetToolDefinitions();
                 var result = await provider.CompleteWithToolsAsync(
-                    msg.SystemPrompt, userPrompt, toolRegistry.GetToolDefinitions(), opts, ct);
+                    msg.SystemPrompt, userPrompt, tools, opts, ct);
                 sw.Stop();
                 responseText = result.NarrativeText ?? "";
                 reasoning = result.Reasoning;

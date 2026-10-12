@@ -388,9 +388,9 @@ export default function GameChatPage() {
   useEffect(() => {
     const handleNewMessage = (msg: Message) => {
       appendLive(msg)
-      // A GM message arriving is the definitive end of a turn — clears the activity
-      // indicator even if a Completed/Failed broadcast was somehow missed.
-      if (msg.type === 'GM') setGmActivity(null)
+      // A GM message is not the end of a turn any more: the GM speaks, rolls, and speaks
+      // again within one. Only Completed/Failed clears the chip — and the server sends one of
+      // those on (re)join too, so a missed broadcast cannot leave it stuck.
       if (isAtBottom.current) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
     }
     const handleGMActivity = (a: GMActivity) => setGmActivity(a.step === 'Completed' || a.step === 'Failed' ? null : a)
@@ -477,6 +477,8 @@ export default function GameChatPage() {
     if (el.scrollTop < 80 && hasMore && !msgsLoading) loadOlder()
   }, [hasMore, msgsLoading, loadOlder])
 
+  const myCharacterIsDead = !!myCharacter?.conditions?.includes('Dead')
+
   const send = async () => {
     if (!input.trim() || !gameId) return
 
@@ -484,6 +486,11 @@ export default function GameChatPage() {
     // (defense in depth), but failing fast here avoids a round-trip and a raw hub error.
     if (!isOOC && myCharacter === null) {
       setSendError('Create a character before speaking in character. Use OOC for table talk.')
+      return
+    }
+
+    if (!isOOC && myCharacterIsDead) {
+      setSendError(`${myCharacter?.name} is dead. Create a new character to rejoin the story, or use OOC for table talk.`)
       return
     }
 
@@ -555,6 +562,13 @@ export default function GameChatPage() {
         <Alert severity="warning" sx={{ mx: 2 }}
           action={<Button size="small" color="inherit" onClick={() => navigate(`/game/${gameId}/character/new`)}>Create Character</Button>}>
           You don't have a character in this game yet.
+        </Alert>
+      )}
+
+      {myCharacterIsDead && (
+        <Alert severity="error" sx={{ mx: 2 }}
+          action={<Button size="small" color="inherit" onClick={() => navigate(`/game/${gameId}/character/new`)}>New Character</Button>}>
+          {myCharacter?.name} has died. You can keep talking out of character, or bring a new character into the story.
         </Alert>
       )}
 
@@ -639,7 +653,7 @@ export default function GameChatPage() {
             {hub.isConnected ? '● Connected' : '○ Disconnected'}
           </Typography>
           {gmActivity ? (
-            <Tooltip title="The GM is working on this turn — nothing's frozen, this can take up to a minute.">
+            <Tooltip title="The GM is working on this turn — nothing's frozen. A round of combat can take a few minutes.">
               <Chip
                 icon={<CircularProgress size={12} color="inherit" sx={{ ml: '6px !important' }} />}
                 label={activityLabel(gmActivity)}

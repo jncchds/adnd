@@ -40,6 +40,8 @@ public class AgentCall
     public void AdvanceStep(SagaStep step)
     {
         CurrentStep = (int)step;
+        // The turn queue reads this to tell a turn that is still moving from one a crash left behind.
+        UpdatedAt = DateTimeOffset.UtcNow;
         if (StepHistory.Count == 0 || StepHistory[^1].Step != step)
             StepHistory.Add(new AgentStepEvent(step, DateTimeOffset.UtcNow));
     }

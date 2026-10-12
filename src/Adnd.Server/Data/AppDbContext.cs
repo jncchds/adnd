@@ -134,6 +134,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .WithOne(p => p.Character)
             .HasForeignKey<Character>(c => c.PlayerId);
 
+        // One living character per player. A character who died stays on record, soft-deleted,
+        // when their player brings in a new one — so the uniqueness the one-to-one implies
+        // may only cover rows that are not deleted.
+        modelBuilder.Entity<Character>()
+            .HasIndex(c => c.PlayerId).IsUnique().HasFilter("NOT \"IsDeleted\"");
+
         ConfigureJsonb<Character>(modelBuilder, c => c.Attributes, jsonComparer);
         ConfigureJsonb<Character>(modelBuilder, c => c.Skills, jsonComparer);
         ConfigureJsonb<Character>(modelBuilder, c => c.Inventory, jsonComparer);

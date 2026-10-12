@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Adnd.Server.Services;
 
@@ -13,11 +14,15 @@ public record TurnLogEntry(int Round, string Kind, string Name, string? Argument
 /// replayed to it on every step — which is also what lets a retried step resume instead of
 /// running the turn's tools a second time.
 /// </summary>
-public static class TurnLog
+public static partial class TurnLog
 {
     public const string Tool = "tool";
     public const string Said = "said";
     public const string Directive = "directive";
+
+    /// <summary>How a tool result starts when the engine refused the call. The rest of that
+    /// reply's calls were chosen on the assumption it would happen, so they are not run.</summary>
+    public const string Refused = "Not done — ";
 
     /// <summary>A directive after which the model is offered no tools: all that is left is to narrate.</summary>
     public const string Close = "close";
@@ -31,8 +36,70 @@ public static class TurnLog
 
     /// <summary>A model sent back for more often answers with the line it has just said.</summary>
     public static bool AlreadySaid(IEnumerable<TurnLogEntry> entries, string text)
-        => entries.Any(e => (e.Kind == Said || e.Name == "narrate")
-            && string.Equals(e.Result.Trim(), text.Trim(), StringComparison.OrdinalIgnoreCase));
+        => Unsaid(entries, text).Length == 0;
+
+    /// <summary>
+    /// The part of <paramref name="text"/> the table has not already been told this turn.
+    /// Only identical lines used to be dropped, but a model rarely repeats itself to the
+    /// letter: it rewords the line, or opens its next reply by retelling the last one before
+    /// adding to it. So a reply that says nothing new is dropped whole, and one that retells
+    /// before it adds keeps only what it adds.
+    /// </summary>
+    public static string Unsaid(IEnumerable<TurnLogEntry> entries, string text)
+    {
+        text = text.Trim();
+        var heard = entries.Where(e => e.Kind == Said || (e.Kind == Tool && e.Name == "narrate"))
+            .Select(e => e.Result).ToList();
+        if (text.Length == 0 || heard.Count == 0) return text;
+
+        var words = Words(text);
+        if (heard.Select(Words).Any(h => Retells(words, h)))
+            return "";
+
+        var heardSentences = heard.SelectMany(h => SentenceBreak().Split(h)).Select(Words).Where(w => w.Count >= 4).ToList();
+        if (heardSentences.Count == 0) return text;
+
+        // Split keeps the whitespace between sentences as its own piece, so what is kept is
+        // put back together as it was written, paragraph breaks included.
+        var pieces = SentenceBreak().Split(text);
+        var kept = new StringBuilder();
+        for (var i = 0; i < pieces.Length; i += 2)
+        {
+            var sentence = Words(pieces[i]);
+            if (sentence.Count >= 4 && heardSentences.Any(h => Retells(sentence, h))) continue;
+            kept.Append(pieces[i]);
+            if (i + 1 < pieces.Length) kept.Append(pieces[i + 1]);
+        }
+        var rest = kept.ToString().Trim();
+        return Words(rest).Count == 0 ? "" : rest;
+    }
+
+    [GeneratedRegex(@"(?<=[.!?…][""'”’»)*_]*)(\s+)")]
+    private static partial Regex SentenceBreak();
+
+    [GeneratedRegex(@"[\p{L}\p{N}]+")]
+    private static partial Regex Word();
+
+    private static HashSet<string> Words(string text)
+        => Word().Matches(text.ToLowerInvariant()).Select(m => m.Value).ToHashSet();
+
+    private static int Overlap(HashSet<string> a, HashSet<string> b) => a.Count(b.Contains);
+
+    /// <summary>Whether <paramref name="said"/> is <paramref name="heard"/> over again: much
+    /// the same words, a part of it, or all of it with a clause added.</summary>
+    private static bool Retells(HashSet<string> said, HashSet<string> heard)
+    {
+        if (said.Count == 0 || heard.Count == 0) return false;
+        var shared = Overlap(said, heard);
+        return shared >= 0.8 * (said.Count + heard.Count - shared)
+            || (said.Count >= 5 && shared >= 0.9 * said.Count)
+            || (heard.Count >= 5 && shared >= 0.9 * heard.Count && said.Count <= 1.75 * heard.Count);
+    }
+
+    /// <summary>Whether the last reply did nothing but tell the table something.</summary>
+    public static bool LastRoundOnlySpoke(IReadOnlyList<TurnLogEntry> entries)
+        => entries.Count > 0 && entries.Where(e => e.Round == entries[^1].Round)
+            .All(e => e.Kind == Said || (e.Kind == Tool && e.Name == "narrate"));
 
     public static bool HasSpoken(IEnumerable<TurnLogEntry> entries)
         => entries.Any(e => e.Kind == Said || (e.Kind == Tool && e.Name == "narrate"));
@@ -62,6 +129,13 @@ public static class TurnLog
             sb.AppendLine();
             sb.AppendLine("=== THE FIGHT RIGHT NOW (this replaces any earlier description of the combat) ===");
             sb.AppendLine(combatState);
+        }
+
+        // A model that describes the blow and stops tends, asked again, to describe it again.
+        if (toolsAllowed && LastRoundOnlySpoke(entries))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Your last reply only described what is being attempted. The table has read it; do not describe it again. Now make the tool call that resolves it.");
         }
 
         sb.AppendLine();

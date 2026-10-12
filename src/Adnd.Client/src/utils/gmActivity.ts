@@ -9,13 +9,13 @@ export const STEP_LABELS: Record<string, string> = {
   LLMResponse: 'Reviewing what happened…',
   ToolExecution: 'Resolving an action…',
   ToolCoordination: 'Resolving an action…',
-  LLMFollowUp: 'Composing the narration…',
+  // Every step after the first: the GM has seen what its tools returned and goes on from there.
+  LLMFollowUp: 'The GM is working out what happens next…',
   NarrativeReady: 'Almost done…',
-  // Game-start pipeline (GameStartService) — doesn't run through AgentSaga, so these are
-  // plain phase names rather than SagaStep values.
+  // Game-start pipeline (GameStartService) — what runs before the opening scene's own GM
+  // turn, so these are plain phase names rather than SagaStep values.
   GeneratingPlot: 'Weaving the opening plot…',
   GeneratingRecap: 'Recalling last session…',
-  GeneratingNarration: 'Writing the opening scene…',
 }
 
 export const TOOL_LABELS: Record<string, string> = {
@@ -29,6 +29,7 @@ export const TOOL_LABELS: Record<string, string> = {
   searchPlotContext: 'Recalling the story so far…',
   updateGameState: 'Updating the world…',
   sendWhisper: 'Sending a whisper…',
+  attack: 'Resolving an attack…',
   startCombat: 'Starting combat…',
   addCombatParticipant: 'Adding a combatant…',
   moveParticipant: 'Moving a combatant…',

@@ -37,12 +37,17 @@ public class ToolExecutionHandler(
 
         var pendingSession = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
         var plan = await toolRegistry.PlanPlayerRollAsync(msg.ToolName, arguments, msg.GameId, pendingSession.Id, ct);
+        if (plan.Direct)
+        {
+            await ExecuteAndPublishAsync(msg.AgentCallId, msg.GameId, msg.ToolName, msg.ArgumentsJson, msg.ToolIndex, ct);
+            return;
+        }
         if (plan.Request is not { } request)
         {
             // Nobody to roll for — the model named someone who isn't there. Told so, it can
             // correct the call on its follow-up instead of the turn stalling on an ask no
             // player will ever see.
-            await PublishToolCompletedAsync(msg.AgentCallId, msg.GameId, msg.ToolName, plan.Error ?? "The roll could not be made.", msg.ToolIndex, ct);
+            await PublishToolCompletedAsync(msg.AgentCallId, msg.GameId, msg.ToolName, TurnLog.Refused + (plan.Error ?? "The roll could not be made."), msg.ToolIndex, ct);
             return;
         }
 
@@ -142,6 +147,7 @@ public class ToolExecutionHandler(
     {
         var content = msg.InterimContent;
         var total = msg.InterimTotal;
+        var natural = msg.InterimNatural;
         var arguments = JsonSerializer.Deserialize<JsonElement>(msg.ArgumentsJson);
 
         if (msg.FeatureId is null)
@@ -163,6 +169,7 @@ public class ToolExecutionHandler(
             {
                 content = rerolled.Content;
                 total = rerolled.Total;
+                natural = rerolled.NaturalD20;
                 if (msg.PromptMessageId is { } promptId)
                     await prompts.ResolveAsync(msg.GameId, promptId, "DiceRoll", rerolled.Content,
                         new { total = rerolled.Total, dc = rerolled.Dc, success = rerolled.Success },
@@ -182,7 +189,7 @@ public class ToolExecutionHandler(
             }
         }
 
-        content = await FinishAsync(msg.ToolName, arguments, msg.GameId, total, content, ct);
+        content = await FinishAsync(msg.ToolName, arguments, msg.GameId, total, natural, content, ct);
         await PublishToolCompletedAsync(msg.AgentCallId, msg.GameId, msg.ToolName, content, msg.ToolIndex, ct);
     }
 
@@ -216,7 +223,7 @@ public class ToolExecutionHandler(
 
             if (result.RerollOptions.Count == 0 || result.CharacterId is not { } characterId)
             {
-                var final = await FinishAsync(toolName, arguments, gameId, result.Total, result.Content, ct);
+                var final = await FinishAsync(toolName, arguments, gameId, result.Total, result.NaturalD20, result.Content, ct);
                 await PublishToolCompletedAsync(agentCallId, gameId, toolName, final, toolIndex, ct);
                 return;
             }
@@ -236,6 +243,7 @@ public class ToolExecutionHandler(
                 {
                     content = result.Content,
                     total = result.Total,
+                    natural = result.NaturalD20,
                     success = result.Success,
                     options = result.RerollOptions
                 })
@@ -263,11 +271,11 @@ public class ToolExecutionHandler(
 
     /// <summary>Applies the settled number — a death save is recorded only once any reroll is
     /// done — and never lets a failure there lose the roll the player already saw.</summary>
-    private async Task<string> FinishAsync(string toolName, JsonElement arguments, Guid gameId, int total, string content, CancellationToken ct)
+    private async Task<string> FinishAsync(string toolName, JsonElement arguments, Guid gameId, int total, int? natural, string content, CancellationToken ct)
     {
         try
         {
-            return await toolRegistry.FinishPlayerRollAsync(toolName, arguments, gameId, total, content, ct);
+            return await toolRegistry.FinishPlayerRollAsync(toolName, arguments, gameId, total, natural, content, ct);
         }
         catch (Exception ex)
         {

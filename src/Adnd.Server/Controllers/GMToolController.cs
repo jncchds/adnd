@@ -156,7 +156,7 @@ public class GMToolController(
             await eventBus.PublishAsync(new RerollResolved(
                 agentCallId, toolCall.GameId, toolCall.Arguments.GetRawText(), toolCall.ToolIndex,
                 characterId, featureId, ReadInterimContent(toolCall.Result), toolCall.PromptMessageId,
-                toolCall.ToolName, ReadInterimTotal(toolCall.Result)), ct);
+                toolCall.ToolName, ReadInterimTotal(toolCall.Result), ReadInterimNatural(toolCall.Result)), ct);
         }
 
         return NoContent();
@@ -169,6 +169,11 @@ public class GMToolController(
            && options.EnumerateArray().Any(o =>
                o.TryGetProperty("featureId", out var id)
                && string.Equals(id.GetString(), featureId, StringComparison.OrdinalIgnoreCase));
+
+    private static int? ReadInterimNatural(JsonElement result)
+        => result.ValueKind == JsonValueKind.Object
+           && result.TryGetProperty("natural", out var natural)
+           && natural.ValueKind == JsonValueKind.Number && natural.TryGetInt32(out var value) ? value : null;
 
     private static int ReadInterimTotal(JsonElement result)
         => result.ValueKind == JsonValueKind.Object

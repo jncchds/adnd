@@ -58,6 +58,14 @@ public class CharacterStateService(
     IFeatureCatalogue features,
     IHubContext<GameHub> hub) : ICharacterStateService
 {
+    /// <summary>The condition that marks a dead character's sheet. Death is decided in a fight
+    /// (three failed death saves) and written here, because the fight ends and the sheet is
+    /// what the next scene, the narrator and the player's own client go by.</summary>
+    public const string Dead = "Dead";
+
+    public static bool IsDead(Character character)
+        => CombatTracker.ReadConditions(character.Conditions).Any(c => c.Equals(Dead, StringComparison.OrdinalIgnoreCase));
+
     public async Task<Character?> FindAsync(Guid gameId, string name, CancellationToken ct = default)
     {
         var lowered = name.Trim().ToLowerInvariant();

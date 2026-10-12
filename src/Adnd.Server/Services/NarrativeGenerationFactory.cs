@@ -9,7 +9,6 @@ namespace Adnd.Server.Services;
 
 public interface INarrativeGenerationFactory
 {
-    Task<string> GenerateOpeningNarrationAsync(Guid gameId, CancellationToken ct = default);
     Task<string> GenerateSessionRecapAsync(Guid gameId, Guid sessionId, CancellationToken ct = default);
     Task<string> GenerateNarrativeAsync(Guid gameId, string prompt, float temperature = 0.8f, CancellationToken ct = default);
 
@@ -29,48 +28,8 @@ public class NarrativeGenerationFactory(
     ILLMProviderFactory factory,
     IApiKeyEncryptionService encryption,
     ILLMInteractionLogger llmLogger,
-    IStoryNudgeService nudges,
     ILogger<NarrativeGenerationFactory> logger) : INarrativeGenerationFactory
 {
-    public async Task<string> GenerateOpeningNarrationAsync(Guid gameId, CancellationToken ct = default)
-    {
-        var game = await db.Games
-            .Include(g => g.LLMPreset)
-            .FirstOrDefaultAsync(g => g.Id == gameId, ct);
-
-        if (game?.LLMPreset is null)
-            return "The adventure begins...";
-
-        var preset = game.LLMPreset;
-        if (preset.ApiKey is not null)
-            preset.DecryptedApiKey = encryption.Decrypt(preset.ApiKey);
-
-        var systemPrompt = await BuildSystemPromptAsync(gameId, game, ct);
-        var context = await rag.GeneratePlotContextAsync(gameId, ct);
-
-        var userPrompt = string.IsNullOrEmpty(game.PlotSeed)
-            ? "Begin the adventure with an engaging opening narration. Set the scene, establish atmosphere, and give the players a reason to act."
-            : $"Begin the adventure based on this seed: {game.PlotSeed}\n\nSet the scene with an engaging opening narration.";
-
-        if (!string.IsNullOrEmpty(context))
-            userPrompt = $"{context}\n\n{userPrompt}";
-
-        // A session's opening scene is a narrator turn like any other, so it spends one too.
-        if (nudges.Describe(await nudges.TakeForNarrationAsync(gameId, ct)) is { } direction)
-            systemPrompt = $"{systemPrompt}\n\n{direction}";
-
-        var opts = new LLMOptions
-        {
-            Model = preset.BaseModel,
-            Temperature = preset.Temperature,
-            MaxTokens = preset.MaxTokens,
-            TopP = preset.TopP
-        };
-
-        var provider = factory.CreateFromPreset(preset);
-        return await CompleteAndLogAsync(gameId, game.CreatorId, provider, preset, systemPrompt, userPrompt, opts, ct);
-    }
-
     public async Task<string> GenerateSessionRecapAsync(Guid gameId, Guid sessionId, CancellationToken ct = default)
         => await rag.GenerateSessionSummaryAsync(gameId, sessionId, ct);
 
@@ -127,8 +86,8 @@ public class NarrativeGenerationFactory(
 
     /// <summary>
     /// Wraps a provider call with two-phase LLM interaction logging (Pending → Completed/Failed).
-    /// Without this, opening narration and freeform narrative calls made directly here (rather
-    /// than through AgentSaga's LLMDispatchHandler) were invisible in Admin > LLM Logs.
+    /// Without this, calls made directly here (rather than through AgentSaga's
+    /// LLMDispatchHandler) were invisible in Admin > LLM Logs.
     /// </summary>
     private async Task<string> CompleteAndLogAsync(
         Guid gameId, Guid creatorId, ILLMProvider provider, LLMPreset preset,
