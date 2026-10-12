@@ -30,6 +30,12 @@ function AttrCard({ abbr, value }: { abbr: string; value: number }) {
   )
 }
 
+// jsonb hands the groups back in its own key order: cantrips first, then by spell level.
+function spellGroupOrder(group: string): number {
+  const level = group.match(/\d+/)
+  return level ? Number(level[0]) : 0
+}
+
 export default function CharacterSheetPage() {
   // Routed as /game/:id/character/:characterId — `id` is the game, not the sheet.
   const { id: gameId, characterId } = useParams<{ id: string; characterId: string }>()
@@ -220,9 +226,14 @@ export default function CharacterSheetPage() {
               ))}
             </Box>
           )}
-          {Object.entries(spells).map(([level, spellList]) => (
+          {character.spellcastingAbility && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Casts with {character.spellcastingAbility} · spell attack +{character.spellAttackBonus} · save DC {character.spellSaveDC}
+            </Typography>
+          )}
+          {Object.entries(spells).sort(([a], [b]) => spellGroupOrder(a) - spellGroupOrder(b)).map(([level, spellList]) => (
             <Box key={level} sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" fontWeight={600}>Level {level}</Typography>
+              <Typography variant="subtitle2" fontWeight={600}>{/^\d+$/.test(level) ? `Level ${level}` : level}</Typography>
               <Divider sx={{ mb: 1 }} />
               {(spellList as string[])?.map((s, i) => (
                 <Typography key={i} variant="body2" sx={{ py: 0.25 }}>• {typeof s === 'string' ? s : JSON.stringify(s)}</Typography>
