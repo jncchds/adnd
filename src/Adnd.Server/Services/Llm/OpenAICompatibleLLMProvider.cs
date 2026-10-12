@@ -114,10 +114,13 @@ public class OpenAICompatibleLLMProvider(
                 toolCalls.Add(new ToolCall(id, name, args));
             }
         }
-        else if (message.TryGetProperty("content", out var contentEl))
-        {
+
+        // Read whether or not tool_calls is there. LM Studio sends "tool_calls": [] beside a
+        // plain narration, and reading the text only when the field was absent threw every
+        // such reply away: the GM "came back empty" on one call in six, and an opening scene
+        // failed outright after three in a row.
+        if (message.TryGetProperty("content", out var contentEl) && contentEl.ValueKind == JsonValueKind.String)
             narrativeText = contentEl.GetString();
-        }
 
         // Observed live with LM Studio + Gemma: instead of using the structured tool_calls
         // field, the model sometimes writes a tool call as literal trailing text —
