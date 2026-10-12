@@ -236,7 +236,7 @@ public class GMToolRegistry(
 
     public IEnumerable<ToolDefinition> GetToolDefinitions() =>
     [
-        new("narrate", "Say something to the table right now, before the tool calls that follow it in the same response run — use it to describe an action ahead of the roll that resolves it. Your plain reply text does the same; do not send the same words both ways.",
+        new("narrate", "Say something to the table right now, before the tool calls that follow it in the same response run. Your plain reply text does the same; do not send the same words both ways. Not beside a roll: what is said before the dice fall is kept from the table.",
             Schema("""{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}""")),
         new("rollDice", "Roll dice using a fully-resolved formula, e.g. \"1d20+3\". Never use a placeholder like \"{strength}\" — look up the character's ability modifier (from context or queryCharacter) and write the number in yourself. Include \"dc\" whenever the roll is against a target number — the result will state whether it succeeded, so you don't have to compare it yourself.",
             Schema("""{"type":"object","properties":{"formula":{"type":"string"},"reason":{"type":"string"},"dc":{"type":"integer"}},"required":["formula"]}""")),
@@ -1021,7 +1021,7 @@ public class GMToolRegistry(
                ? $" — they are dying: call deathSave for {next.DisplayName} now. That is their whole turn and it passes the turn on."
                : next.ParticipantType == CombatParticipantType.Character
                ? $" — the next move is their player's: finish with your narration and no more tool calls. Say at most what {next.DisplayName} now faces; never describe {next.DisplayName} doing anything their player has not said."
-               : " — you play them. In one reply: a sentence saying what they attempt, together with the attack call that resolves it; the attack ends their turn by itself.");
+               : " — you play them: make the attack call that resolves their turn (it ends the turn by itself) and narrate once you have the result.");
 
     /// <summary>A critical hit rolls the damage dice twice; the modifier is added once.</summary>
     private static string DoubleDice(string formula)

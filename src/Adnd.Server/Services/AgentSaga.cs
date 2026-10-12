@@ -248,10 +248,26 @@ public class AgentSaga : Wolverine.Saga
         var coordinator = await GetOrAddCoordinatorAsync(db);
         var log = TurnLog.Read(coordinator.ToolResults);
 
-        // Text that comes with tool calls is said before they run, so the log reads in the
-        // order things happened: the swing, then the roll, then what the roll meant. It used
-        // to be thrown away in favour of the closing narration.
-        if (TurnLog.Unsaid(log, text) is { Length: > 0 } fresh)
+        // Words sent with a roll were written before the dice fell. Posted at once like any
+        // other text, they told the table the lock had clicked open and then showed the roll
+        // that failed. They are kept from the table and handed back as a draft instead; the
+        // roll's own line says what was attempted, and the narration follows the result.
+        if (toolCalls.Any(t => TurnLog.IsRoll(t.Name)))
+        {
+            var drafted = toolCalls.Where(t => t.Name == "narrate")
+                .Select(t => t.Arguments.ValueKind == JsonValueKind.Object
+                    && t.Arguments.TryGetProperty("text", out var said) && said.ValueKind == JsonValueKind.String ? said.GetString() : null)
+                .Prepend(text)
+                .Where(t => !string.IsNullOrWhiteSpace(t));
+            toolCalls.RemoveAll(t => t.Name == "narrate");
+            ToolsRemaining = toolCalls.Count;
+            if (TurnLog.Unsaid(log, string.Join("\n", drafted)) is { Length: > 0 } draft)
+                log.Add(new TurnLogEntry(Round, TurnLog.Directive, "", null,
+                    $"You wrote the following alongside a roll, before the dice had fallen, so it was NOT shown to the table: \"{draft}\" The roll's result is below. When you narrate, tell the table what was attempted and how it really turned out."));
+        }
+        // Text that comes with other tool calls is said before they run, so the log reads in
+        // the order things happened. It used to be thrown away in favour of the closing narration.
+        else if (TurnLog.Unsaid(log, text) is { Length: > 0 } fresh)
         {
             var session = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
             await PostNarrationAsync(db, hub, session.Id, call, fresh);

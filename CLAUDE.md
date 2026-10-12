@@ -135,6 +135,15 @@ AgentCallQueued → AgentSaga.Start
 **A GM turn is a loop, not a round.** The model answers, its tools run, it is shown the results and answers again, until it replies with narration and no tool calls. It used to get one round of tools chosen blind and then a tool-less narration call (`LLMFollowUpHandler`, deleted), so it could never act on a roll it had just made: `damage` was issued before the attack roll was known, lookups returned after the decision, and an enemy's turn could not be played at all. What the turn has done so far is the **turn log** (`TurnLog`, stored on `ToolCallCoordinator.ToolResults`, one row per agent call): tools with their arguments and results, lines already told to the table, and notes from the engine. `LLMDispatchHandler` reads it and appends it to the user prompt on every step after the first, together with the fight as it stands *now* — the system prompt was built when the player spoke. Because the handler reads the log rather than being handed it, `AgentCallFailedHandler`'s retry resumes the turn instead of running its tools a second time.
 
 - **Text that arrives with tool calls is posted at once** (as is the `narrate` tool), before the tools run, so the chat reads in the order things happened. A line already said this turn is dropped — a model sent back for more tends to repeat itself.
+- **Except beside a roll.** A reply that carries a roll (`TurnLog.IsRoll`: `attack`,
+  `requestPlayerRoll`, `rollDice`, `deathSave`) was written before the dice fell, so its text and
+  any `narrate` calls are not posted: `Handle(LLMResponseReceived)` logs them as a draft the
+  model gets back with the result ("NOT shown to the table"). The roll's own message says what
+  was attempted. Posted like other text, it announced the lock clicking open above the roll
+  that failed.
+- **Read `content` whether or not `tool_calls` is present.** LM Studio sends `"tool_calls": []`
+  beside plain narration; `OpenAICompatibleLLMProvider` read the text only when the field was
+  absent, so one reply in six "came back empty" and nothing sent beside tools ever arrived.
 - **A turn ends only when the next move is a player's.** `ICombatTracker.PendingGmTurnAsync` says whether the fight is waiting on the GM (an enemy's turn, a death save, nobody left standing); if so the saga sends the model back with a note instead of completing. `AgentSaga.MaxRounds` (60) and `MaxContinuations` (20) bound it, and the last round is made without tools, so a turn always ends in narration. Silence never triggers the GM — only a player's line starts a turn.
 - **A blank reply after tools ran is answered with a tool-less "tell the table" step** (`TurnLog.Close`), not a plain retry. Retried as an ordinary step the model "continued" and gave a player character a second attack nobody asked for.
 - **A turn's prompts are built when it starts, and one turn runs per game.** `TriggerNarrate` and

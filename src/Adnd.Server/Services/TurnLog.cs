@@ -24,6 +24,9 @@ public static partial class TurnLog
     /// reply's calls were chosen on the assumption it would happen, so they are not run.</summary>
     public const string Refused = "Not done — ";
 
+    /// <summary>A tool whose result is a die the model has not seen when it writes the reply.</summary>
+    public static bool IsRoll(string toolName) => toolName is "requestPlayerRoll" or "rollDice" or "attack" or "deathSave";
+
     /// <summary>A directive after which the model is offered no tools: all that is left is to narrate.</summary>
     public const string Close = "close";
 
@@ -145,7 +148,7 @@ public static partial class TurnLog
 
         sb.AppendLine();
         sb.AppendLine(toolsAllowed
-            ? "Continue from here. If the results above call for more — damage after a hit, a follow-up roll, the next combatant's turn — call those tools now, with a sentence of narration alongside. Do only what follows from what the player said: never give a player character a further action, attack or choice of your own. When nothing is left for you to resolve and the next move belongs to a player, reply with plain narration and no tool calls. Narrate only what you have not already told the table; if there is nothing to add, a single short line is enough."
+            ? "Continue from here. If the results above call for more — damage after a hit, a follow-up roll, the next combatant's turn — call those tools now; a roll goes alone, without narration beside it. Do only what follows from what the player said: never give a player character a further action, attack or choice of your own. When nothing is left for you to resolve and the next move belongs to a player, reply with plain narration and no tool calls. Narrate only what you have not already told the table; if there is nothing to add, a single short line is enough."
             : "You have no tool calls left this turn. Reply with plain narration only: what happened that you have not already told the table, and what the players now face.");
         return sb.ToString();
     }
