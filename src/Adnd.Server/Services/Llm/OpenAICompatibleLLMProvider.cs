@@ -11,6 +11,7 @@ public class OpenAICompatibleLLMProvider(
     string? apiKey,
     string? embeddingEndpointUrl,
     string? embeddingModel,
+    string? reasoningEffort,
     HttpClient httpClient,
     ILogger<OpenAICompatibleLLMProvider> logger) : BaseLLMProvider
 {
@@ -251,6 +252,11 @@ public class OpenAICompatibleLLMProvider(
             ["top_p"] = opts.TopP,
             ["stream"] = false
         };
+        // The preset's reasoning setting was never sent, so a local reasoning model thought at
+        // length before every reply however the preset was set: minutes per GM step, and
+        // answers that came back empty because the token budget went on the thinking.
+        if (reasoningEffort is not null && !_rejectsReasoningEffort.ContainsKey(ReasoningKey(opts.Model)))
+            body[ReasoningEffortParam] = reasoningEffort;
         if (opts.JsonMode)
         {
             var schema = opts.JsonSchema ?? _fallbackSchema;
@@ -269,9 +275,24 @@ public class OpenAICompatibleLLMProvider(
         using var req = BuildRequest(HttpMethod.Post, url);
         req.Content = new StringContent(json, Encoding.UTF8, "application/json");
         using var res = await httpClient.SendAsync(req, ct);
+
+        // Not every gateway or model takes the parameter. One that refuses it is remembered
+        // and asked again without it, rather than failing every call from then on.
+        if ((int)res.StatusCode is 400 or 422 && body is Dictionary<string, object> sent
+            && sent.TryGetValue("model", out var model) && sent.Remove(ReasoningEffortParam))
+        {
+            logger.LogWarning("{Endpoint} rejected {Param} for {Model}; continuing without it", endpointUrl, ReasoningEffortParam, model);
+            _rejectsReasoningEffort[ReasoningKey(model.ToString() ?? "")] = 0;
+            return await PostJsonAsync(url, sent, ct);
+        }
+
         res.EnsureSuccessStatusCode();
         return await res.Content.ReadAsStringAsync(ct);
     }
+
+    private const string ReasoningEffortParam = "reasoning_effort";
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _rejectsReasoningEffort = new();
+    private string ReasoningKey(string model) => $"{endpointUrl}|{model}";
 
     private HttpRequestMessage BuildRequest(HttpMethod method, string url)
     {

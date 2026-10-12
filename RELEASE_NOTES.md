@@ -27,6 +27,7 @@
 - fix: a combatant joining a fight no longer appears twice in the combat strip until the next update
 - fix: the first game started on a fresh database failed with a server error — the vector type was unknown until the app was restarted
 - fix: `narrate` shows its text to the table; it used to return it to the GM only
+- fix: a preset's reasoning effort is sent to OpenAI-compatible endpoints (and dropped again for one that rejects it), and its timeout is applied; both were saved and ignored, so a slow or cold local model hit a fixed 120-second limit
 - migration: `LivingCharacterPerPlayer` makes the one-character-per-player index cover living characters only, so a dead one can stay on record beside its replacement
 
 ## v0.1.5 — 2026-09-28
