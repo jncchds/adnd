@@ -156,6 +156,14 @@ public class CharactersController(
             .Select(item => new InventoryItem(item, 1)));
         character.Inventory = JsonSerializer.SerializeToElement(kit, ClassRules.Json);
 
+        if (ClassRules.SpellcastingAbility(character.Class) is { } castsWith)
+        {
+            character.Spells = JsonSerializer.SerializeToElement(ClassRules.StartingSpells(character.Class));
+            character.SpellcastingAbility = castsWith;
+            character.SpellAttackBonus = ClassRules.SpellAttackBonus(character.Class, character.Level, character.Attributes);
+            character.SpellSaveDC = ClassRules.SpellSaveDc(character.Class, character.Level, character.Attributes);
+        }
+
         character.Backstory = dto.Backstory;
 
         player.CharacterName = character.Name;

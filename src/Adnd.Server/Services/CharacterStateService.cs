@@ -203,6 +203,8 @@ public class CharacterStateService(
         {
             character.Level++;
             character.ProficiencyBonus = ClassRules.ProficiencyBonus(character.Level);
+            character.SpellAttackBonus = ClassRules.SpellAttackBonus(character.Class, character.Level, character.Attributes);
+            character.SpellSaveDC = ClassRules.SpellSaveDc(character.Class, character.Level, character.Attributes);
 
             // The die's fixed average rather than a roll: a level-up is not a moment anyone
             // should be asked to gamble on, and it keeps the GM out of the arithmetic.

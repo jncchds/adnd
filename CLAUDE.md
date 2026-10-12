@@ -193,6 +193,20 @@ in a fight and writes a PC's HP and conditions through to the sheet. Both push
 `CharacterUpdated`. `ClassRules` holds the numbers: hit dice, the full/half/pact slot tables,
 proficiency, the XP thresholds and each class's starting weapons (their damage dice are part of
 the item name, e.g. `Longsword (1d8 slashing)`, which is how the narrator's prompt can list them) — level-ups are applied by `awardExperience`, never set.
+**A player character's spell is one `castSpell` call**, as an attack is one `attack` call
+(`GMToolRegistry.Spells.cs`). It takes the targets and how the spell resolves — `attackRoll`
+(a player roll against the target's AC with `ClassRules.SpellAttackBonus`, so a miss can be
+rerolled), `save` (each target rolls against `ClassRules.SpellSaveDc`; a PC with their own
+modifier, anyone else with the `saveBonus` the model supplies) or neither — plus `damage`,
+`heal`, `halfOnSave` and `condition`; it spends the slot (level 0 is a cantrip), posts one ✨
+line and ends the caster's turn. When it only spent the slot, Burning Hands asked the player
+whether to roll damage, gave nobody a save and burned every target for the full amount. A new
+caster's spells come from `ClassRules.StartingSpells`, stored in `Character.Spells` as
+`{"Cantrips": [...], "Level 1": [...]}` with the resolution in each name
+(`Burning Hands (DEX save, 3d6 fire, half on a save, …)`) and listed in the narrator's prompt.
+Nothing yet teaches a character new spells on level-up, and an enemy's spell is still
+`requestPlayerRoll` (mandatory save) + `damage`.
+
 **Armour class is derived, never stored on the sheet.** `Character.ArmourClass` is
 `ClassRules.ArmourClass`: the best body armour in the inventory plus the best shield, read from
 the item names the same way weapon dice are (`Chain mail (AC 16)`, `Leather armour (AC 11 + DEX)`,

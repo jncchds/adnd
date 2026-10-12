@@ -42,7 +42,7 @@ public class NarratorPromptService(
             var seed = await db.Games.Where(g => g.Id == call.GameId).Select(g => g.PlotSeed).FirstOrDefaultAsync(ct);
             action = "=== OPENING SCENE ===\n"
                 + (string.IsNullOrEmpty(seed) ? "Begin the session." : $"Begin the session from this seed: {seed}")
-                + " No player has spoken yet. Set the scene with full, vivid narration, establish the atmosphere, and give the player characters a reason to act. Do not call wait."
+                + " No player has spoken yet, so no player character has done anything: describe what they see and face, never an action of theirs, and make no roll for them. Set the scene with full, vivid narration, establish the atmosphere, and give the player characters a reason to act. Do not call wait."
                 + " If the scene opens in a fight, it exists only once you have called startCombat and addCombatParticipant — never announce a combat, an initiative order or anyone's hit points in prose alone.";
         }
         else
@@ -132,6 +132,14 @@ public class NarratorPromptService(
                 var conditionSuffix = conditions.Count > 0 ? $" — {string.Join(", ", conditions)}" : "";
                 var weapons = string.Join("; ", ClassRules.Weapons(c.Inventory));
                 var weaponSuffix = weapons.Length > 0 ? $" — weapons: {weapons}" : "";
+                // Listed with how each resolves, or the model invents the list and its rules.
+                var spells = ClassRules.DescribeSpells(c.Spells);
+                if (spells.Length > 0)
+                {
+                    var slots = string.Join(", ", ClassRules.RefitSlots(c.SpellSlots, c.Class, c.Level)
+                        .Select(kv => $"level {kv.Key} {kv.Value.Remaining}/{kv.Value.Total}"));
+                    weaponSuffix += $" — spells (attack +{ClassRules.SpellAttackBonus(c.Class, c.Level, c.Attributes)}, save DC {ClassRules.SpellSaveDc(c.Class, c.Level, c.Attributes)}, slots {(slots.Length > 0 ? slots : "none")}): {spells}";
+                }
                 sb.AppendLine($"- {c.Name} (Level {c.Level} {c.Race} {c.Class}, HP {c.CurrentHP}/{c.MaxHP}, AC {c.ArmourClass}, proficiency +{c.ProficiencyBonus}){modsSuffix}{weaponSuffix}{conditionSuffix}");
             }
             sb.AppendLine();
@@ -170,7 +178,7 @@ public class NarratorPromptService(
         sb.AppendLine("You work in steps. Each time you call tools they are run, you are shown what they returned, and you continue from there — so never decide something a result has not told you yet. Roll first; in the next step, having seen the roll, apply what follows from it (the attack tool is the exception: it rolls and applies an attack in one call). Your turn ends when you reply with narration and no tool calls, and it should end only when the next move belongs to a player.");
         sb.AppendLine("The table reads the chat as you go. Never narrate first and make the tool call in a later reply. A roll — attack, requestPlayerRoll, rollDice, deathSave — goes without narration beside it: you do not know how it falls until its result comes back, and anything you write next to it is kept from the table. Give every roll a reason, which is what the table reads with the dice; then narrate the attempt and its outcome together once you have the result. Text you send beside other tool calls (starting a fight, handing over an item) is shown at once. Your closing narration only needs what has not been said.");
         sb.AppendLine("Players never roll dice themselves. Any roll a player character makes — a check, a save, a contest — goes through requestPlayerRoll, naming the character; rollDice is for NPCs, monsters and the world; an attack in a fight, whoever makes it, is the attack tool. When a roll is needed, use a fully-resolved dice formula such as \"1d20+3\" — add the relevant ability modifier listed above yourself. Never write a placeholder like \"1d20+{strength}\"; the dice engine cannot resolve it.");
-        sb.AppendLine("A character's sheet changes only through your tools, never through narration alone: damage and heal for hit points, setCondition for conditions, giveItem and removeItem whenever something is gained, bought, spent, used up or lost (coins are the item \"Gold pieces\"), castSpell whenever a levelled spell is cast, rest once the fiction has given them a short or long rest, and awardExperience when the party overcomes a fight or a challenge. Use queryCharacter to check what a character carries or has left.");
+        sb.AppendLine("A character's sheet changes only through your tools, never through narration alone: damage and heal for hit points, setCondition for conditions, giveItem and removeItem whenever something is gained, bought, spent, used up or lost (coins are the item \"Gold pieces\"), castSpell whenever a player character casts a spell (it resolves the whole spell), rest once the fiction has given them a short or long rest, and awardExperience when the party overcomes a fight or a challenge. Use queryCharacter to check what a character carries or has left.");
 
         // NPCs used to exist only if the human GM typed them into the admin UI, so anyone the
         // narration introduced was forgotten the moment they scrolled out of the RAG window,

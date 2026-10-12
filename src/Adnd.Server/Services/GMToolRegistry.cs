@@ -36,7 +36,7 @@ public interface IGMToolRegistry
     Task<string> ExecuteToolAsync(string toolName, JsonElement arguments, Guid gameId, Guid sessionId, CancellationToken ct);
 }
 
-public class GMToolRegistry(
+public partial class GMToolRegistry(
     AppDbContext db,
     IDiceEngine diceEngine,
     IHubContext<GameHub> hub,
@@ -49,7 +49,7 @@ public class GMToolRegistry(
 
     // attack is one tool for everyone, so the model has a single way to resolve a blow; it
     // is a player's roll only when the attacker is a player character, which the plan decides.
-    public bool IsPlayerRoll(string toolName) => toolName is RequestPlayerRoll or DeathSave or Attack;
+    public bool IsPlayerRoll(string toolName) => toolName is RequestPlayerRoll or DeathSave or Attack or CastSpell;
 
     public async Task<PlayerRollPlan> PlanPlayerRollAsync(string toolName, JsonElement arguments, Guid gameId, Guid sessionId, CancellationToken ct)
     {
@@ -88,6 +88,19 @@ public class GMToolRegistry(
             // rerolls a failed check is offered on a miss.
             return new(new PlayerRollRequest(gameId, sessionId, attack.Attacker.PlayerId, $"1d20{attack.Bonus:+0;-0}", attack.Target.AC,
                 $"{attack.Attacker.DisplayName} attacks {attack.Target.DisplayName}"), null);
+        }
+
+        if (toolName == CastSpell)
+        {
+            var (spell, problem) = await ReadSpellAsync(gameId, arguments, ct);
+            if (spell is null) return new(null, problem);
+            if (!spell.AttackRoll) return new(null, null, Direct: true);
+
+            // As with a weapon: the target's AC is the DC, so a miss can be rerolled.
+            var target = spell.Targets[0];
+            var bonus = ClassRules.SpellAttackBonus(spell.Caster.Class, spell.Caster.Level, spell.Caster.Attributes);
+            return new(new PlayerRollRequest(gameId, sessionId, spell.Caster.PlayerId, $"1d20{bonus:+0;-0}",
+                target.Participant?.AC ?? target.Sheet!.ArmourClass, $"{spell.Caster.Name} casts {spell.Spell} at {target.Name}"), null);
         }
 
         var formula = ReadOptionalString(arguments, "formula") ?? "1d20";
@@ -129,6 +142,15 @@ public class GMToolRegistry(
                     ? $"{content}\n{problem}"
                     : $"{content}\n{await LandAttackAsync(combat, attack, null, total, naturalD20, ct)}";
             });
+
+        if (toolName == CastSpell)
+        {
+            // Read again: the player may have taken a while over a reroll.
+            var (spell, problem) = await ReadSpellAsync(gameId, arguments, ct);
+            return spell is null
+                ? $"{content}\n{problem}"
+                : $"{content}\n{await ResolveSpellAsync(gameId, spell.Fight?.SessionId ?? Guid.Empty, spell, total, naturalD20, ct)}";
+        }
 
         if (toolName != DeathSave) return content;
 
@@ -270,8 +292,8 @@ public class GMToolRegistry(
             Schema("""{"type":"object","properties":{"character":{"type":"string"},"item":{"type":"string"},"quantity":{"type":"integer","description":"Defaults to 1"}},"required":["character","item"]}""")),
         new("removeItem", "Take an item out of a player character's inventory — used up, sold, lost, given away, or coins spent.",
             Schema("""{"type":"object","properties":{"character":{"type":"string"},"item":{"type":"string"},"quantity":{"type":"integer","description":"Defaults to 1"}},"required":["character","item"]}""")),
-        new("castSpell", "Spend a spell slot when a player character casts a levelled spell (not a cantrip). If no slot of that level is left, a higher one is spent; if none at all, the spell fails and you are told so.",
-            Schema("""{"type":"object","properties":{"character":{"type":"string"},"spell":{"type":"string"},"level":{"type":"integer","description":"The spell's level, 1-9"}},"required":["character","spell","level"]}""")),
+        new("castSpell", "A player character casts a spell, resolved in this one call — the slot, the roll, the damage or healing, hit points and the end of their turn. level is the spell's level, 0 for a cantrip (no slot). Name everyone it affects in targets. Then say how it resolves, as the character's spell list states: attackRoll true for a spell attack (one target; rolled against their AC with the caster's own bonus, on their behalf); save for a spell the targets save against (\"DEX\", \"WIS\", … — each target rolls against the caster's save DC; give saveBonus, the enemies' modifier for that save); neither for a spell that simply works (Magic Missile, Cure Wounds). damage and heal are fully-resolved dice formulas; halfOnSave true when a successful save still takes half; condition is applied on a hit or a failed save. A spell with no effect to track (Light, Detect Magic) needs only character, spell and level. Never follow it with damage, heal, setCondition or nextTurn for the same spell.",
+            Schema("""{"type":"object","properties":{"character":{"type":"string","description":"The player character casting"},"spell":{"type":"string"},"level":{"type":"integer","description":"The spell's level: 0 for a cantrip, otherwise 1-9"},"targets":{"type":"array","items":{"type":"string"},"description":"Names of the combatants or player characters the spell affects"},"attackRoll":{"type":"boolean","description":"True for a spell attack against one target's AC"},"save":{"type":"string","description":"The saving throw the targets make: STR, DEX, CON, INT, WIS or CHA"},"saveBonus":{"type":"integer","description":"The enemies' modifier for that save, e.g. 2. Player characters use their own."},"damage":{"type":"string","description":"Fully-resolved damage formula, e.g. 3d6 or 1d10"},"type":{"type":"string","description":"e.g. fire, force, radiant"},"halfOnSave":{"type":"boolean","description":"True when a successful save still takes half the damage"},"heal":{"type":"string","description":"Fully-resolved healing formula, e.g. 1d8+3"},"condition":{"type":"string","description":"A condition the spell applies, e.g. Restrained"},"endTurn":{"type":"boolean","description":"In a fight, defaults to true. False for a bonus-action spell when the caster still has something to do."},"reaction":{"type":"boolean","description":"True for a spell cast outside the caster's own turn"}},"required":["character","spell","level"]}""")),
         new("rest", "The party (or the named characters) finishes a rest. A long rest restores hit points, spell slots and abilities; a short rest restores abilities that recharge on one. Only call it once the fiction has actually given them the time.",
             Schema("""{"type":"object","properties":{"type":{"type":"string","enum":["short","long"]},"characters":{"type":"array","items":{"type":"string"},"description":"Omit for the whole party"}},"required":["type"]}""")),
         new("awardExperience", "Award experience points for overcoming a challenge — a fight won, a problem solved, a milestone reached. Each character named (or the whole party) receives the full amount; crossing a threshold levels them up automatically.",
@@ -369,6 +391,9 @@ public class GMToolRegistry(
                     character.MaxHP,
                     armourClass = character.ArmourClass,
                     character.ProficiencyBonus,
+                    spellAttackBonus = ClassRules.SpellcastingAbility(character.Class) is null ? (int?)null : ClassRules.SpellAttackBonus(character.Class, character.Level, character.Attributes),
+                    spellSaveDc = ClassRules.SpellcastingAbility(character.Class) is null ? (int?)null : ClassRules.SpellSaveDc(character.Class, character.Level, character.Attributes),
+                    spells = ClassRules.DescribeSpells(character.Spells),
                     // Ability modifiers as text ("STR +2, DEX +0, …") so the LLM can drop a
                     // real number straight into a dice formula instead of guessing.
                     abilityModifiers = AbilityScoreHelper.FormatModifiers(character.Attributes),
@@ -787,23 +812,13 @@ public class GMToolRegistry(
                     + ArmourChange(character, acBefore);
             }
 
-            case "castSpell":
+            // Reached for every spell that makes no spell attack; one that does is planned,
+            // rolled and finished as its caster's roll (see PlanPlayerRollAsync).
+            case CastSpell:
             {
-                var name = ReadOptionalString(arguments, "character");
-                var spell = ReadOptionalString(arguments, "spell") ?? "a spell";
-                if (name is null) return "Missing character";
-                if (!TryGetInt(arguments, "level", out var level) || level < 1 || level > 9)
-                    return "level must be the spell's level, 1-9. Cantrips spend no slot — don't call castSpell for them.";
-                var character = await characters.FindAsync(gameId, name, ct);
-                if (character is null)
-                    return $"No player character called \"{name}\". The party: {await characters.PartyNamesAsync(gameId, ct)}.";
-
-                var spent = await characters.SpendSpellSlotAsync(character, level, ct);
-                if (spent is null)
-                    return $"{character.Name} has no spell slot of level {level} or higher left — {spell} cannot be cast. Narrate the attempt failing or let them choose something else.";
-                var slots = ClassRules.ReadSlots(character.SpellSlots);
-                var remaining = string.Join(", ", slots.OrderBy(kv => int.Parse(kv.Key)).Select(kv => $"L{kv.Key} {kv.Value.Remaining}/{kv.Value.Total}"));
-                return $"{character.Name} casts {spell} using a level {spent} slot{(spent > level ? " (upcast)" : "")}. Slots left: {remaining}.";
+                var (spell, problem) = await ReadSpellAsync(gameId, arguments, ct);
+                if (spell is null) return TurnLog.Refused + problem;
+                return await ResolveSpellAsync(gameId, sessionId, spell, null, null, ct);
             }
 
             case "rest":

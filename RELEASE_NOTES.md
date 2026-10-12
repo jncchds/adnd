@@ -12,8 +12,11 @@
 - feat: `heal` can raise a dead character when the GM sets `revive`; ordinary healing does nothing for the dead
 - feat: armour counts — new characters start with their class's armour and shield, and armour class is worked out from what is on the sheet (barbarians and monks from their unarmoured defence) instead of 10 + DEX for everyone; armour the GM hands out or takes away changes it at once, also mid-fight, and the sheet shows it
 - feat: a downed character is no longer finished off in one go — enemies leave the dying alone (a killing blow is the GM's rare, deliberate choice), and after each death save the GM stops so the table sees it and the player can speak before the next one
+- feat: spellcasters start with a spell list, and `castSpell` resolves a player character's spell in one step — the slot, a spell attack or the targets' saving throws, damage or healing, conditions and the end of the turn; cantrips included. Until now a spell was a chain of separate steps and saving throws were skipped
+- feat: the sheet and the GM's view of the party show each caster's spells with their spell attack bonus and save DC
 - fix: LM Studio replies were read as empty whenever the model answered in plain narration — the GM "came back empty" on roughly one call in six, and a session's opening scene could fail outright
 - fix: what the GM writes alongside a roll is no longer shown before the dice fall — it could describe a success the roll then denied; the roll is shown first and the narration follows its result
+- fix: the opening scene no longer has a player character act, or rolls for them, before their player has said a word
 - fix: the GM's narration no longer ends with its own copy of a death-save or attack line from the log (sometimes with the wrong tally)
 - feat: new characters start with their class's weapons, and the GM is shown each character's weapons and proficiency bonus instead of looking the sheet up before every attack
 - fix: a second player speaking while the GM was still resolving a turn started a second GM on the same fight; lines now wait their turn and are answered in order, each with the scene as the one before left it

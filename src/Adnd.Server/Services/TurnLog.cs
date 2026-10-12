@@ -25,7 +25,7 @@ public static partial class TurnLog
     public const string Refused = "Not done — ";
 
     /// <summary>A tool whose result is a die the model has not seen when it writes the reply.</summary>
-    public static bool IsRoll(string toolName) => toolName is "requestPlayerRoll" or "rollDice" or "attack" or "deathSave";
+    public static bool IsRoll(string toolName) => toolName is "requestPlayerRoll" or "rollDice" or "attack" or "deathSave" or "castSpell";
 
     /// <summary>A directive after which the model is offered no tools: all that is left is to narrate.</summary>
     public const string Close = "close";
