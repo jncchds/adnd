@@ -62,10 +62,10 @@ sequenceDiagram
             TE->>SA: Emit ToolCallCompleted
             SA->>TE: Emit ToolCallRequested[n+1] (if more)
         end
-        SA->>LD: Emit LLMFollowUpRequested
-        LD->>LM: CompleteAsync(tool results → follow-up prompt)
-        LM-->>LD: Narrative text
-        LD->>NH: Emit NarrativeReady
+        SA->>LD: Emit LLMDispatchRequested (turn so far appended)
+        LD->>LM: CompleteWithToolsAsync(prompt + turn log)
+        LM-->>LD: More tool calls (loop) or narrative text
+        LD->>NH: Emit NarrativeReady (no tool calls)
     end
 
     NH->>DB: INSERT Message (type=GM) + embed
@@ -99,7 +99,8 @@ stateDiagram-v2
     ToolCoordination --> ToolExecution : More tools remain
     ToolCoordination --> LLMFollowUp : All tools done
 
-    LLMFollowUp --> NarrativeReady : Follow-up LLM call complete
+    LLMFollowUp --> ToolExecution : More tool calls
+    LLMFollowUp --> NarrativeReady : Narration, no tool calls
 
     NarrativeReady --> Completed : Message persisted + broadcast
 

@@ -125,11 +125,18 @@ All GM actions flow through durable Wolverine messages persisted to PostgreSQL. 
 ```
 AgentCallQueued → AgentSaga.Start
     → LLMDispatchHandler → AgentSaga.Handle(LLMResponseReceived)
-    → [ToolExecutionHandler → AgentSaga.Handle(ToolCallCompleted) → LLMFollowUpHandler] (loop if tools)
+    → [ToolExecutionHandler → AgentSaga.Handle(ToolCallCompleted) → LLMDispatchHandler → AgentSaga.Handle(LLMResponseReceived)] (repeats while the model calls tools)
     → AgentSaga.Handle(NarrativeReady) → SignalR push to players
 ```
 
-`AgentSaga` is the state machine keyed on `AgentCall.Id`. States: `Init → LLMDispatch → LLMResponse → ToolExecution → LLMFollowUp → NarrativeReady → Completed | Failed`. 5-minute timeout → `Failed`.
+`AgentSaga` is the state machine keyed on `AgentCall.Id`. States: `Init → LLMDispatch → LLMResponse → ToolExecution → LLMFollowUp → … → NarrativeReady → Completed | Failed`. A 5-minute timeout per round → `Failed` (`SagaTimeout` carries the round it was scheduled in; a stale one is ignored).
+
+**A GM turn is a loop, not a round.** The model answers, its tools run, it is shown the results and answers again, until it replies with narration and no tool calls. It used to get one round of tools chosen blind and then a tool-less narration call (`LLMFollowUpHandler`, deleted), so it could never act on a roll it had just made: `damage` was issued before the attack roll was known, lookups returned after the decision, and an enemy's turn could not be played at all. What the turn has done so far is the **turn log** (`TurnLog`, stored on `ToolCallCoordinator.ToolResults`, one row per agent call): tools with their arguments and results, lines already told to the table, and notes from the engine. `LLMDispatchHandler` reads it and appends it to the user prompt on every step after the first, together with the fight as it stands *now* — the system prompt was built when the player spoke. Because the handler reads the log rather than being handed it, `AgentCallFailedHandler`'s retry resumes the turn instead of running its tools a second time.
+
+- **Text that arrives with tool calls is posted at once** (as is the `narrate` tool), before the tools run, so the chat reads in the order things happened. A line already said this turn is dropped — a model sent back for more tends to repeat itself.
+- **A turn ends only when the next move is a player's.** `ICombatTracker.PendingGmTurnAsync` says whether the fight is waiting on the GM (an enemy's turn, a death save, nobody left standing); if so the saga sends the model back with a note instead of completing. `AgentSaga.MaxRounds` (60) and `MaxContinuations` (20) bound it, and the last round is made without tools, so a turn always ends in narration. Silence never triggers the GM — only a player's line starts a turn.
+- **A blank reply after tools ran is answered with a tool-less "tell the table" step** (`TurnLog.Close`), not a plain retry. Retried as an ordinary step the model "continued" and gave a player character a second attack nobody asked for.
+- One round that only spoke (`narrate`/`wait`) goes back to the model — it is usually describing the attempt before reaching for the dice. Two in a row end the turn, or a model that narrates through the tool keeps narrating a round at a time.
 
 **A saga-routed message (one carrying `[property: SagaIdentity]`) is delivered only to that saga's `Start`/`Handle` methods.** A separate plain-handler class registered for the same message type is silently never invoked — no exception, no log, the message just doesn't reach it. This cost a full gameplay loop, four separate times over: `SagaOrchestratorHandler` (for `AgentCallQueued`), `LLMResponseHandler` (for `LLMResponseReceived`), `CoordinatorHandler` (for `ToolCallCompleted`), and `NarrativeHandler` (for `NarrativeReady`) each used to sit *alongside* the saga's own `Handle` method for the same message, silently dead on arrival every time — Wolverine gave no error, so each one shipped, got tested with a code path that happened not to exercise it, and only surfaced later. In the `NarrativeReady` case specifically, this meant the saga reached "Completed" while the chat message was never saved or broadcast and `AgentCall.Status` never left `Running` — from the admin UI it looked identical to a hung LLM call. All four are now merged directly into `AgentSaga`'s own `Handle` methods, and the standalone handler classes are deleted. Do not add a standalone handler for a message type a saga already owns — put the logic in the saga's `Handle` method, and grep for an existing plain handler on the same message type before assuming one doesn't already conflict.
 
@@ -139,13 +146,14 @@ AgentCallQueued → AgentSaga.Start
 
 ### GM Tool Registry
 
-28 registered tools. Narration and world: `narrate`, `wait`, `rollDice` (NPCs and the world),
+29 registered tools. Narration and world: `narrate`, `wait`, `rollDice` (NPCs and the world),
 `queryNPCs`, `registerNPC`, `updateNPCStatus`, `searchPlotContext` (substring search over
 narrator-visible history, plot threads and NPCs), `updateGameState`, `sendWhisper`. Player
 characters: `requestPlayerRoll`, `deathSave`, `queryCharacter`, `damage`, `heal`,
 `setCondition`, `giveItem`, `removeItem`, `castSpell`, `rest`, `awardExperience`. Combat:
-`startCombat`, `addCombatParticipant`, `moveParticipant`, `setZones`, `nextTurn`, `endCombat`,
-`generateLoot`. Executed sequentially by `ToolExecutionHandler`; the saga advances through them.
+`startCombat`, `addCombatParticipant`, `moveParticipant`, `setZones`, `attack`, `nextTurn`,
+`endCombat`, `generateLoot`. Executed sequentially by `ToolExecutionHandler`; the saga advances
+through them and then goes back to the model with the results.
 
 **Tools address everything by name, never by id.** The model is only ever shown names — player
 characters, NPCs, combatants, zones — so an id argument is one it invented. `requestPlayerRoll`
@@ -162,7 +170,7 @@ proficiency and the XP thresholds — level-ups are applied by `awardExperience`
 `PUT /api/characters/{id}` accepts only who the character is (name, background, backstory,
 custom fields).
 
-`registerNPC` is how an NPC introduced in narration becomes a real row instead of a name that scrolls out of the RAG window and comes back as a different person. It is deliberately a *same-turn* tool: `BuildNarrateSystemPromptAsync` lists the NPCs in play and tells the model to call it alongside `narrate` in the same response, so there is no second LLM pass to bill or to fail. Matching is by **name**, case-insensitively scoped to the game — never by an id, which the model would have to invent — and an existing name updates rather than duplicating. Only fields the model actually supplied are written, so a later attitude-only call doesn't blank the description.
+`registerNPC` is how an NPC introduced in narration becomes a real row instead of a name that scrolls out of the RAG window and comes back as a different person. It is deliberately a *same-turn* tool: `BuildNarrateSystemPromptAsync` lists the NPCs in play and tells the model to call it in the same response as its narration, so registering never depends on the model remembering to come back to it. Matching is by **name**, case-insensitively scoped to the game — never by an id, which the model would have to invent — and an existing name updates rather than duplicating. Only fields the model actually supplied are written, so a later attitude-only call doesn't blank the description.
 
 `updateNPCStatus` is the other half: `NPCStatus` is `Active | Dead | Departed`, and only `Active` NPCs are offered to the prompt unprompted. Without it the roster only grows and the narrator keeps being handed people the party killed two sessions ago. It refuses to create — a status change naming an unregistered NPC means the model invented the name. `registerNPC` revives `Departed` (they were just written back into a scene) but never `Dead`, which needs an explicit status call.
 
@@ -194,6 +202,16 @@ HP, whose turn, and whether the player speaking right now is the one acting — 
 line out of turn is table talk or a reaction, not a full turn. Turn changes and the fight's
 start and end are posted as `Type "Combat"` messages, so the log reads as the table heard it.
 Damage to a player character's participant is written through to `Character.CurrentHP`.
+
+**The engine enforces the turn order; the prompt only describes it.** `attack` resolves an
+enemy's whole attack in one call — to-hit against the target's AC, damage, hit points — and
+refuses unless the attacker is the combatant whose turn it is, because a model told the order in
+prose still rolled for goblins on the player's turn. Player characters attack through
+`requestPlayerRoll` (the reroll offer needs it). `deathSave` is the dying character's whole
+turn: it is refused off-turn and advances the turn itself, or the model is asked for it twice.
+Damage to a character already at 0 HP fails a death save (two on a critical hit); it used to
+*clear* them, so a downed character could be hit every round and never die. When no player
+character can act any more, `PendingGmTurnAsync` tells the GM to end the fight.
 
 ### Rolls, rerolls, and who is asked what
 

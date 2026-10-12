@@ -16,6 +16,7 @@ public class LLMDispatchHandler(
     IApiKeyEncryptionService encryptionService,
     IEventBus eventBus,
     IGMToolRegistry toolRegistry,
+    ICombatTracker combats,
     ILLMInteractionLogger llmLogger,
     IGmActivityBroadcaster activity,
     ILogger<LLMDispatchHandler> logger)
@@ -25,9 +26,33 @@ public class LLMDispatchHandler(
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
         if (call == null) return;
 
-        call.AdvanceStep(SagaStep.LLMDispatch);
+        // Every step after the first is told what the turn has done so far. Reading it here,
+        // rather than carrying it on the message, is what lets a retry (AgentCallFailedHandler
+        // re-publishes the original prompts) resume the turn instead of running its tools again.
+        var coordinator = await db.ToolCallCoordinators.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.AgentCallId == msg.AgentCallId, ct);
+        var turnSoFar = TurnLog.Read(coordinator?.ToolResults);
+        var continuing = turnSoFar.Count > 0;
+        var offerTools = !continuing
+            || (turnSoFar[^1].Kind != TurnLog.Close && turnSoFar.Max(e => e.Round) < AgentSaga.MaxRounds - 1);
+
+        var userPrompt = msg.UserPrompt;
+        if (continuing)
+        {
+            // The system prompt was built when the player spoke; the fight has moved since.
+            var combatState = call.Action == AgentAction.Narrate
+                ? await combats.DescribeForNarratorAsync(msg.GameId, null, ct)
+                  ?? (msg.SystemPrompt.Contains("=== COMBAT IN PROGRESS") || turnSoFar.Any(e => e.Name == "startCombat")
+                      ? "No combat is in progress any more."
+                      : null)
+                : null;
+            userPrompt = TurnLog.Continue(msg.UserPrompt, turnSoFar, combatState, offerTools);
+        }
+
+        var step = continuing ? SagaStep.LLMFollowUp : SagaStep.LLMDispatch;
+        call.AdvanceStep(step);
         await db.SaveChangesAsync();
-        await activity.BroadcastAsync(msg.GameId, SagaStep.LLMDispatch, ct: ct);
+        await activity.BroadcastAsync(msg.GameId, step, ct: ct);
 
         var game = await db.Games.Include(g => g.LLMPreset).FirstOrDefaultAsync(g => g.Id == msg.GameId);
         if (game?.LLMPreset == null)
@@ -62,7 +87,7 @@ public class LLMDispatchHandler(
         Guid logId = Guid.Empty;
         try
         {
-            logId = await llmLogger.LogStartAsync(game.CreatorId, msg.GameId, msg.SystemPrompt, msg.UserPrompt,
+            logId = await llmLogger.LogStartAsync(game.CreatorId, msg.GameId, msg.SystemPrompt, userPrompt,
                 preset.Name, preset.EndpointUrl ?? provider.EndpointUrl, preset.BaseModel);
         }
         catch (Exception logEx)
@@ -73,8 +98,10 @@ public class LLMDispatchHandler(
         var sw = Stopwatch.StartNew();
         try
         {
-            if (call.Action == AgentAction.Suggest)
+            if (call.Action == AgentAction.Suggest || !offerTools)
             {
+                // Also the last step of a turn that has used up its rounds: without tools on
+                // offer the model can only narrate, so the turn is guaranteed to end.
                 // TriggerSuggest is a plain OOC Q&A — it never wants to call a tool, and its
                 // own system prompt says so. But every dispatch was still offering the full
                 // 12-tool schema anyway, and at least one local model (LM Studio/gemma) reacted
@@ -82,7 +109,7 @@ public class LLMDispatchHandler(
                 // content at all, over and over, even across retries. Dropping the tool
                 // definitions for this action removes whatever about the tool-calling
                 // apparatus was derailing it.
-                var plain = await provider.CompleteAsync(msg.SystemPrompt, msg.UserPrompt, opts, ct);
+                var plain = await provider.CompleteAsync(msg.SystemPrompt, userPrompt, opts, ct);
                 sw.Stop();
                 responseText = plain.Text ?? "";
                 reasoning = plain.Reasoning;
@@ -92,7 +119,7 @@ public class LLMDispatchHandler(
                 // The GM tool registry must be offered to the model — passing an empty list here
                 // meant the GM could never call a tool, and pushed Ollama into its JSON-mode fallback.
                 var result = await provider.CompleteWithToolsAsync(
-                    msg.SystemPrompt, msg.UserPrompt, toolRegistry.GetToolDefinitions(), opts, ct);
+                    msg.SystemPrompt, userPrompt, toolRegistry.GetToolDefinitions(), opts, ct);
                 sw.Stop();
                 responseText = result.NarrativeText ?? "";
                 reasoning = result.Reasoning;

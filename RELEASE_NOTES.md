@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.1.6 — 2026-10-12
+
+- feat: the GM resolves a turn in steps — it calls tools, sees what they returned and carries on until the next move is a player's; until now it had to choose every tool before seeing a single result, so damage was applied before the attack roll was known and enemies never took their turns
+- feat: enemies act on their own — when a turn passes to an enemy the GM plays it, and the next, until it is a player character's turn; a fight is never left waiting on the GM
+- feat: the GM narrates as it goes — what it says alongside its rolls appears in the chat in order, instead of one paragraph after everything is over
+- feat: new GM tool `attack` resolves an enemy's attack in one step (to hit against AC, damage, hit points) and only for the combatant whose turn it is
+- fix: a dying character makes one death save per turn and the turn then passes on by itself
+- fix: damage to a character at 0 hit points fails a death save (two on a critical hit) instead of clearing them, so a downed character can die
+- fix: a fight ends when no player character can act any more, instead of going round among the enemies
+- fix: the reason given for a GM dice roll is shown with it
+- fix: a combatant joining a fight no longer appears twice in the combat strip until the next update
+- fix: the first game started on a fresh database failed with a server error — the vector type was unknown until the app was restarted
+- fix: `narrate` shows its text to the table; it used to return it to the GM only
+
 ## v0.1.5 — 2026-09-28
 
 - feat: combat is played in zones instead of on a grid — the GM lays a fight out as 2-5 named areas in order (neighbours adjacent), same zone is melee reach, the next zone is a move; players say where they go in chat and the GM moves them

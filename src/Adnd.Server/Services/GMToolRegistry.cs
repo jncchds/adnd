@@ -58,6 +58,10 @@ public class GMToolRegistry(
                 return new(null, $"No player character called \"{dyingName}\" in this combat.");
             if (!combats.IsDying(p))
                 return new(null, $"{p.DisplayName} is not dying, so makes no death save.");
+            // One save a turn, on their own turn: asked again while the turn stood still, the
+            // model rolled a second one.
+            if (combats.Acting(combat) is { } acting && acting != p)
+                return new(null, $"{p.DisplayName} makes a death save only on their own turn; it is {acting.DisplayName}'s turn.");
 
             // DC 10 so the roll states success or failure — and so an ability that rerolls a
             // failed check is offered on a failed death save, as it would be at a table.
@@ -99,7 +103,12 @@ public class GMToolRegistry(
             var name = ReadOptionalString(arguments, "character") ?? "";
             if (combats.FindByName(combat, name) is not { } p) return $"{content}\n{name} is no longer in the combat.";
             var outcome = await combats.RecordDeathSaveAsync(combat, p.Id, total, ct);
-            return $"{content}\n{outcome}";
+            if (p.HP > 0)
+                return $"{content}\n{outcome}\n{p.DisplayName} is conscious and it is still their turn: the next move is their player's.";
+
+            // The save is the dying character's whole turn, so the turn moves on with it.
+            var next = await combats.AdvanceTurnAsync(combat, ct);
+            return $"{content}\n{outcome}\n{p.DisplayName}'s turn is over." + (next is null ? "" : $" {DescribeTurn(combat, next)}");
         });
     }
 
@@ -187,7 +196,7 @@ public class GMToolRegistry(
 
     public IEnumerable<ToolDefinition> GetToolDefinitions() =>
     [
-        new("narrate", "Output narrative text to players",
+        new("narrate", "Say something to the table right now, before the tool calls that follow it in the same response run — use it to describe an action ahead of the roll that resolves it. Your plain reply text does the same; do not send the same words both ways.",
             Schema("""{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}""")),
         new("rollDice", "Roll dice using a fully-resolved formula, e.g. \"1d20+3\". Never use a placeholder like \"{strength}\" — look up the character's ability modifier (from context or queryCharacter) and write the number in yourself. Include \"dc\" whenever the roll is against a target number — the result will state whether it succeeded, so you don't have to compare it yourself.",
             Schema("""{"type":"object","properties":{"formula":{"type":"string"},"reason":{"type":"string"},"dc":{"type":"integer"}},"required":["formula"]}""")),
@@ -209,6 +218,8 @@ public class GMToolRegistry(
             Schema("""{"type":"object","properties":{"state":{"type":"string"}},"required":["state"]}""")),
         new("sendWhisper", "Tell one player something only their character perceives or knows. Name the character.",
             Schema("""{"type":"object","properties":{"character":{"type":"string"},"content":{"type":"string"}},"required":["character","content"]}""")),
+        new("attack", "Resolve an attack by an enemy or any other combatant you control, in one call: it rolls to hit against the target's AC and, on a hit, rolls the damage and applies it. Only the combatant whose turn it is can attack. Not for player characters — their attacks are rolled with requestPlayerRoll.",
+            Schema("""{"type":"object","properties":{"attacker":{"type":"string"},"target":{"type":"string"},"bonus":{"type":"integer","description":"Attack bonus added to the d20, e.g. 4"},"damage":{"type":"string","description":"Fully-resolved damage formula, e.g. 1d6+2"},"type":{"type":"string","description":"e.g. slashing, piercing"}},"required":["attacker","target","bonus","damage"]}""")),
         new("damage", "Take hit points from a combatant or a player character — after the roll has decided an attack or effect hits. Works in and out of combat.",
             Schema("""{"type":"object","properties":{"target":{"type":"string","description":"Combatant or player character name"},"amount":{"type":"integer"},"type":{"type":"string","description":"e.g. slashing, fire"}},"required":["target","amount"]}""")),
         new("heal", "Restore hit points to a combatant or a player character.",
@@ -263,7 +274,12 @@ public class GMToolRegistry(
         switch (toolName)
         {
             case "narrate":
-                return arguments.GetProperty("text").GetString() ?? string.Empty;
+            {
+                // It used to hand the text back to the model and show the table nothing.
+                if (ReadOptionalString(arguments, "text") is not { } narration) return "Missing text";
+                await BroadcastRollAsync(gameId, sessionId, narration, "GM", null, ct);
+                return narration;
+            }
 
             // A wait-only response never reaches here — AgentSaga intercepts it at
             // LLMResponseReceived and completes the turn silently without executing anything.
@@ -278,7 +294,9 @@ public class GMToolRegistry(
             {
                 var formula = arguments.GetProperty("formula").GetString() ?? "1d20";
                 var result = diceEngine.Roll(formula);
-                var (content, dc, success) = FormatRollContent(formula, result, arguments);
+                // The reason was accepted and dropped, so the table read "Rolled 1d20+5 vs DC 11"
+                // with nothing to say whose roll it was or what for.
+                var (content, dc, success) = FormatRollContent(formula, result, arguments, ReadOptionalString(arguments, "reason"));
                 await BroadcastRollAsync(gameId, sessionId, content, "DiceRoll",
                     new { formula = result.Formula, total = result.Total, breakdown = result.Breakdown, dc, success }, ct);
                 // Previously returned only result.Breakdown — the follow-up narration call
@@ -525,14 +543,7 @@ public class GMToolRegistry(
                 return await ActiveCombatToolAsync(gameId, ct, async combat =>
                 {
                     var next = await combats.AdvanceTurnAsync(combat, ct);
-                    return next is null
-                        ? "Nobody is in the combat."
-                        : $"Round {combat.CurrentRound}: it is now {next.DisplayName}'s turn"
-                          + (combats.IsDying(next)
-                              ? $" — they are dying: call deathSave for {next.DisplayName} now, narrate it, then call nextTurn."
-                              : next.ParticipantType == CombatParticipantType.Character
-                              ? " — wait for their player to say what they do."
-                              : " — decide and narrate what they do, then call nextTurn.");
+                    return next is null ? "Nobody is in the combat." : DescribeTurn(combat, next);
                 });
 
             case "endCombat":
@@ -629,6 +640,71 @@ public class GMToolRegistry(
                 });
             }
 
+            case "attack":
+            {
+                var attackerName = ReadOptionalString(arguments, "attacker");
+                var targetName = ReadOptionalString(arguments, "target");
+                var damageFormula = ReadOptionalString(arguments, "damage");
+                if (attackerName is null || targetName is null || damageFormula is null) return "Missing attacker, target or damage";
+                TryGetInt(arguments, "bonus", out var bonus);
+                var kind = ReadOptionalString(arguments, "type");
+
+                return await ActiveCombatToolAsync(gameId, ct, async combat =>
+                {
+                    var everyone = string.Join(", ", combat.Participants.Select(x => x.DisplayName));
+                    if (combats.FindByName(combat, attackerName) is not { } attacker)
+                        return $"No combatant called \"{attackerName}\". Combatants: {everyone}.";
+                    if (combats.FindByName(combat, targetName) is not { } target)
+                        return $"No combatant called \"{targetName}\". Combatants: {everyone}.";
+                    if (attacker.ParticipantType == CombatParticipantType.Character)
+                        return $"{attacker.DisplayName} is a player character: roll their attack with requestPlayerRoll (dc {target.AC}, {target.DisplayName}'s AC).";
+
+                    // Enforced here because a prompt alone did not hold: the model rolled for
+                    // enemies while it was still the player character's turn.
+                    if (combats.Acting(combat) is { } acting && acting != attacker)
+                        return $"It is {acting.DisplayName}'s turn, not {attacker.DisplayName}'s. "
+                            + (acting.ParticipantType == CombatParticipantType.Character
+                                ? $"If {acting.DisplayName} has done what their player said, call nextTurn; otherwise finish with your narration and wait for their player."
+                                : "Play their turn, or call nextTurn to pass it.");
+                    if (attacker.HP == 0) return $"{attacker.DisplayName} is defeated and cannot attack. Call nextTurn.";
+
+                    // Rolled before anything is posted, so a formula the dice engine rejects
+                    // fails the call instead of leaving half an attack in the log.
+                    var damageRoll = diceEngine.Roll(damageFormula);
+                    var toHit = diceEngine.Roll($"1d20{bonus:+0;-0}");
+                    var critical = toHit.NaturalD20 == 20;
+                    var hit = toHit.NaturalD20 != 1 && (critical || toHit.Total >= target.AC);
+                    var line = $"⚔️ {attacker.DisplayName} attacks {target.DisplayName}: {toHit.Breakdown} vs AC {target.AC}";
+
+                    if (!hit)
+                    {
+                        line += " — miss.";
+                        await BroadcastRollAsync(gameId, sessionId, line, "Combat", new { combatId = combat.Id }, ct);
+                    }
+                    else
+                    {
+                        if (critical) damageRoll = diceEngine.Roll(DoubleDice(damageFormula));
+                        var amount = Math.Max(0, damageRoll.Total);
+                        var wasDown = target.HP == 0;
+                        var left = Math.Max(0, target.HP - amount);
+                        line += $" — {(critical ? "critical hit" : "hit")} for {amount}{(kind is null ? "" : $" {kind}")} damage.";
+                        if (!wasDown)
+                            line += left > 0 ? $" {target.DisplayName} is at {left}/{target.MaxHP} HP."
+                                : target.ParticipantType == CombatParticipantType.Character ? $" {target.DisplayName} drops to 0 HP and is dying."
+                                : $" {target.DisplayName} is defeated.";
+
+                        // Posted before the hit points change, so that what the tracker adds
+                        // about a character hit while down reads after the blow that did it.
+                        await BroadcastRollAsync(gameId, sessionId, line, "Combat", new { combatId = combat.Id }, ct);
+                        await combats.ChangeHpAsync(combat, target.Id, -amount, ct, critical);
+                        if (wasDown && target.ParticipantType == CombatParticipantType.Character)
+                            line += combats.IsDying(target) ? $" {target.DisplayName} is still down and has failed a death save." : $" {target.DisplayName} is dead.";
+                    }
+
+                    return $"{line} Hit points are already updated — do not call damage for this attack. When {attacker.DisplayName}'s turn is done, call nextTurn, with a sentence on how the attack landed in the same reply.";
+                });
+            }
+
             case "damage":
             case "heal":
             {
@@ -652,7 +728,7 @@ public class GMToolRegistry(
 
                 var character = await characters.FindAsync(gameId, targetName, ct);
                 if (character is null)
-                    return $"No combatant or player character called \"{targetName}\". The party: {await characters.PartyNamesAsync(gameId, ct)}.";
+                    return await UnknownTargetAsync(gameId, targetName, ct);
                 await characters.ChangeHpAsync(character, signed, ct);
                 var what = toolName == "damage" ? $"takes {amount}{(kind is null ? "" : $" {kind}")} damage" : $"regains {amount} hit points";
                 await characters.AnnounceAsync(gameId, sessionId, $"{character.Name} {what} ({character.CurrentHP}/{character.MaxHP} HP).", ct);
@@ -676,7 +752,7 @@ public class GMToolRegistry(
 
                 var character = await characters.FindAsync(gameId, targetName, ct);
                 if (character is null)
-                    return $"No combatant or player character called \"{targetName}\". The party: {await characters.PartyNamesAsync(gameId, ct)}.";
+                    return await UnknownTargetAsync(gameId, targetName, ct);
                 await characters.SetConditionAsync(character, condition, applied, ct);
                 return $"{character.Name} is {(applied ? "now" : "no longer")} {condition}.";
             }
@@ -794,6 +870,28 @@ public class GMToolRegistry(
         return (content, dc, success);
     }
 
+    /// <summary>Names who could have been meant. In a fight the usual cause is an enemy the
+    /// narration has but the tracker does not — observed live: the model narrated a hit on a
+    /// goblin it had never added, and "the party: …" gave it nothing to correct that with.</summary>
+    private async Task<string> UnknownTargetAsync(Guid gameId, string name, CancellationToken ct)
+        => await combats.GetActiveAsync(gameId, ct) is { } combat
+            ? $"\"{name}\" is not in the fight. In it: {string.Join(", ", combat.Participants.Select(p => p.DisplayName))}. If {name} is an enemy here, add them with addCombatParticipant first, then repeat this call."
+            : $"No combatant or player character called \"{name}\". The party: {await characters.PartyNamesAsync(gameId, ct)}.";
+
+    /// <summary>Whose turn it now is, and whose move that makes it.</summary>
+    private string DescribeTurn(CombatEntity combat, CombatParticipant next)
+        => $"Round {combat.CurrentRound}: it is now {next.DisplayName}'s turn"
+           + (combats.IsDying(next)
+               ? $" — they are dying: call deathSave for {next.DisplayName} now. That is their whole turn and it passes the turn on."
+               : next.ParticipantType == CombatParticipantType.Character
+               ? $" — the next move is their player's: finish with your narration and no more tool calls. Say at most what {next.DisplayName} now faces; never describe {next.DisplayName} doing anything their player has not said."
+               : " — you play them. In one reply: a sentence saying what they do, together with the tool calls that do it (attack resolves an attack in one call) and nextTurn.");
+
+    /// <summary>A critical hit rolls the damage dice twice; the modifier is added once.</summary>
+    private static string DoubleDice(string formula)
+        => System.Text.RegularExpressions.Regex.Replace(formula, @"(\d*)d(\d+)",
+            m => $"{(m.Groups[1].Value.Length == 0 ? 1 : int.Parse(m.Groups[1].Value)) * 2}d{m.Groups[2].Value}");
+
     private static string Describe(string item, int quantity) => quantity == 1 ? item : $"{item} ×{quantity}";
 
     private static List<string>? ReadStrings(JsonElement arguments, string property)
@@ -869,7 +967,7 @@ public class GMToolRegistry(
     // GM-tool rolls must land their own chat message immediately,
     // not rely on the follow-up narrator LLM call to happen to mention the numbers — that call
     // is prose-only and routinely narrates around the roll without ever stating it.
-    private async Task BroadcastRollAsync(Guid gameId, Guid sessionId, string content, string type, object metadata, CancellationToken ct, Guid? playerId = null)
+    private async Task BroadcastRollAsync(Guid gameId, Guid sessionId, string content, string type, object? metadata, CancellationToken ct, Guid? playerId = null)
     {
         var msg = new Message
         {

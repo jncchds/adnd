@@ -445,7 +445,7 @@ All events implement `IGameEvent { Guid GameId }`.
 
 **Story**: `StorySwayed`, `GMActioned`
 
-**Saga internal events**: `AgentCallQueued`, `LLMDispatchRequested`, `LLMResponseReceived`, `ToolCallRequested`, `ToolCallCompleted`, `LLMFollowUpRequested`, `NarrativeReady`, `AgentCallFailed`, `ToolCallWaitingConfirmation`
+**Saga internal events**: `AgentCallQueued`, `LLMDispatchRequested`, `LLMResponseReceived`, `ToolCallRequested`, `ToolCallCompleted`, `NarrativeReady`, `AgentCallFailed`, `ToolCallWaitingConfirmation`
 
 #### EventBusWorker / IEventBus
 `EventBusWorker` is a singleton `BackgroundService` implementing `IEventBus`. Its `PublishAsync<T>()` method delegates to Wolverine's `IMessageContext.PublishAsync()`. Wolverine handles all delivery, retry, and persistence in PostgreSQL.
@@ -485,9 +485,9 @@ All events implement `IGameEvent { Guid GameId }`.
        └─ Emits ToolCallCompleted
    └─ CoordinatorHandler receives ToolCallCompleted
        ├─ If more tools remain → emits ToolCallRequested for tool[n+1]
-       └─ If all tools done → emits LLMFollowUpRequested
-   └─ LLMFollowUpHandler composes tool results into follow-up prompt
-       └─ Calls LLM again → emits NarrativeReady
+       └─ If all tools done → emits LLMDispatchRequested again
+   └─ LLMDispatchHandler appends the turn so far (TurnLog) to the prompt and calls the LLM
+       with the tools still on offer → back to step 4, until a response carries no tool calls
 
 5. NarrativeHandler handles NarrativeReady
    └─ Persists Message (type=GM) to DB
@@ -1534,7 +1534,6 @@ adnd/
 │   │   │   ├── LLMResponseHandler.cs
 │   │   │   ├── ToolExecutionHandler.cs
 │   │   │   ├── CoordinatorHandler.cs
-│   │   │   ├── LLMFollowUpHandler.cs
 │   │   │   ├── NarrativeHandler.cs
 │   │   │   ├── PlotWeaverHandler.cs
 │   │   │   ├── AgentCallFailedHandler.cs

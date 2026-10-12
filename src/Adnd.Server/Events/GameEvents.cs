@@ -53,7 +53,6 @@ public record LLMDispatchRequested(Guid AgentCallId, Guid GameId, string SystemP
 public record LLMResponseReceived([property: SagaIdentity] Guid AgentCallId, Guid GameId, string ResponseText, bool HasToolCalls, int ToolCount, string? RawJson);
 public record ToolCallRequested(Guid AgentCallId, Guid GameId, string ToolName, string ArgumentsJson, int ToolIndex);
 public record ToolCallCompleted([property: SagaIdentity] Guid AgentCallId, Guid GameId, string ToolName, string ResultJson, int ToolIndex, int TotalTools);
-public record LLMFollowUpRequested(Guid AgentCallId, Guid GameId, string SystemPrompt, string UserPrompt, string ToolResultsSummary);
 public record NarrativeReady([property: SagaIdentity] Guid AgentCallId, Guid GameId, Guid SessionId, string NarrativeText);
 
 /// <summary>A step failed. Not terminal — the DLQ handler decides whether to retry.</summary>

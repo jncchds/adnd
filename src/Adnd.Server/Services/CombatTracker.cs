@@ -40,12 +40,15 @@ public interface ICombatTracker
     /// <summary>A combatant by display name, case-insensitively — how the model addresses them.</summary>
     CombatParticipant? FindByName(CombatEntity combat, string name);
 
+    /// <summary>Whose turn it is.</summary>
+    CombatParticipant? Acting(CombatEntity combat);
+
     /// <summary>True for a player character at 0 HP who is neither dead nor stable.</summary>
     bool IsDying(CombatParticipant participant);
 
     /// <summary>Negative amount is damage. A player character's sheet follows its participant.
     /// Returns the combatant's hit points afterwards.</summary>
-    Task<int> ChangeHpAsync(CombatEntity combat, Guid participantId, int amount, CancellationToken ct = default);
+    Task<int> ChangeHpAsync(CombatEntity combat, Guid participantId, int amount, CancellationToken ct = default, bool critical = false);
     Task SetConditionAsync(CombatEntity combat, Guid participantId, string condition, bool applied, CancellationToken ct = default);
     /// <summary>Returns the outcome as the log states it.</summary>
     Task<string> RecordDeathSaveAsync(CombatEntity combat, Guid participantId, int roll, CancellationToken ct = default);
@@ -55,6 +58,10 @@ public interface ICombatTracker
 
     /// <summary>The combat block for the narrator's system prompt, or null when nobody is fighting.</summary>
     Task<string?> DescribeForNarratorAsync(Guid gameId, Guid? speakingPlayerId, CancellationToken ct = default);
+
+    /// <summary>What the GM still has to do before the fight is waiting on a player — an
+    /// enemy's turn to play, a death save to make — or null when the next move is a player's.</summary>
+    Task<string?> PendingGmTurnAsync(Guid gameId, CancellationToken ct = default);
 }
 
 public class CombatTracker(
@@ -162,8 +169,10 @@ public class CombatTracker(
             Initiative = initiative ?? dice.Roll("1d20").Total,
             ZoneId = targetZone?.Id,
         };
+        // Added to the DbSet only. EF's fix-up puts it into combat.Participants, so adding
+        // it there as well listed every new combatant twice; and adding it there *instead*
+        // makes EF take its preset key for an existing row and issue an UPDATE of nothing.
         db.CombatParticipants.Add(participant);
-        combat.Participants.Add(participant);
         Reanchor(combat, anchor);
         await db.SaveChangesAsync(ct);
 
@@ -231,18 +240,36 @@ public class CombatTracker(
 
     public CombatParticipant? FindByName(CombatEntity combat, string name) => FindParticipant(combat, name);
 
+    public CombatParticipant? Acting(CombatEntity combat) => Current(combat);
+
     public bool IsDying(CombatParticipant p)
         => p.ParticipantType == CombatParticipantType.Character && p.HP == 0
            && ReadDeathSaves(p.DeathSaveState) is not { IsDead: true } and not { IsStable: true };
 
-    public async Task<int> ChangeHpAsync(CombatEntity combat, Guid participantId, int amount, CancellationToken ct = default)
+    public async Task<int> ChangeHpAsync(CombatEntity combat, Guid participantId, int amount, CancellationToken ct = default, bool critical = false)
     {
         var p = Require(combat, participantId);
         var wasDown = p.HP == 0;
         p.HP = Math.Clamp(p.HP + amount, 0, p.MaxHP);
 
-        // Damage while down, or any healing back above zero, restarts the death-save clock.
-        if (p.HP > 0 || (wasDown && amount < 0)) p.DeathSaveState = default;
+        // Back above zero clears the death saves. Damage while down fails one — two on a
+        // critical hit. It used to clear them instead, so a downed character surrounded by
+        // enemies could be hit every round and never die, and the fight never ended.
+        string? deathLine = null;
+        if (p.HP > 0)
+        {
+            p.DeathSaveState = default;
+        }
+        else if (wasDown && amount < 0 && p.ParticipantType == CombatParticipantType.Character
+                 && (ReadDeathSaves(p.DeathSaveState) ?? new DeathSaveStateDto(0, 0, false, false)) is { IsDead: false } saves)
+        {
+            var failures = Math.Min(3, saves.Failures + (critical ? 2 : 1));
+            var successes = saves.IsStable ? 0 : saves.Successes;
+            p.DeathSaveState = JsonSerializer.SerializeToElement(new { successes, failures, isDead = failures >= 3, isStable = false });
+            deathLine = failures >= 3
+                ? $"💀 {p.DisplayName} is hit while down — they die."
+                : $"💀 {p.DisplayName} is hit while down: a death save failed ({successes}✓ {failures}✗).";
+        }
 
         // The sheet and the tracker used to be two unrelated hit-point counts.
         if (p.CharacterId is { } characterId
@@ -252,6 +279,7 @@ public class CombatTracker(
         }
 
         await db.SaveChangesAsync(ct);
+        if (deathLine is not null) await PostAsync(combat, deathLine, ct);
         await PushAsync(combat, ct);
         if (p.CharacterId is { } changed)
             await hub.Clients.Group(combat.GameId.ToString()).SendAsync("CharacterUpdated", new { characterId = changed }, ct);
@@ -382,8 +410,29 @@ public class CombatTracker(
 
         sb.AppendLine("Combat rules: combatants in the same zone can reach each other in melee. Moving to an adjacent zone takes the combatant's move; further takes their action too (a dash). Ranged attacks reach any zone; more than one zone away is long range (disadvantage).");
         sb.AppendLine("Hit points and conditions change ONLY through tools: call damage when an attack or effect hits (after the roll has decided it does), heal for healing, and setCondition to apply or remove a condition. Narrating a wound does not change anyone's hit points. An enemy at 0 HP is defeated; a player character at 0 HP is dying.");
-        sb.AppendLine("Call moveParticipant whenever someone changes zone. When the acting combatant's turn is resolved, call nextTurn. On an enemy's turn, decide what it does, roll for it with rollDice, apply the result with damage, narrate it, then call nextTurn. On a player character's turn, ask for their attack or save with requestPlayerRoll. When a dying player character's turn comes, call deathSave for them. Add newly arriving combatants with addCombatParticipant. Call endCombat when one side is defeated, flees or surrenders.");
+        sb.AppendLine("Call moveParticipant whenever someone changes zone. A player character's attack: requestPlayerRoll for the attack with dc set to the target's AC; then stop and read the result, and only if it hit, requestPlayerRoll for the damage with mandatory true, and once you have that number, damage. Do exactly what their player said and nothing more — never add a second attack or a choice of your own for them. An enemy's attack is one call to attack, which rolls to hit, rolls the damage and applies it.");
+        sb.AppendLine("Turn order is strict: only the combatant marked ▶ acts. When a player character has done what their player said, call nextTurn before any enemy does anything. When the turn passes to an enemy, play that enemy's turn, call nextTurn, and go on until the turn is a player character's — never leave the fight on an enemy's turn, and never play a player character's turn for them. When a dying player character's turn comes, call deathSave for them — that is their whole turn and it passes the turn on. Add newly arriving combatants with addCombatParticipant. Call endCombat when one side is defeated, flees or surrenders, then tell the table how it ended.");
         return sb.ToString();
+    }
+
+    public async Task<string?> PendingGmTurnAsync(Guid gameId, CancellationToken ct = default)
+    {
+        if (await GetActiveAsync(gameId, ct) is not { } combat || Current(combat) is not { } current) return null;
+
+        // With nobody left who could ever answer, the fight would go round among the enemies
+        // until the turn ran out of steps.
+        var party = combat.Participants.Where(p => p.ParticipantType == CombatParticipantType.Character).ToList();
+        if (party.Count > 0 && party.All(IsOutOfTheFight))
+            return "No player character can act any more: the fight is over. Your next reply must call endCombat, saying how it ended; then tell the table what becomes of the party.";
+
+        if (IsDying(current))
+            return $"The fight is not waiting on a player: it is {current.DisplayName}'s turn and they are dying. Your next reply must call deathSave for {current.DisplayName}; that is their whole turn, and the turn passes on by itself.";
+        if (IsOutOfTheFight(current))
+            return $"The fight is not waiting on a player: the turn is with {current.DisplayName}, who is out of the fight. Call nextTurn — or endCombat if the fight is over.";
+        if (current.ParticipantType == CombatParticipantType.Character)
+            return null;
+
+        return $"The fight is not waiting on a player: it is {current.DisplayName}'s turn, and you play them. Your next reply must contain the tool calls for their turn — attack resolves an attack in one call, and nextTurn ends the turn — with a sentence of narration in the same reply. If the fight is over, call endCombat instead.";
     }
 
     // ── helpers ──
