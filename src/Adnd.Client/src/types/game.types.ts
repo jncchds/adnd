@@ -71,6 +71,7 @@ export interface Character {
   level: number
   experience: number
   proficiencyBonus: number
+  armourClass: number
   currentHP: number
   maxHP: number
   attributes: Record<string, number>

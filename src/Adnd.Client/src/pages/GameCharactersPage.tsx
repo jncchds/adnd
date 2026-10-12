@@ -37,7 +37,7 @@ function OwnCharacterCard({ character, onView }: { character: Character; onView:
         <Typography variant="h6" fontWeight={700}>{character.name}</Typography>
       </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        Level {character.level} {character.class} · Prof +{character.proficiencyBonus}
+        Level {character.level} {character.class} · AC {character.armourClass} · Prof +{character.proficiencyBonus}
       </Typography>
 
       {/* HP */}

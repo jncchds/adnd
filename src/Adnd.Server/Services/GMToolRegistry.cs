@@ -68,6 +68,9 @@ public class GMToolRegistry(
             if (combats.Acting(combat) is { } acting && acting != p)
                 return new(null, $"{p.DisplayName} makes a death save only on their own turn; it is {acting.DisplayName}'s turn.");
 
+            if (combats.DeathSaveHeld(p))
+                return new(null, $"{p.DisplayName} has made this turn's death save. Stop here: finish with your narration and no more tool calls — their player has a word before the next one.");
+
             // DC 10 so the roll states success or failure — and so an ability that rerolls a
             // failed check is offered on a failed death save, as it would be at a table.
             return new(new PlayerRollRequest(gameId, sessionId, p.PlayerId, "1d20", 10, "Death saving throw"), null);
@@ -256,14 +259,14 @@ public class GMToolRegistry(
         new("sendWhisper", "Tell one player something only their character perceives or knows. Name the character.",
             Schema("""{"type":"object","properties":{"character":{"type":"string"},"content":{"type":"string"}},"required":["character","content"]}""")),
         new("attack", "Resolve one attack in the fight, whoever makes it — an enemy or a player character — in a single call: it rolls to hit against the target's AC and, on a hit, rolls the damage and applies it. It then ends the attacker's turn, so an enemy's whole turn is one call; set endTurn false if the attacker has more to do this turn. Only the combatant whose turn it is can attack, unless it is a reaction. For a player character the roll is made on their behalf and any reroll they have is offered to their player before you are told the result.",
-            Schema("""{"type":"object","properties":{"attacker":{"type":"string"},"target":{"type":"string"},"bonus":{"type":"integer","description":"Attack bonus added to the d20, e.g. 4. For a player character: the ability modifier plus their proficiency bonus."},"damage":{"type":"string","description":"Fully-resolved damage formula, e.g. 1d6+2"},"type":{"type":"string","description":"e.g. slashing, piercing"},"moveTo":{"type":"string","description":"Zone the attacker moves into before attacking, if they are not already in reach"},"endTurn":{"type":"boolean","description":"Defaults to true. False when the attacker still has something to do this turn."},"reaction":{"type":"boolean","description":"True for an attack made outside the attacker's own turn, e.g. an opportunity attack. It never ends a turn."},"evenIfDown":{"type":"boolean","description":"True to deliberately strike a player character who is already down and dying"}},"required":["attacker","target","bonus","damage"]}""")),
+            Schema("""{"type":"object","properties":{"attacker":{"type":"string"},"target":{"type":"string"},"bonus":{"type":"integer","description":"Attack bonus added to the d20, e.g. 4. For a player character: the ability modifier plus their proficiency bonus."},"damage":{"type":"string","description":"Fully-resolved damage formula, e.g. 1d6+2"},"type":{"type":"string","description":"e.g. slashing, piercing"},"moveTo":{"type":"string","description":"Zone the attacker moves into before attacking, if they are not already in reach"},"endTurn":{"type":"boolean","description":"Defaults to true. False when the attacker still has something to do this turn."},"reaction":{"type":"boolean","description":"True for an attack made outside the attacker's own turn, e.g. an opportunity attack. It never ends a turn."},"evenIfDown":{"type":"boolean","description":"Almost never. Enemies leave a dying player character alone; true only when the story itself demands a killing blow on someone already down — an execution, a beast that devours its prey."}},"required":["attacker","target","bonus","damage"]}""")),
         new("damage", "Take hit points from a combatant or a player character for anything that is not an attack resolved by the attack tool — a spell, a fall, a trap, a blow struck outside a fight — after the roll has decided it lands. Works in and out of combat.",
             Schema("""{"type":"object","properties":{"target":{"type":"string","description":"Combatant or player character name"},"amount":{"type":"integer"},"type":{"type":"string","description":"e.g. slashing, fire"}},"required":["target","amount"]}""")),
         new("heal", "Restore hit points to a combatant or a player character. Healing does nothing for the dead: only when the story has truly brought a dead player character back — magic that raises the dead — set revive true.",
             Schema("""{"type":"object","properties":{"target":{"type":"string"},"amount":{"type":"integer"},"revive":{"type":"boolean","description":"True only when a dead player character is being raised from death"}},"required":["target","amount"]}""")),
         new("setCondition", "Apply or remove a condition (Poisoned, Prone, Frightened, Grappled, Restrained, Stunned, Unconscious, Blinded, Charmed, Invisible, …) on a combatant or player character.",
             Schema("""{"type":"object","properties":{"target":{"type":"string"},"condition":{"type":"string"},"applied":{"type":"boolean","description":"false to remove; defaults to true"}},"required":["target","condition"]}""")),
-        new("giveItem", "Put an item into a player character's inventory — loot they take, something bought or handed to them, coins (use the item \"Gold pieces\").",
+        new("giveItem", "Put an item into a player character's inventory — loot they take, something bought or handed to them, coins (use the item \"Gold pieces\"). Name a weapon with its damage dice and armour with its armour class, the way the sheet lists them — \"Warhammer (1d8 bludgeoning)\", \"Plate armour (AC 18)\", \"Studded leather (AC 12 + DEX)\", \"Half plate (AC 15 + DEX, max 2)\", \"Shield (+2 AC)\" — or it will not count in a fight.",
             Schema("""{"type":"object","properties":{"character":{"type":"string"},"item":{"type":"string"},"quantity":{"type":"integer","description":"Defaults to 1"}},"required":["character","item"]}""")),
         new("removeItem", "Take an item out of a player character's inventory — used up, sold, lost, given away, or coins spent.",
             Schema("""{"type":"object","properties":{"character":{"type":"string"},"item":{"type":"string"},"quantity":{"type":"integer","description":"Defaults to 1"}},"required":["character","item"]}""")),
@@ -364,6 +367,7 @@ public class GMToolRegistry(
                     nextLevelAt = ClassRules.XpForNextLevel(character.Level),
                     character.CurrentHP,
                     character.MaxHP,
+                    armourClass = character.ArmourClass,
                     character.ProficiencyBonus,
                     // Ability modifiers as text ("STR +2, DEX +0, …") so the LLM can drop a
                     // real number straight into a dice formula instead of guessing.
@@ -762,21 +766,25 @@ public class GMToolRegistry(
                 if (character is null)
                     return $"No player character called \"{name}\". The party: {await characters.PartyNamesAsync(gameId, ct)}.";
 
+                var acBefore = character.ArmourClass;
                 if (toolName == "giveItem")
                 {
                     var stack = await characters.GiveItemAsync(character, item, quantity, ct);
+                    await combats.SyncArmourClassAsync(gameId, character, ct);
                     await characters.AnnounceAsync(gameId, sessionId, $"🎒 {character.Name} gains {Describe(item, quantity)}.", ct);
-                    return $"{character.Name} now has {Describe(stack.Name, stack.Quantity)}.";
+                    return $"{character.Name} now has {Describe(stack.Name, stack.Quantity)}.{ArmourChange(character, acBefore)}";
                 }
 
                 var left = await characters.RemoveItemAsync(character, item, quantity, ct);
+                await combats.SyncArmourClassAsync(gameId, character, ct);
                 if (left is null)
                 {
                     var carried = ClassRules.ReadInventory(character.Inventory).Select(i => i.Name);
                     return $"{character.Name} has no \"{item}\". They carry: {string.Join(", ", carried)}.";
                 }
                 await characters.AnnounceAsync(gameId, sessionId, $"🎒 {character.Name} loses {Describe(item, quantity)}.", ct);
-                return left == 0 ? $"{character.Name} has no {item} left." : $"{character.Name} has {Describe(item, left.Value)} left.";
+                return (left == 0 ? $"{character.Name} has no {item} left." : $"{character.Name} has {Describe(item, left.Value)} left.")
+                    + ArmourChange(character, acBefore);
             }
 
             case "castSpell":
@@ -914,8 +922,10 @@ public class GMToolRegistry(
                 return (null, $"{target.DisplayName} is no longer a threat or a target. Pick someone still standing, or call nextTurn.");
             // Several enemies' turns can be sent in one reply, chosen before the first blow
             // landed. Without this, the second and third piled onto whoever the first dropped.
+            // The refusal does not advertise evenIfDown. When it did, a lone character's
+            // enemies simply repeated the call with the flag and killed them in one GM turn.
             if (ReadFlag(arguments, "evenIfDown") != true)
-                return (null, $"{target.DisplayName} is already down and dying. Striking a dying character is a deliberate choice that can kill them: repeat the call with \"evenIfDown\": true if {attacker.DisplayName} really would, or pick another target.");
+                return (null, $"{target.DisplayName} is down and dying, and enemies leave a downed character alone — their death saves decide what becomes of them. Have {attacker.DisplayName} turn on someone still standing, or end their turn with nextTurn.");
         }
 
         var moveTo = ReadOptionalString(arguments, "moveTo");
@@ -1005,7 +1015,9 @@ public class GMToolRegistry(
     /// <summary>Whose turn it now is, and whose move that makes it.</summary>
     private string DescribeTurn(CombatEntity combat, CombatParticipant next)
         => $"Round {combat.CurrentRound}: it is now {next.DisplayName}'s turn"
-           + (combats.IsDying(next)
+           + (combats.DeathSaveHeld(next)
+               ? $" — they are dying and have made this turn's death save. Stop here: finish with your narration and no more tool calls. Say what the table sees; {next.DisplayName}'s player has a word before the next save."
+               : combats.IsDying(next)
                ? $" — they are dying: call deathSave for {next.DisplayName} now. That is their whole turn and it passes the turn on."
                : next.ParticipantType == CombatParticipantType.Character
                ? $" — the next move is their player's: finish with your narration and no more tool calls. Say at most what {next.DisplayName} now faces; never describe {next.DisplayName} doing anything their player has not said."
@@ -1015,6 +1027,9 @@ public class GMToolRegistry(
     private static string DoubleDice(string formula)
         => System.Text.RegularExpressions.Regex.Replace(formula, @"(\d*)d(\d+)",
             m => $"{(m.Groups[1].Value.Length == 0 ? 1 : int.Parse(m.Groups[1].Value)) * 2}d{m.Groups[2].Value}");
+
+    private static string ArmourChange(Character character, int before)
+        => character.ArmourClass == before ? "" : $" Their armour class is now {character.ArmourClass}.";
 
     private static string Describe(string item, int quantity) => quantity == 1 ? item : $"{item} ×{quantity}";
 

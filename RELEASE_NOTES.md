@@ -10,6 +10,9 @@
 - feat: the opening scene is a full GM turn: a session that opens on a fight really starts one, instead of announcing it in prose with nobody in the turn order
 - feat: a character who fails three death saves is dead on their sheet — they take no further part, their player can still talk out of character, and is offered a new character to bring into the story (also into a fight already under way)
 - feat: `heal` can raise a dead character when the GM sets `revive`; ordinary healing does nothing for the dead
+- feat: armour counts — new characters start with their class's armour and shield, and armour class is worked out from what is on the sheet (barbarians and monks from their unarmoured defence) instead of 10 + DEX for everyone; armour the GM hands out or takes away changes it at once, also mid-fight, and the sheet shows it
+- feat: a downed character is no longer finished off in one go — enemies leave the dying alone (a killing blow is the GM's rare, deliberate choice), and after each death save the GM stops so the table sees it and the player can speak before the next one
+- fix: the GM's narration no longer ends with its own copy of a death-save or attack line from the log (sometimes with the wrong tally)
 - feat: new characters start with their class's weapons, and the GM is shown each character's weapons and proficiency bonus instead of looking the sheet up before every attack
 - fix: a second player speaking while the GM was still resolving a turn started a second GM on the same fight; lines now wait their turn and are answered in order, each with the scene as the one before left it
 - fix: the GM is told which character said the line it is answering

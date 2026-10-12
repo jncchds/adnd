@@ -90,6 +90,61 @@ public static partial class ClassRules
     [System.Text.RegularExpressions.GeneratedRegex(@"\(\d*d\d+")]
     private static partial System.Text.RegularExpressions.Regex WeaponDice();
 
+    /// <summary>
+    /// What a new character of the class wears. Like a weapon's dice, the armour class is part
+    /// of the item's name — <c>Chain mail (AC 16)</c>, <c>Leather armour (AC 11 + DEX)</c>,
+    /// <c>Scale mail (AC 14 + DEX, max 2)</c>, <c>Shield (+2 AC)</c> — so armour the GM hands
+    /// out with <c>giveItem</c> counts the moment it is on the sheet. Every character used to
+    /// be AC 10 + DEX whatever they wore, and a goblin hit a fighter on a 7.
+    /// </summary>
+    public static IReadOnlyList<string> StartingArmour(string? className) => (className ?? "").Trim().ToLowerInvariant() switch
+    {
+        "fighter" or "paladin" => ["Chain mail (AC 16)", "Shield (+2 AC)"],
+        "cleric" => ["Scale mail (AC 14 + DEX, max 2)", "Shield (+2 AC)"],
+        "ranger" => ["Scale mail (AC 14 + DEX, max 2)"],
+        "druid" => ["Leather armour (AC 11 + DEX)", "Shield (+2 AC)"],
+        "bard" or "rogue" or "warlock" => ["Leather armour (AC 11 + DEX)"],
+        // Barbarians and monks fight unarmoured (see ArmourClass); sorcerers and wizards own none.
+        _ => [],
+    };
+
+    /// <summary>The items on a sheet that are armour or a shield — the ones that name an AC.</summary>
+    public static IEnumerable<string> Armour(JsonElement inventory)
+        => ReadInventory(inventory).Select(i => i.Name).Where(n => BodyArmour().IsMatch(n) || ShieldBonus().IsMatch(n));
+
+    /// <summary>
+    /// Armour class as the sheet has it: the best body armour carried (or none — 10 + DEX, plus
+    /// CON for a barbarian and WIS for a monk without a shield) and the best shield.
+    /// </summary>
+    public static int ArmourClass(string? className, JsonElement inventory, JsonElement attributes)
+    {
+        var dex = Modifier(attributes, "DEX");
+        var names = ReadInventory(inventory).Select(i => i.Name).ToList();
+        var shield = names.Select(n => ShieldBonus().Match(n)).Where(m => m.Success)
+            .Select(m => int.Parse(m.Groups[1].Value)).DefaultIfEmpty(0).Max();
+
+        var unarmoured = 10 + dex + (className ?? "").Trim().ToLowerInvariant() switch
+        {
+            "barbarian" => Math.Max(0, Modifier(attributes, "CON")),
+            "monk" when shield == 0 => Math.Max(0, Modifier(attributes, "WIS")),
+            _ => 0,
+        };
+        var body = names.Select(n => BodyArmour().Match(n)).Where(m => m.Success).Select(m =>
+        {
+            var ac = int.Parse(m.Groups[1].Value);
+            if (!m.Groups[2].Success) return ac;
+            return ac + (m.Groups[3].Success ? Math.Min(dex, int.Parse(m.Groups[3].Value)) : dex);
+        }).DefaultIfEmpty(unarmoured).Max();
+
+        return Math.Max(body, unarmoured) + shield;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\(\s*AC\s*(\d{1,2})(\s*\+\s*DEX)?(?:\s*,?\s*max\s*\+?(\d))?", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex BodyArmour();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\(\s*\+(\d)\s*AC", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex ShieldBonus();
+
     public static int ProficiencyBonus(int level) => 2 + (Math.Clamp(level, 1, MaxLevel) - 1) / 4;
 
     public static int LevelForXp(int xp)
@@ -104,11 +159,11 @@ public static partial class ClassRules
 
     /// <summary>Hit points gained on reaching a new level: the die's fixed average plus CON, never below 1.</summary>
     public static int HitPointsPerLevel(string? className, JsonElement attributes)
-        => Math.Max(1, HitDie(className) / 2 + 1 + ConModifier(attributes));
+        => Math.Max(1, HitDie(className) / 2 + 1 + Modifier(attributes, "CON"));
 
     /// <summary>Maximum hit points at first level: the whole die plus CON.</summary>
     public static int FirstLevelHitPoints(string? className, JsonElement attributes)
-        => Math.Max(1, HitDie(className) + ConModifier(attributes));
+        => Math.Max(1, HitDie(className) + Modifier(attributes, "CON"));
 
     /// <summary>Slots per spell level for a class at a level; empty for non-casters.</summary>
     public static IReadOnlyDictionary<int, int> SpellSlots(string? className, int level)
@@ -191,10 +246,10 @@ public static partial class ClassRules
         return items;
     }
 
-    private static int ConModifier(JsonElement attributes)
+    public static int Modifier(JsonElement attributes, string ability)
         => attributes.ValueKind == JsonValueKind.Object
-           && attributes.TryGetProperty("CON", out var con)
-           && con.ValueKind == JsonValueKind.Number && con.TryGetInt32(out var score)
+           && attributes.TryGetProperty(ability, out var value)
+           && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var score)
             ? AbilityScoreHelper.GetModifier(score)
             : 0;
 

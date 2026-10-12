@@ -48,7 +48,7 @@ public class AgentSaga : Wolverine.Saga
     // the same message type is never invoked (silently — no exception), so the orchestration
     // that used to live in SagaOrchestratorHandler has to happen here.
     public async Task Start(AgentCallQueued msg, IMessageContext context, AppDbContext db, IGmActivityBroadcaster activity,
-        IGmTurnQueue turns, INarratorPromptService prompts, ILogger<AgentSaga> logger)
+        IGmTurnQueue turns, INarratorPromptService prompts, ICombatTracker combats, ILogger<AgentSaga> logger)
     {
         Id = msg.AgentCallId;
         AgentCallId = msg.AgentCallId;
@@ -84,6 +84,8 @@ public class AgentSaga : Wolverine.Saga
                 // same prompts from Input.
                 try
                 {
+                    // A new turn at the table: the dying may make their next death save.
+                    if (call.Action == AgentAction.Narrate) await combats.ReleaseDeathSavesAsync(call.GameId);
                     opts = await prompts.BuildAsync(call, opts);
                 }
                 catch (Exception ex)

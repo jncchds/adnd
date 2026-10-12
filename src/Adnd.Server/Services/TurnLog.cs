@@ -47,7 +47,9 @@ public static partial class TurnLog
     /// </summary>
     public static string Unsaid(IEnumerable<TurnLogEntry> entries, string text)
     {
-        text = text.Trim();
+        // The engine's own lines (💀 a death save, ⚔️ an attack) are in the log already. A model
+        // that closes its narration with one writes it from memory: "2✓ 0✗" after one success.
+        text = EngineLine().Replace(text, "").Trim();
         var heard = entries.Where(e => e.Kind == Said || (e.Kind == Tool && e.Name == "narrate"))
             .Select(e => e.Result).ToList();
         if (text.Length == 0 || heard.Count == 0) return text;
@@ -73,6 +75,9 @@ public static partial class TurnLog
         var rest = kept.ToString().Trim();
         return Words(rest).Count == 0 ? "" : rest;
     }
+
+    [GeneratedRegex(@"^[ \t>*_-]*(?:💀|⚔️|⚔|🎒|🎲).*$\n?", RegexOptions.Multiline)]
+    private static partial Regex EngineLine();
 
     [GeneratedRegex(@"(?<=[.!?…][""'”’»)*_]*)(\s+)")]
     private static partial Regex SentenceBreak();

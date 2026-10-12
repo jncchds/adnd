@@ -152,7 +152,8 @@ public class CharactersController(
         character.MaxHP = character.CurrentHP = ClassRules.FirstLevelHitPoints(character.Class, character.Attributes);
 
         var kit = ClassRules.ReadInventory(character.Inventory);
-        kit.AddRange(ClassRules.StartingWeapons(character.Class).Select(w => new InventoryItem(w, 1)));
+        kit.AddRange(ClassRules.StartingWeapons(character.Class).Concat(ClassRules.StartingArmour(character.Class))
+            .Select(item => new InventoryItem(item, 1)));
         character.Inventory = JsonSerializer.SerializeToElement(kit, ClassRules.Json);
 
         character.Backstory = dto.Backstory;

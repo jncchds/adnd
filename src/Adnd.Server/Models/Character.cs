@@ -19,6 +19,9 @@ public class Character : ISoftDelete
     public int CurrentHP { get; set; }
     public int MaxHP { get; set; }
 
+    /// <summary>Derived from the armour in <see cref="Inventory"/> and the ability scores — never stored.</summary>
+    public int ArmourClass => Services.ClassRules.ArmourClass(Class, Inventory, Attributes);
+
     public JsonElement Attributes { get; set; }
     public JsonElement Skills { get; set; }
     public JsonElement Inventory { get; set; }

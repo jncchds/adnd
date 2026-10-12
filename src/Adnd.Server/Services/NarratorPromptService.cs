@@ -132,7 +132,7 @@ public class NarratorPromptService(
                 var conditionSuffix = conditions.Count > 0 ? $" — {string.Join(", ", conditions)}" : "";
                 var weapons = string.Join("; ", ClassRules.Weapons(c.Inventory));
                 var weaponSuffix = weapons.Length > 0 ? $" — weapons: {weapons}" : "";
-                sb.AppendLine($"- {c.Name} (Level {c.Level} {c.Race} {c.Class}, HP {c.CurrentHP}/{c.MaxHP}, proficiency +{c.ProficiencyBonus}){modsSuffix}{weaponSuffix}{conditionSuffix}");
+                sb.AppendLine($"- {c.Name} (Level {c.Level} {c.Race} {c.Class}, HP {c.CurrentHP}/{c.MaxHP}, AC {c.ArmourClass}, proficiency +{c.ProficiencyBonus}){modsSuffix}{weaponSuffix}{conditionSuffix}");
             }
             sb.AppendLine();
         }

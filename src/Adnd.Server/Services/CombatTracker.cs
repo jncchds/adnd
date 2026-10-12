@@ -48,6 +48,13 @@ public interface ICombatTracker
 
     bool IsDead(CombatParticipant participant);
 
+    /// <summary>True for a dying character whose death save for this GM turn is already made:
+    /// the next one waits until a player has spoken.</summary>
+    bool DeathSaveHeld(CombatParticipant participant);
+
+    /// <summary>A player has spoken: dying characters may make their next death save.</summary>
+    Task ReleaseDeathSavesAsync(Guid gameId, CancellationToken ct = default);
+
     /// <summary>What to tell the GM when one side has nobody left who can act, or null while
     /// the fight is still on.</summary>
     string? FightOver(CombatEntity combat);
@@ -59,6 +66,9 @@ public interface ICombatTracker
     /// <summary>Returns the outcome as the log states it.</summary>
     Task<string> RecordDeathSaveAsync(CombatEntity combat, Guid participantId, int roll, CancellationToken ct = default);
     Task EndAsync(CombatEntity combat, string? outcome, CancellationToken ct = default);
+
+    /// <summary>Brings a player character's combatant in line with the armour now on their sheet.</summary>
+    Task SyncArmourClassAsync(Guid gameId, Character character, CancellationToken ct = default);
 
     CombatDto ToDto(CombatEntity combat);
 
@@ -122,9 +132,7 @@ public class CombatTracker(
                 DisplayName = ch.Name,
                 HP = ch.CurrentHP,
                 MaxHP = ch.MaxHP,
-                // Characters carry no armour class yet; unarmoured AC is the honest default
-                // until the sheet has a real one.
-                AC = 10 + dex,
+                AC = ch.ArmourClass,
                 // Initiative is a roll the rules give nobody a choice about, so it is simply made.
                 Initiative = dice.Roll("1d20").Total + dex,
                 ZoneId = startZone.Id,
@@ -183,7 +191,7 @@ public class CombatTracker(
             DisplayName = pc?.Name ?? name,
             HP = pc?.CurrentHP ?? hp,
             MaxHP = pc?.MaxHP ?? hp,
-            AC = pc is null ? ac : 10 + DexModifier(pc.Attributes),
+            AC = pc?.ArmourClass ?? ac,
             Initiative = initiative ?? dice.Roll("1d20").Total + (pc is null ? 0 : DexModifier(pc.Attributes)),
             ZoneId = targetZone?.Id,
         };
@@ -266,6 +274,26 @@ public class CombatTracker(
 
     public bool IsDead(CombatParticipant p) => ReadDeathSaves(p.DeathSaveState) is { IsDead: true };
 
+    // One death save per GM turn. A turn only ends on a player's move, so with nobody else
+    // standing a dying character's saves came round one after another inside a single turn:
+    // dropped and dead before their player had read the first line.
+    public bool DeathSaveHeld(CombatParticipant p)
+        => IsDying(p) && p.DeathSaveState.ValueKind == JsonValueKind.Object
+           && p.DeathSaveState.TryGetProperty("held", out var held) && held.ValueKind == JsonValueKind.True;
+
+    public async Task ReleaseDeathSavesAsync(Guid gameId, CancellationToken ct = default)
+    {
+        if (await GetActiveAsync(gameId, ct) is not { } combat) return;
+        var held = combat.Participants.Where(DeathSaveHeld).ToList();
+        if (held.Count == 0) return;
+        foreach (var p in held)
+        {
+            var saves = ReadDeathSaves(p.DeathSaveState)!;
+            p.DeathSaveState = JsonSerializer.SerializeToElement(new { successes = saves.Successes, failures = saves.Failures, isDead = false, isStable = false });
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
     public string? FightOver(CombatEntity combat)
     {
         // With nobody left who could ever answer, the fight would go round among the enemies
@@ -300,7 +328,7 @@ public class CombatTracker(
         {
             var failures = Math.Min(3, saves.Failures + (critical ? 2 : 1));
             var successes = saves.IsStable ? 0 : saves.Successes;
-            p.DeathSaveState = JsonSerializer.SerializeToElement(new { successes, failures, isDead = failures >= 3, isStable = false });
+            p.DeathSaveState = JsonSerializer.SerializeToElement(new { successes, failures, isDead = failures >= 3, isStable = false, held = DeathSaveHeld(p) });
             deathLine = failures >= 3
                 ? $"💀 {p.DisplayName} is hit while down — they die."
                 : $"💀 {p.DisplayName} is hit while down: a death save failed ({successes}✓ {failures}✗).";
@@ -374,6 +402,7 @@ public class CombatTracker(
             failures = Math.Min(failures, 3),
             isDead = dead,
             isStable = stable,
+            held = !dead && !stable,
         });
         var outcome = dead ? " — they die." : stable ? " — they are stable." : $" ({successes}✓ {failures}✗)";
 
@@ -447,7 +476,10 @@ public class CombatTracker(
         {
             var own = order.FirstOrDefault(p => p.PlayerId == speaker);
             if (own is not null)
-                sb.AppendLine(own == current
+                sb.AppendLine(IsDying(own)
+                    ? $"The player speaking now plays {own.DisplayName}, who is down and dying: what they say is a thought or a last word, never an action — a dying character cannot move, attack or use anything."
+                      + (own == current ? $" It is their turn: call deathSave for {own.DisplayName}, which is their whole turn." : "")
+                    : own == current
                     ? $"The player speaking now plays {own.DisplayName}, and it IS their turn: resolve what they do."
                     : $"The player speaking now plays {own.DisplayName}, and it is NOT their turn ({current?.DisplayName} is acting). Treat what they say as table talk, a reaction or a free action — do not let them take a full turn out of order.");
         }
@@ -455,7 +487,7 @@ public class CombatTracker(
         sb.AppendLine("Combat rules: combatants in the same zone can reach each other in melee. Moving to an adjacent zone takes the combatant's move; further takes their action too (a dash). Ranged attacks reach any zone; more than one zone away is long range (disadvantage).");
         sb.AppendLine("Hit points and conditions change ONLY through tools: attack for an attack, damage for any other harm (a spell, a fall, a trap — once the roll has decided it lands), heal for healing, and setCondition to apply or remove a condition. Narrating a wound does not change anyone's hit points. An enemy at 0 HP is defeated; a player character at 0 HP is dying.");
         sb.AppendLine("Every attack — a player character's or an enemy's — is one call to attack: it rolls to hit against the target's AC, on a hit rolls and applies the damage, and ends the attacker's turn (endTurn false if they have more to do; moveTo moves them into reach first). For a player character, take the bonus from their sheet — the ability modifier (DEX for a ranged weapon, the better of STR and DEX for a finesse one, otherwise STR) plus their proficiency bonus — and the damage from their weapon's dice plus the same ability modifier. Do exactly what their player said and nothing more: never add a second attack, a target or a choice of your own for them. Call moveParticipant when someone changes zone without attacking.");
-        sb.AppendLine("Turn order is strict: only the combatant marked ▶ acts. When the turn passes to an enemy, play it: one attack call is that enemy's whole turn, and when several enemies act one after another you may put all their attack calls in one reply, in turn order, with a sentence on what each attempts — each is told how the one before it fared only afterwards, so do not write the outcome. Use nextTurn to end a turn that made no attack, including a player character's once they have done what their player said. Go on until the turn is a player character's — never leave the fight on an enemy's turn, and never play a player character's turn for them. When a dying player character's turn comes, call deathSave for them — that is their whole turn and it passes the turn on. Add newly arriving combatants with addCombatParticipant. Call endCombat when one side is defeated, flees or surrenders, then tell the table how it ended.");
+        sb.AppendLine("Turn order is strict: only the combatant marked ▶ acts. When the turn passes to an enemy, play it: one attack call is that enemy's whole turn, and when several enemies act one after another you may put all their attack calls in one reply, in turn order, with a sentence on what each attempts — each is told how the one before it fared only afterwards, so do not write the outcome. Use nextTurn to end a turn that made no attack, including a player character's once they have done what their player said. Go on until the turn is a player character's — never leave the fight on an enemy's turn, and never play a player character's turn for them. When a dying player character's turn comes, call deathSave for them — that is their whole turn and it passes the turn on. Enemies leave a downed character alone: someone dying is no threat, so an enemy with nobody left standing to fight ends its turn with nextTurn (it may gloat, loot, bind them or leave) rather than striking them. A dying character makes one death save and then their player has a word before the next. Add newly arriving combatants with addCombatParticipant. Call endCombat when one side is defeated, flees or surrenders, then tell the table how it ended.");
         return sb.ToString();
     }
 
@@ -465,6 +497,8 @@ public class CombatTracker(
 
         if (FightOver(combat) is { } over) return over;
 
+        // Held: the save for this turn is made and the next waits for the table.
+        if (DeathSaveHeld(current)) return null;
         if (IsDying(current))
             return $"The fight is not waiting on a player: it is {current.DisplayName}'s turn and they are dying. Your next reply must call deathSave for {current.DisplayName}; that is their whole turn, and the turn passes on by itself.";
         if (IsOutOfTheFight(current))
@@ -531,11 +565,17 @@ public class CombatTracker(
 
     private static string ZoneList(CombatEntity combat) => string.Join(", ", combat.Zones.Select(z => z.Name));
 
-    private static int DexModifier(JsonElement attributes)
-        => attributes.ValueKind == JsonValueKind.Object
-           && attributes.TryGetProperty("DEX", out var dex) && dex.TryGetInt32(out var score)
-            ? AbilityScoreHelper.GetModifier(score)
-            : 0;
+    public async Task SyncArmourClassAsync(Guid gameId, Character character, CancellationToken ct = default)
+    {
+        var combat = await GetActiveAsync(gameId, ct);
+        var participant = combat?.Participants.FirstOrDefault(p => p.CharacterId == character.Id);
+        if (combat is null || participant is null || participant.AC == character.ArmourClass) return;
+        participant.AC = character.ArmourClass;
+        await db.SaveChangesAsync(ct);
+        await PushAsync(combat, ct);
+    }
+
+    private static int DexModifier(JsonElement attributes) => ClassRules.Modifier(attributes, "DEX");
 
     private async Task PushAsync(CombatEntity combat, CancellationToken ct)
         => await hub.Clients.Group(combat.GameId.ToString()).SendAsync("CombatUpdated", ToDto(combat), ct);

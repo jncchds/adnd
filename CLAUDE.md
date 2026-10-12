@@ -184,6 +184,14 @@ in a fight and writes a PC's HP and conditions through to the sheet. Both push
 `CharacterUpdated`. `ClassRules` holds the numbers: hit dice, the full/half/pact slot tables,
 proficiency, the XP thresholds and each class's starting weapons (their damage dice are part of
 the item name, e.g. `Longsword (1d8 slashing)`, which is how the narrator's prompt can list them) — level-ups are applied by `awardExperience`, never set.
+**Armour class is derived, never stored on the sheet.** `Character.ArmourClass` is
+`ClassRules.ArmourClass`: the best body armour in the inventory plus the best shield, read from
+the item names the same way weapon dice are (`Chain mail (AC 16)`, `Leather armour (AC 11 + DEX)`,
+`Scale mail (AC 14 + DEX, max 2)`, `Shield (+2 AC)`), or unarmoured defence. An item named
+without its AC does not count — `giveItem`'s description tells the model the format. A
+combatant's `AC` is copied from it when they join a fight and re-synced by `giveItem`/`removeItem`
+(`ICombatTracker.SyncArmourClassAsync`). Sheets created before v0.1.6 carry no armour and stay
+at 10 + DEX until the GM gives them some.
 `PUT /api/characters/{id}` accepts only who the character is (name, background, backstory,
 custom fields).
 
@@ -236,6 +244,16 @@ Damage to a character already at 0 HP fails a death save (two on a critical hit)
 *clear* them, so a downed character could be hit every round and never die. When either side has
 nobody left who can act, `ICombatTracker.FightOver` says so — `PendingGmTurnAsync`, `attack` and
 `nextTurn` all return it instead of passing the turn on — and the GM is told to end the fight.
+
+**One death save per GM turn, and enemies leave the dying alone.** A GM turn ends only on a
+player's move, so a lone character who dropped was played to death inside a single turn — save,
+enemy attacks with `evenIfDown`, save — before their player had read a line. `RecordDeathSaveAsync`
+now marks a still-dying character `held` (in the `DeathSaveState` jsonb): while held,
+`PendingGmTurnAsync` lets the turn end on them, `deathSave` is refused and `DescribeTurn` tells
+the model to stop. `AgentSaga.Start` clears the hold (`ReleaseDeathSavesAsync`) when the next
+player line starts a turn. `attack`'s refusal to strike a dying character no longer mentions
+`evenIfDown` — advertised, the model just repeated the call with it; the flag stays in the
+schema for the killing blow the story really demands.
 
 **Death is written to the sheet.** Three failed death saves put the condition
 `CharacterStateService.Dead` on the character (the fight ends; the sheet is what the next scene

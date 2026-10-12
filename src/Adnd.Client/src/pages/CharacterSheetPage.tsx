@@ -148,6 +148,12 @@ export default function CharacterSheetPage() {
             </Grid>
             <Grid size={{ xs: 6, sm: 3 }}>
               <Paper sx={{ p: 1.5, textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">Armour class</Typography>
+                <Typography variant="h6">{character.armourClass}</Typography>
+              </Paper>
+            </Grid>
+            <Grid size={{ xs: 6, sm: 3 }}>
+              <Paper sx={{ p: 1.5, textAlign: 'center' }}>
                 <Typography variant="caption" color="text.secondary">Level</Typography>
                 <Typography variant="h6">{character.level}</Typography>
               </Paper>
