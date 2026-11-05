@@ -17,6 +17,7 @@ public class LLMProviderFactory(IHttpClientFactory httpClientFactory, ILoggerFac
                 NullOrEmpty(preset.EndpointUrl) ?? "http://localhost:11434",
                 preset.BaseModel,
                 preset.EmbeddingModel,
+                NullOrEmpty(preset.ReasoningEffort),
                 Client(preset),
                 loggerFactory.CreateLogger<OllamaLLMProvider>()),
             "openaicompatible" => new OpenAICompatibleLLMProvider(
@@ -32,19 +33,23 @@ public class LLMProviderFactory(IHttpClientFactory httpClientFactory, ILoggerFac
                 preset.BaseModel,
                 NullOrEmpty(preset.EndpointUrl),
                 NullOrEmpty(preset.EmbeddingModel),
+                NullOrEmpty(preset.ReasoningEffort),
                 Client(preset),
                 loggerFactory.CreateLogger<OpenAILLMProvider>()),
             "google" => new GoogleAIStudioLLMProvider(
                 preset.DecryptedApiKey ?? string.Empty,
                 preset.BaseModel,
+                NullOrEmpty(preset.EndpointUrl),
                 NullOrEmpty(preset.EmbeddingModel),
+                NullOrEmpty(preset.ReasoningEffort),
                 Client(preset),
                 loggerFactory.CreateLogger<GoogleAIStudioLLMProvider>()),
             _ => throw new InvalidOperationException($"Unknown LLM provider type: {preset.ProviderType}")
         };
 
     /// <summary>The preset's own timeout, when it has one. It was stored and never applied, so
-    /// every provider ran on the client's default however slow the model behind it.</summary>
+    /// every provider ran on the client's default however slow the model behind it. The OpenAI
+    /// provider sends through this client too (it used the SDK's own, with a fixed 100 s).</summary>
     private HttpClient Client(LLMPreset preset)
     {
         var client = httpClientFactory.CreateClient("LLMProvider");

@@ -1,3 +1,6 @@
+#pragma warning disable OPENAI001 // ReasoningEffortLevel is marked experimental in the SDK.
+using System.ClientModel;
+using System.ClientModel.Primitives;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -12,30 +15,45 @@ public class OpenAILLMProvider(
     string model,
     string? endpointUrl,
     string? embeddingModel,
+    string? reasoningEffort,
     HttpClient httpClient,
     ILogger<OpenAILLMProvider> logger) : BaseLLMProvider
 {
     public override string ProviderId => "openai";
     public override string EndpointUrl => endpointUrl ?? "https://api.openai.com/v1";
 
-    private ChatClient CreateChatClient(string targetModel)
+    /// <summary>
+    /// The SDK's client options over the pooled HttpClient, with its timeout. The SDK made its own transport with a
+    /// 100 s network timeout, so the preset's timeout never applied and a long GM step was cut off mid-reply.
+    /// </summary>
+    private OpenAIClientOptions Options()
     {
-        if (!string.IsNullOrEmpty(endpointUrl))
+        var options = new OpenAIClientOptions
         {
-            var options = new OpenAIClientOptions { Endpoint = new Uri(endpointUrl) };
-            return new ChatClient(targetModel, new System.ClientModel.ApiKeyCredential(apiKey), options);
-        }
-        return new ChatClient(targetModel, apiKey);
+            Transport = new HttpClientPipelineTransport(httpClient),
+            NetworkTimeout = httpClient.Timeout,
+        };
+        if (!string.IsNullOrEmpty(endpointUrl)) options.Endpoint = new Uri(endpointUrl.TrimEnd('/'));
+        return options;
     }
 
-    private EmbeddingClient CreateEmbeddingClient(string targetModel)
+    private ChatClient CreateChatClient(string targetModel) =>
+        new(targetModel, new ApiKeyCredential(apiKey), Options());
+
+    private EmbeddingClient CreateEmbeddingClient(string targetModel) =>
+        new(targetModel, new ApiKeyCredential(apiKey), Options());
+
+    /// <summary>The preset's reasoning effort, which never reached this provider. "none" (the default) sends nothing.</summary>
+    private void ApplyReasoning(ChatCompletionOptions options, LLMOptions opts)
     {
-        if (!string.IsNullOrEmpty(endpointUrl))
+        var effort = (string.IsNullOrWhiteSpace(reasoningEffort) ? opts.ReasoningEffort : reasoningEffort)?.Trim().ToLowerInvariant();
+        options.ReasoningEffortLevel = effort switch
         {
-            var options = new OpenAIClientOptions { Endpoint = new Uri(endpointUrl) };
-            return new EmbeddingClient(targetModel, new System.ClientModel.ApiKeyCredential(apiKey), options);
-        }
-        return new EmbeddingClient(targetModel, apiKey);
+            "low" => ChatReasoningEffortLevel.Low,
+            "medium" => ChatReasoningEffortLevel.Medium,
+            "high" => ChatReasoningEffortLevel.High,
+            _ => null,
+        };
     }
 
     protected override async Task<LLMCompletionResult> CompleteAsyncCore(string systemPrompt, string userPrompt, LLMOptions opts, CancellationToken ct)
@@ -53,6 +71,7 @@ public class OpenAILLMProvider(
         {
             MaxOutputTokenCount = opts.MaxTokens
         };
+        ApplyReasoning(completionOptions, opts);
         if (opts.JsonMode)
         {
             completionOptions.ResponseFormat = opts.JsonSchema.HasValue
@@ -68,8 +87,11 @@ public class OpenAILLMProvider(
 
         // The Chat Completions API never returns reasoning/thinking text (o-series models
         // only expose that via the separate Responses API) — Reasoning is always null here.
-        return new LLMCompletionResult(completion.Content.Count > 0 ? completion.Content[0].Text : string.Empty, null);
+        return new LLMCompletionResult(Text(completion), null);
     }
+
+    private static string Text(ChatCompletion completion) =>
+        string.Concat(completion.Content.Where(p => p.Kind == ChatMessageContentPartKind.Text).Select(p => p.Text));
 
     protected override async Task<LLMToolCallResult> CompleteWithToolsAsyncCore(string systemPrompt, string userPrompt, IEnumerable<ToolDefinition> tools, LLMOptions opts, CancellationToken ct)
     {
@@ -90,6 +112,7 @@ public class OpenAILLMProvider(
         {
             MaxOutputTokenCount = opts.MaxTokens
         };
+        ApplyReasoning(completionOptions, opts);
 
         foreach (var tool in chatTools)
             completionOptions.Tools.Add(tool);
@@ -100,23 +123,28 @@ public class OpenAILLMProvider(
         if (completion.Usage is { } usage)
             UpdateTokenUsage(new TokenUsage(usage.InputTokenCount, usage.OutputTokenCount, usage.TotalTokenCount));
 
-        string? narrativeText = null;
+        // Both, whatever the finish reason. Reading the calls only when it was "tool_calls" and the
+        // text only otherwise lost the narration that comes with tool calls (the saga posts it
+        // before the tools run) and, from gateways that report "stop", the calls themselves.
         var toolCalls = new List<ToolCall>();
-
-        if (completion.FinishReason == ChatFinishReason.ToolCalls)
+        foreach (var tc in completion.ToolCalls)
         {
-            foreach (var tc in completion.ToolCalls)
+            JsonElement args;
+            try
             {
-                var args = JsonSerializer.Deserialize<JsonElement>(tc.FunctionArguments.ToString());
-                toolCalls.Add(new ToolCall(tc.Id, tc.FunctionName, args));
+                var raw = tc.FunctionArguments.ToString();
+                args = JsonSerializer.Deserialize<JsonElement>(string.IsNullOrWhiteSpace(raw) ? "{}" : raw);
             }
-        }
-        else
-        {
-            narrativeText = completion.Content.Count > 0 ? completion.Content[0].Text : string.Empty;
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "OpenAILLMProvider: unreadable arguments for {Tool}; calling it with none", tc.FunctionName);
+                args = JsonSerializer.SerializeToElement(new { });
+            }
+            toolCalls.Add(new ToolCall(tc.Id, tc.FunctionName, args));
         }
 
-        return new LLMToolCallResult(narrativeText, toolCalls, GetTokenUsage());
+        var text = Text(completion);
+        return new LLMToolCallResult(text.Length > 0 ? text : null, toolCalls, GetTokenUsage());
     }
 
     public override async Task<float[]> GetEmbeddingAsync(string text, CancellationToken ct)
@@ -131,7 +159,7 @@ public class OpenAILLMProvider(
     {
         try
         {
-            var baseUrl = endpointUrl ?? "https://api.openai.com/v1";
+            var baseUrl = (endpointUrl ?? "https://api.openai.com/v1").TrimEnd('/');
             using var req = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/models");
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             using var res = await httpClient.SendAsync(req, ct);

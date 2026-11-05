@@ -28,6 +28,13 @@
 - fix: the GM describing an attack twice and never rolling it
 - fix: an enemy that rolled higher initiative than the party lost its first turn
 - fix: the activity chip stays up for the whole GM turn instead of flickering off at every line, and is cleared on reconnect when the turn ended meanwhile
+- fix: Google AI Studio presets now apply their reasoning setting (it was silently dropped — "none" now turns Gemini's thinking off, low/medium/high set its budget), use the preset's endpoint, and send structured output as JSON Schema (`responseJsonSchema`), retried without it or without thinking when a model refuses them
+- fix: when Gemini is busy ("high demand", rate limits — common on the free tier) the call is tried again up to 3 times, waiting 2/4/8 s or as long as Google asks, instead of failing the GM step
+- fix: a Gemini reply that is blocked or stopped (safety, recitation…) fails with Gemini's reason, and API errors show Google's own message instead of a bare status code
+- fix: what Gemini or OpenAI write beside their tool calls is no longer thrown away — the GM's narration alongside its rolls and moves reaches the table on those providers too
+- fix: the OpenAI provider honours the preset's timeout (it used the SDK's fixed 100 s, cutting long GM steps off) and its reasoning setting
+- fix: Ollama presets apply their temperature, top-p, token limit and reasoning setting, structured output sends the JSON schema, and a reply that stalls mid-stream fails after the preset's timeout instead of holding the GM turn
+- fix: the Google model list is no longer cut off after 50 models
 - fix: a dying character makes one death save per turn and the turn then passes on by itself
 - fix: damage to a character at 0 hit points fails a death save (two on a critical hit) instead of clearing them, so a downed character can die
 - fix: a fight ends when no player character can act any more, instead of going round among the enemies

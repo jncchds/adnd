@@ -12,6 +12,8 @@ public class OllamaLLMProvider : BaseLLMProvider
     private readonly string _endpointUrl;
     private readonly string _model;
     private readonly string _embeddingModel;
+    private readonly string? _reasoningEffort;
+    private readonly TimeSpan _idleTimeout;
     private readonly ILogger<OllamaLLMProvider> _logger;
 
     /// <summary>
@@ -26,14 +28,20 @@ public class OllamaLLMProvider : BaseLLMProvider
         string endpointUrl,
         string model,
         string? embeddingModel,
+        string? reasoningEffort,
         HttpClient httpClient,
         ILogger<OllamaLLMProvider> logger)
     {
         _endpointUrl = endpointUrl;
         _model = model;
         _embeddingModel = embeddingModel ?? model;
+        _reasoningEffort = reasoningEffort;
         _logger = logger;
 
+        // A streamed reply has HttpClient.Timeout on its headers only, so the same timeout
+        // also applies between chunks: a model that stalls mid-reply fails the step instead of
+        // holding the GM turn until the saga's 5-minute timeout.
+        _idleTimeout = httpClient.Timeout == Timeout.InfiniteTimeSpan ? TimeSpan.FromMinutes(5) : httpClient.Timeout;
         httpClient.BaseAddress = new Uri(endpointUrl);
         _client = new OllamaApiClient(httpClient);
     }
@@ -49,31 +57,54 @@ public class OllamaLLMProvider : BaseLLMProvider
             new() { Role = ChatRole.User, Content = userPrompt }
         };
 
-        var thinkingEnabled = !string.IsNullOrWhiteSpace(opts.ReasoningEffort) && opts.ReasoningEffort != "none";
+        // The preset's reasoning setting; it never reached this provider, so a thinking model
+        // ran on Ollama's default however the preset was set.
+        var effort = string.IsNullOrWhiteSpace(_reasoningEffort) ? opts.ReasoningEffort : _reasoningEffort;
+        var thinkingEnabled = !string.IsNullOrWhiteSpace(effort) && effort != "none";
 
         var request = new ChatRequest
         {
             Model = string.IsNullOrEmpty(opts.Model) ? _model : opts.Model,
             Messages = messages,
-            Stream = false,
+            Stream = true,
             Think = thinkingEnabled ? true : null,
-            Format = opts.JsonMode ? JsonSerializer.Deserialize<JsonElement>("\"json\"") : null
+            // Ollama takes a JSON schema as its format; "json" alone when there is none.
+            Format = !opts.JsonMode ? null
+                : opts.JsonSchema is { ValueKind: JsonValueKind.Object } schema ? schema
+                : JsonSerializer.Deserialize<JsonElement>("\"json\""),
+            // Temperature and the token limit were never sent: every call ran on the model's defaults.
+            Options = new RequestOptions
+            {
+                Temperature = opts.Temperature,
+                TopP = opts.TopP,
+                NumPredict = opts.MaxTokens > 0 ? opts.MaxTokens : null,
+            },
         };
 
         var sb = new StringBuilder();
         var thinkingSb = new StringBuilder();
         ChatDoneResponseStream? done = null;
 
-        await foreach (var chunk in _client.ChatAsync(request, ct))
+        using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        idle.CancelAfter(_idleTimeout);
+        try
         {
-            if (chunk is null)
-                continue;
-            if (chunk.Message?.Content is { } content)
-                sb.Append(content);
-            if (chunk.Message?.Thinking is { } thinking)
-                thinkingSb.Append(thinking);
-            if (chunk is ChatDoneResponseStream doneChunk)
-                done = doneChunk;
+            await foreach (var chunk in _client.ChatAsync(request, idle.Token))
+            {
+                idle.CancelAfter(_idleTimeout);
+                if (chunk is null)
+                    continue;
+                if (chunk.Message?.Content is { } content)
+                    sb.Append(content);
+                if (chunk.Message?.Thinking is { } thinking)
+                    thinkingSb.Append(thinking);
+                if (chunk is ChatDoneResponseStream doneChunk)
+                    done = doneChunk;
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Ollama sent nothing for {_idleTimeout.TotalSeconds:0} s; the reply was abandoned.");
         }
 
         if (done is not null)
