@@ -44,7 +44,7 @@ public class GMToolController(
     IGMToolRegistry gmToolRegistry,
     IGameAuthorizationService auth,
     IUserIdProvider userIdProvider,
-    IEventBus eventBus) : ControllerBase
+    IRollAnswerService answers) : ControllerBase
 {
     /// <summary>List available GM tool definitions.</summary>
     [HttpGet]
@@ -111,130 +111,27 @@ public class GMToolController(
 
     /// <summary>
     /// Take, or waive, the reroll offered after a requestPlayerRoll. A null featureId keeps
-    /// the original roll. Either way the GM's turn — which has been held open precisely so it
-    /// never narrates a number the player is about to replace — resumes here.
+    /// the original roll. Shared with the Telegram bot's buttons (<see cref="IRollAnswerService"/>).
     /// </summary>
     [HttpPost("{id:guid}/reroll")]
     public async Task<IActionResult> Reroll(Guid id, [FromBody] RerollRequest? body, CancellationToken ct)
-    {
-        var toolCall = await db.GMToolCalls.FirstOrDefaultAsync(t => t.Id == id, ct);
-        if (toolCall is null)
-            return NotFound(new { error = "Tool call not found." });
-
-        if (toolCall.Status != GMToolCallStatus.AwaitingReroll)
-            return BadRequest(new { error = "This roll is not awaiting a reroll." });
-
-        // The offer belongs to one player. Authorizing only on game membership would let any
-        // player at the table spend someone else's Lucky points.
-        var userId = userIdProvider.GetUserId();
-        Player caller;
-        try
-        {
-            caller = await auth.RequirePlayerAsync(toolCall.GameId, userId);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return StatusCode(403, new { error = ex.Message });
-        }
-
-        if (toolCall.TargetPlayerId is { } target && target != caller.Id)
-            return StatusCode(403, new { error = "This reroll was offered to another player." });
-
-        var featureId = string.IsNullOrWhiteSpace(body?.FeatureId) ? null : body!.FeatureId;
-
-        // Only an ability that was actually offered may be taken — otherwise the client could
-        // name any id and the roll would be reattempted under an ability the trigger never fired for.
-        if (featureId is not null && !WasOffered(toolCall.Result, featureId))
-            return BadRequest(new { error = "That ability was not offered for this roll." });
-
-        toolCall.Status = GMToolCallStatus.Completed;
-        toolCall.CompletedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
-
-        if (toolCall.AgentCallId is { } agentCallId && toolCall.RerollCharacterId is { } characterId)
-        {
-            await eventBus.PublishAsync(new RerollResolved(
-                agentCallId, toolCall.GameId, toolCall.Arguments.GetRawText(), toolCall.ToolIndex,
-                characterId, featureId, ReadInterimContent(toolCall.Result), toolCall.PromptMessageId,
-                toolCall.ToolName, ReadInterimTotal(toolCall.Result), ReadInterimNatural(toolCall.Result)), ct);
-        }
-
-        return NoContent();
-    }
-
-    private static bool WasOffered(JsonElement result, string featureId)
-        => result.ValueKind == JsonValueKind.Object
-           && result.TryGetProperty("options", out var options)
-           && options.ValueKind == JsonValueKind.Array
-           && options.EnumerateArray().Any(o =>
-               o.TryGetProperty("featureId", out var id)
-               && string.Equals(id.GetString(), featureId, StringComparison.OrdinalIgnoreCase));
-
-    private static int? ReadInterimNatural(JsonElement result)
-        => result.ValueKind == JsonValueKind.Object
-           && result.TryGetProperty("natural", out var natural)
-           && natural.ValueKind == JsonValueKind.Number && natural.TryGetInt32(out var value) ? value : null;
-
-    private static int ReadInterimTotal(JsonElement result)
-        => result.ValueKind == JsonValueKind.Object
-           && result.TryGetProperty("total", out var total)
-           && total.ValueKind == JsonValueKind.Number
-            ? total.GetInt32()
-            : 0;
-
-    private static string ReadInterimContent(JsonElement result)
-        => result.ValueKind == JsonValueKind.Object
-           && result.TryGetProperty("content", out var content)
-           && content.ValueKind == JsonValueKind.String
-            ? content.GetString() ?? string.Empty
-            : string.Empty;
+        => Result(await answers.RerollAsync(id, userIdProvider.GetUserId(), body?.FeatureId, ct));
 
     [HttpPost("{id:guid}/confirm")]
-    public Task<IActionResult> Confirm(Guid id, CancellationToken ct)
-        => ResolveAsync(id, approved: true, reason: null, ct);
+    public async Task<IActionResult> Confirm(Guid id, CancellationToken ct)
+        => Result(await answers.ConfirmAsync(id, userIdProvider.GetUserId(), approved: true, reason: null, ct));
 
     [HttpPost("{id:guid}/decline")]
-    public Task<IActionResult> Decline(Guid id, [FromBody] GMToolDeclineRequest? body, CancellationToken ct)
-        => ResolveAsync(id, approved: false, reason: body?.Reason, ct);
+    public async Task<IActionResult> Decline(Guid id, [FromBody] GMToolDeclineRequest? body, CancellationToken ct)
+        => Result(await answers.ConfirmAsync(id, userIdProvider.GetUserId(), approved: false, reason: body?.Reason, ct));
 
-    private async Task<IActionResult> ResolveAsync(Guid id, bool approved, string? reason, CancellationToken ct)
+    private IActionResult Result(RollAnswer answer) => answer switch
     {
-        var toolCall = await db.GMToolCalls.FirstOrDefaultAsync(t => t.Id == id, ct);
-        if (toolCall is null)
-            return NotFound(new { error = "Tool call not found." });
-
-        // The roll was asked of one player. Membership alone let anyone at the table roll —
-        // or decline — on someone else's behalf.
-        Player caller;
-        try
-        {
-            caller = await auth.RequirePlayerAsync(toolCall.GameId, userIdProvider.GetUserId());
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return StatusCode(403, new { error = ex.Message });
-        }
-
-        if (toolCall.TargetPlayerId is { } target && target != caller.Id)
-            return StatusCode(403, new { error = "This roll was asked of another player." });
-
-        if (toolCall.Status != GMToolCallStatus.AwaitingConfirmation)
-            return BadRequest(new { error = "This tool call has already been resolved." });
-
-        toolCall.Status = approved ? GMToolCallStatus.Completed : GMToolCallStatus.Declined;
-        toolCall.CompletedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
-
-        // Hands control back to ToolExecutionHandler so the saga can continue.
-        if (toolCall.AgentCallId is { } agentCallId)
-        {
-            await eventBus.PublishAsync(new ToolCallConfirmationResolved(
-                agentCallId, toolCall.GameId, toolCall.ToolName,
-                toolCall.Arguments.GetRawText(), toolCall.ToolIndex, approved, reason), ct);
-        }
-
-        return NoContent();
-    }
+        { Ok: true } => NoContent(),
+        { NotFound: true } => NotFound(new { error = answer.Error }),
+        { Forbidden: true } => StatusCode(403, new { error = answer.Error }),
+        _ => BadRequest(new { error = answer.Error }),
+    };
 
     private async Task<IActionResult?> RequireCreatorAsync(Guid gameId)
     {

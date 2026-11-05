@@ -9,6 +9,7 @@ import type {
   GMStatusResponse, StoryNudge, CharacterUpdate,
   PromptTemplate, GameTemplate, SessionNote,
   Combat,
+  TelegramAccount, TelegramCode, GameTelegram,
 } from '../types'
 
 const TOKEN_KEY = 'adnd-token'
@@ -220,6 +221,17 @@ class APIClient {
   combat = {
     list: (gameId: string) => this.get<Combat[]>(`/combatlog?gameId=${gameId}`),
     get: (id: string) => this.get<Combat>(`/combatlog/${id}`),
+  }
+
+  // Telegram — the user's linked account, and the chats that play a game (creator only)
+  telegram = {
+    account: () => this.get<TelegramAccount>('/telegram'),
+    createLinkCode: () => this.post<TelegramCode>('/telegram/link-code'),
+    unlink: () => this.delete<void>('/telegram/link'),
+    forGame: (gameId: string) => this.get<GameTelegram>(`/games/${gameId}/telegram`),
+    createBindCode: (gameId: string) => this.post<TelegramCode>(`/games/${gameId}/telegram/codes`),
+    revokeBinding: (gameId: string, bindingId: string) =>
+      this.delete<void>(`/games/${gameId}/telegram/bindings/${bindingId}`),
   }
 
   // Nudges — the creator's direction for the narration

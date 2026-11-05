@@ -1,85 +1,26 @@
-using Adnd.Server.Events;
-using Adnd.Server.Models;
 using Adnd.Server.Services;
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 
 namespace Adnd.Server.Hubs;
 
+/// <summary>Chat at the table. The rules live in <see cref="ITableChatService"/>, shared with the Telegram bot.</summary>
 public partial class GameHub
 {
-    public async Task SendMessage(Guid gameId, string content, bool isOOC = false)
-    {
-        var player = await RequireMemberAsync(gameId);
+    public Task SendMessage(Guid gameId, string content, bool isOOC = false)
+        => Chat(() => chat.SayAsync(gameId, CurrentUserId, content, isOOC));
 
-        // In-character speech implies a character to speak as; OOC table talk does not.
-        // Client-side already warns via a banner, but that's UI-only — enforce it here too.
-        if (!isOOC)
-        {
-            var speaker = await db.Characters.FirstOrDefaultAsync(c => c.PlayerId == player.Id)
-                ?? throw new HubForbiddenException("Create a character before speaking in character.");
-            // The dead do not act, and an in-character line starts a GM turn.
-            if (CharacterStateService.IsDead(speaker))
-                throw new HubForbiddenException($"{speaker.Name} is dead. Create a new character to rejoin the story — you can still talk out of character.");
-        }
-
-        var session = await ResolveGameSessionAsync(gameId);
-
-        // Build the entity here rather than re-querying "newest message in the session"
-        // afterwards, which could return a concurrently-inserted message from someone else.
-        var msg = new Message
-        {
-            SessionId = session.Id,
-            PlayerId = player.Id,
-            Content = content,
-            Type = isOOC ? "OOC" : "Chat",
-            IsOOC = isOOC,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
-        db.Messages.Add(msg);
-        await db.SaveChangesAsync();
-
-        var dto = new MessageDto(msg.Id, msg.SessionId, msg.PlayerId, msg.Content, msg.Type, msg.IsOOC, msg.CreatedAt, null);
-        await BroadcastToGameAsync(gameId, "NewMessage", dto);
-
-        await PublishAsync(new MessageSent(gameId, session.Id, player.Id, content, msg.Type));
-    }
-
-    public async Task SendWhisper(Guid gameId, Guid targetPlayerId, string content, bool isOOC = false)
-    {
-        var player = await RequireMemberAsync(gameId);
-
-        // The target must be in the same game, or this becomes a cross-game message channel.
-        var targetPlayer = await db.Players
-            .FirstOrDefaultAsync(p => p.Id == targetPlayerId && p.GameId == gameId)
-            ?? throw new HubForbiddenException("Target player is not in this game.");
-
-        var session = await ResolveGameSessionAsync(gameId);
-
-        var msg = new Message
-        {
-            SessionId = session.Id,
-            PlayerId = player.Id,
-            Content = content,
-            // OOC is a modifier on a whisper as much as on a public line — the client already
-            // renders OOCWhisper, but this used to store every whisper as plain "Whisper".
-            Type = isOOC ? "OOCWhisper" : "Whisper",
-            IsOOC = isOOC,
-            WhisperFromId = player.Id,
-            WhisperToId = targetPlayerId,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
-        db.Messages.Add(msg);
-        await db.SaveChangesAsync();
-
-        var dto = new MessageDto(msg.Id, msg.SessionId, msg.PlayerId, msg.Content, msg.Type, msg.IsOOC, msg.CreatedAt, null);
-        await Clients.Caller.SendCoreAsync("NewMessage", [dto]);
-        await Clients.User(targetPlayer.UserId.ToString()).SendCoreAsync("NewMessage", [dto]);
-    }
+    public Task SendWhisper(Guid gameId, Guid targetPlayerId, string content, bool isOOC = false)
+        => Chat(() => chat.WhisperAsync(gameId, CurrentUserId, targetPlayerId, content, isOOC));
 
     public async Task SendOOCMessage(Guid gameId, string content)
         => await SendMessage(gameId, content, isOOC: true);
 
     public async Task SendOOCWhisper(Guid gameId, Guid targetPlayerId, string content)
         => await SendWhisper(gameId, targetPlayerId, content, isOOC: true);
+
+    /// <summary>A refusal from the chat service reaches the caller as a hub error with its message.</summary>
+    private static async Task Chat(Func<Task> action)
+    {
+        try { await action(); }
+        catch (TableChatException ex) { throw new HubForbiddenException(ex.Message); }
+    }
 }

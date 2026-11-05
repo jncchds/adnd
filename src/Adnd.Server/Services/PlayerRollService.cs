@@ -57,7 +57,7 @@ public class PlayerRollService(
     IDiceEngine diceEngine,
     IRerollService rerolls,
     IFeatureCatalogue catalogue,
-    IHubContext<GameHub> hub) : IPlayerRollService
+    IGameNotifier notifier) : IPlayerRollService
 {
     public async Task<PlayerRollResult> RollAsync(PlayerRollRequest request, CancellationToken ct = default)
     {
@@ -122,7 +122,7 @@ public class PlayerRollService(
 
         if (!request.IsSecret)
         {
-            await hub.Clients.Group(request.GameId.ToString()).SendAsync("NewMessage", dto, ct);
+            await notifier.ToGameAsync(request.GameId, "NewMessage", dto, ct);
             return;
         }
 
@@ -131,10 +131,10 @@ public class PlayerRollService(
         // the group is what makes that true for the live push; MessagesController.IsSecret
         // is what makes it true on reload.
         foreach (var userId in await SecretAudienceAsync(request.GameId, request.PlayerId, ct))
-            await hub.Clients.User(userId).SendAsync("NewMessage", dto, ct);
+            await notifier.ToUserAsync(request.GameId, userId, "NewMessage", dto, ct);
     }
 
-    private async Task<List<string>> SecretAudienceAsync(Guid gameId, Guid? playerId, CancellationToken ct)
+    private async Task<List<Guid>> SecretAudienceAsync(Guid gameId, Guid? playerId, CancellationToken ct)
     {
         var creatorId = await db.Games
             .Where(g => g.Id == gameId)
@@ -148,7 +148,6 @@ public class PlayerRollService(
         return new[] { creatorId, rollerUserId }
             .OfType<Guid>()
             .Distinct()
-            .Select(id => id.ToString())
             .ToList();
     }
 

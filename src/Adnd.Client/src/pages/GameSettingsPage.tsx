@@ -8,6 +8,7 @@ import {
 import { useGame } from '../api/hooks/useGame'
 import { api } from '../api/client'
 import type { LLMPreset } from '../types'
+import { GameTelegramPanel } from '../components/TelegramPanels'
 
 export default function GameSettingsPage() {
   const { id: gameId } = useParams<{ id: string }>()
@@ -94,6 +95,8 @@ export default function GameSettingsPage() {
           </Typography>
         )}
       </Paper>
+
+      {gameId && <Box sx={{ mt: 2 }}><GameTelegramPanel gameId={gameId} /></Box>}
 
       <Paper sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'error.main' }}>
         <Typography variant="subtitle2" fontWeight={600} color="error" sx={{ mb: 1 }}>Danger Zone</Typography>

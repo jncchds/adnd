@@ -1210,6 +1210,139 @@ namespace Adnd.Server.Migrations
                     b.ToTable("StoryNudges");
                 });
 
+            modelBuilder.Entity("Adnd.Server.Models.TelegramBinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ChatId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ChatTitle")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ChatType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("GameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RevokedReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int?>("ThreadId")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GameId");
+
+                    b.HasIndex("ChatId", "ThreadId")
+                        .IsUnique()
+                        .HasFilter("\"RevokedAt\" IS NULL");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ChatId", "ThreadId"), false);
+
+                    b.ToTable("TelegramBindings");
+                });
+
+            modelBuilder.Entity("Adnd.Server.Models.TelegramCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("GameId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique();
+
+                    b.ToTable("TelegramCodes");
+                });
+
+            modelBuilder.Entity("Adnd.Server.Models.TelegramMessageLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ChatId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("RefId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("TelegramMessageId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ThreadId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChatId", "TelegramMessageId");
+
+                    b.HasIndex("ChatId", "ThreadId", "Kind", "RefId")
+                        .IsUnique();
+
+                    b.ToTable("TelegramMessageLinks");
+                });
+
             modelBuilder.Entity("Adnd.Server.Models.ToolCallCoordinator", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1267,10 +1400,23 @@ namespace Adnd.Server.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("TelegramLinkedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("TelegramUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("TelegramUsername")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("TelegramUserId")
+                        .IsUnique()
+                        .HasFilter("\"TelegramUserId\" IS NOT NULL");
 
                     b.ToTable("Users");
                 });
@@ -1529,6 +1675,17 @@ namespace Adnd.Server.Migrations
                 });
 
             modelBuilder.Entity("Adnd.Server.Models.StoryNudge", b =>
+                {
+                    b.HasOne("Adnd.Server.Models.Game", "Game")
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Game");
+                });
+
+            modelBuilder.Entity("Adnd.Server.Models.TelegramBinding", b =>
                 {
                     b.HasOne("Adnd.Server.Models.Game", "Game")
                         .WithMany()

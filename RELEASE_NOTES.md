@@ -1,6 +1,6 @@
 # Release Notes
 
-## v0.1.6 — 2026-10-12
+## v0.2.0 — 2026-11-05
 
 - feat: the GM resolves a turn in steps — it calls tools, sees what they returned and carries on until the next move is a player's; until now it had to choose every tool before seeing a single result, so damage was applied before the attack roll was known and enemies never took their turns
 - feat: enemies act on their own — when a turn passes to an enemy the GM plays it, and the next, until it is a player character's turn; a fight is never left waiting on the GM
@@ -35,6 +35,11 @@
 - fix: the OpenAI provider honours the preset's timeout (it used the SDK's fixed 100 s, cutting long GM steps off) and its reasoning setting
 - fix: Ollama presets apply their temperature, top-p, token limit and reasoning setting, structured output sends the JSON schema, and a reply that stalls mid-stream fails after the preset's timeout instead of holding the GM turn
 - fix: the Google model list is no longer cut off after 50 models
+- feat: **play from Telegram** — with `TELEGRAM_BOT_TOKEN` set, players link their account in User Settings → Telegram, and a game's creator connects a Telegram group (or a forum topic) in Game Settings → Telegram. The group is the table: everything the whole table sees appears there, and a linked player's message is their character speaking (the GM answers as it does on the web); `((…` or `/ooc` for table talk, `/sheet`, `/party`, `/combat`
+- feat: roll prompts and whispers reach each linked player in their private chat with the bot, from every game they play, with **Roll / Decline** and reroll buttons; answered on the web, the prompt updates in Telegram too. `/games` plays one game in the private chat itself, with `/ask` for a private question to the GM and `/w Name text` to whisper (or reply to a whisper)
+- feat: a fight shows in Telegram as a pinned combat card — zones, who stands where, hit points and whose turn it is — kept up to date, and the chat shows "typing…" while the GM works on its turn
+- fix: taking a reroll ability (Lucky and the like) was always refused as "not offered" — the offered options were stored with different field names than the check read; reroll buttons also kept their labels after a reload
+- migration: TelegramBot — linked Telegram accounts, one-time codes, connected chats and sent-message links
 - fix: a dying character makes one death save per turn and the turn then passes on by itself
 - fix: damage to a character at 0 hit points fails a death save (two on a critical hit) instead of clearing them, so a downed character can die
 - fix: a fight ends when no player character can act any more, instead of going round among the enemies

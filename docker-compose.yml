@@ -47,6 +47,11 @@ services:
       RateLimiting__LLMPresetPermitLimit: 30
       Logging__LogLevel__Microsoft.EntityFrameworkCore: Warning
       ASPNETCORE_ENVIRONMENT: Production
+      # Telegram bot — off unless TELEGRAM_BOT_TOKEN is set (see .env.example).
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      ADND_HOSTNAME: ${ADND_HOSTNAME:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_API_URL: ${TELEGRAM_API_URL:-}
 
   # SDK service for running EF migrations and other dev tooling.
   # Usage: docker compose run --rm sdk dotnet ef migrations add <Name> --project src/Adnd.Server

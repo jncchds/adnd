@@ -39,7 +39,7 @@ public interface IGMToolRegistry
 public partial class GMToolRegistry(
     AppDbContext db,
     IDiceEngine diceEngine,
-    IHubContext<GameHub> hub,
+    IGameNotifier notifier,
     ICombatTracker combats,
     ICharacterStateService characters) : IGMToolRegistry
 {
@@ -555,7 +555,7 @@ public partial class GMToolRegistry(
                 // A whisper is private: broadcast to the target user only, never the game group
                 // — otherwise every player would see it.
                 var whisperDto = new MessageDto(whisperMsg.Id, sessionId, null, content, "Whisper", false, whisperMsg.CreatedAt, null);
-                await hub.Clients.User(target.UserId.ToString()).SendAsync("NewMessage", whisperDto, ct);
+                await notifier.ToUserAsync(gameId, target.UserId, "NewMessage", whisperDto, ct);
                 return $"Whisper sent to {target.CharacterName}";
             }
 
@@ -1135,6 +1135,6 @@ public partial class GMToolRegistry(
         await db.SaveChangesAsync(ct);
 
         var dto = new MessageDto(msg.Id, sessionId, playerId, content, type, false, msg.CreatedAt, metadata);
-        await hub.Clients.Group(gameId.ToString()).SendAsync("NewMessage", dto, ct);
+        await notifier.ToGameAsync(gameId, "NewMessage", dto, ct);
     }
 }

@@ -246,7 +246,9 @@ public class ToolExecutionHandler(
                     natural = result.NaturalD20,
                     success = result.Success,
                     options = result.RerollOptions
-                })
+                // camelCase like the rest of the row: the reroll endpoint checks "featureId", and
+                // the default (PascalCase "FeatureId") meant no offered ability could ever be taken.
+                }, FeatureJson.Options)
             };
             db.GMToolCalls.Add(toolCall);
             await db.SaveChangesAsync(ct);

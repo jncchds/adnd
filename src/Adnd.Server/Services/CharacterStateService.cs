@@ -56,7 +56,7 @@ public class CharacterStateService(
     AppDbContext db,
     IRerollService rerolls,
     IFeatureCatalogue features,
-    IHubContext<GameHub> hub) : ICharacterStateService
+    IGameNotifier notifier) : ICharacterStateService
 {
     /// <summary>The condition that marks a dead character's sheet. Death is decided in a fight
     /// (three failed death saves) and written here, because the fight ends and the sheet is
@@ -244,7 +244,7 @@ public class CharacterStateService(
         };
         db.Messages.Add(msg);
         await db.SaveChangesAsync(ct);
-        await hub.Clients.Group(gameId.ToString()).SendAsync("NewMessage",
+        await notifier.ToGameAsync(gameId, "NewMessage",
             new MessageDto(msg.Id, sessionId, null, content, msg.Type, false, msg.CreatedAt, null), ct);
     }
 
@@ -264,6 +264,6 @@ public class CharacterStateService(
     {
         var gameId = await db.Players.IgnoreQueryFilters()
             .Where(p => p.Id == character.PlayerId).Select(p => p.GameId).FirstOrDefaultAsync(ct);
-        await hub.Clients.Group(gameId.ToString()).SendAsync("CharacterUpdated", new { characterId = character.Id }, ct);
+        await notifier.ToGameAsync(gameId, "CharacterUpdated", new { characterId = character.Id }, ct);
     }
 }

@@ -19,7 +19,7 @@ public class GameStartService(
     ISessionManagementService sessions,
     IPlotWeaver plotWeaver,
     INarrativeGenerationFactory narrativeFactory,
-    IHubContext<GameHub> hub,
+    IGameNotifier notifier,
     IAgentBus agentBus,
     IGmActivityBroadcaster activity,
     ILogger<GameStartService> logger) : IGameStartService
@@ -76,7 +76,7 @@ public class GameStartService(
 
                 // Saved but never pushed, the recap only appeared for someone who reloaded —
                 // a table already sitting in chat went straight to the opening scene.
-                await hub.Clients.Group(gameId.ToString()).SendAsync("NewMessage",
+                await notifier.ToGameAsync(gameId, "NewMessage",
                     new MessageDto(recapMsg.Id, recapMsg.SessionId, null, recapMsg.Content, recapMsg.Type, false, recapMsg.CreatedAt, null), ct);
             }
         }

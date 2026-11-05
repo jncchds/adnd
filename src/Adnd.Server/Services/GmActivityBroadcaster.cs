@@ -25,7 +25,7 @@ public interface IGmActivityBroadcaster
     GMActivityDto? GetCurrent(Guid gameId);
 }
 
-public class GmActivityBroadcaster(IHubContext<GameHub> hub) : IGmActivityBroadcaster
+public class GmActivityBroadcaster(IGameNotifier notifier) : IGmActivityBroadcaster
 {
     private static readonly ConcurrentDictionary<Guid, GMActivityDto> _current = new();
 
@@ -37,7 +37,7 @@ public class GmActivityBroadcaster(IHubContext<GameHub> hub) : IGmActivityBroadc
         else
             _current[gameId] = dto;
 
-        return hub.Clients.Group(gameId.ToString()).SendAsync("GMActivity", dto, ct);
+        return notifier.ToGameAsync(gameId, "GMActivity", dto, ct);
     }
 
     public Task BroadcastAsync(Guid gameId, SagaStep step, string? detail = null, CancellationToken ct = default) =>

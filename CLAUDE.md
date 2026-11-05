@@ -71,7 +71,7 @@ Migrations are applied automatically on startup by `MigrationService.ApplyMigrat
 
 Current migrations: `InitialCreate`, `AddCharacterBackstory`, `AgentLoopToolCallState`, `PlotThreadResolvedAt`, `AddLlmInteractionLogStatus`, `AddAgentCallStepHistoryAndLlmReasoning`, `AddAgentCallRequestedByPlayer`, `NPCStatusAndLastSeen`, `ClearPrivateMessageEmbeddings`,
 `CharacterFeaturesAndSecretRolls`, `RollPromptMessageLink`, `CombatZones`, `ExperienceAndStoryNudges`,
-`LivingCharacterPerPlayer`.
+`LivingCharacterPerPlayer`, `TelegramBot`.
 
 **Check scaffolded migrations before accepting them.** EF emits `jsonb NOT NULL DEFAULT ''` for new `JsonElement` columns; `''` is not valid JSON and the `ALTER TABLE` fails. The converter's sentinel is the literal `"null"`.
 
@@ -213,7 +213,7 @@ the item names the same way weapon dice are (`Chain mail (AC 16)`, `Leather armo
 `Scale mail (AC 14 + DEX, max 2)`, `Shield (+2 AC)`), or unarmoured defence. An item named
 without its AC does not count — `giveItem`'s description tells the model the format. A
 combatant's `AC` is copied from it when they join a fight and re-synced by `giveItem`/`removeItem`
-(`ICombatTracker.SyncArmourClassAsync`). Sheets created before v0.1.6 carry no armour and stay
+(`ICombatTracker.SyncArmourClassAsync`). Sheets created before v0.2.0 carry no armour and stay
 at 10 + DEX until the GM gives them some.
 `PUT /api/characters/{id}` accepts only who the character is (name, background, backstory,
 custom fields).
@@ -374,6 +374,16 @@ answers. This replaced "sway", whose direction text nothing ever read.
 
 `ILLMProviderFactory` resolves to `ILLMProvider` based on `LLMPreset.ProviderType`. Supported values: `ollama`, `openaicompatible`, `openai`, `google`. API keys stored encrypted at rest via AES-256-GCM (`ApiKeyEncryptionService`).
 
+The factory hands every provider the preset's **reasoning effort** and an HttpClient carrying the
+preset's **timeout**; a provider that ignores either is a bug (both used to be dropped by all but
+one). The OpenAI SDK is given that client as its transport — on its own it uses a fixed 100 s.
+Ollama streams with the same timeout as an idle limit between chunks. Google talks to Gemini's own
+API: reasoning effort sets the thinking budget ("none" = off, Pro models the minimum), structured
+output is `responseJsonSchema`, a 400 about thinking or the schema is retried without it, a busy
+Gemini (429/500/503/504) is retried 3 times after Retry-After or 2/4/8 s, and a blocked or stopped
+reply fails with Gemini's reason. **Every provider returns the text that comes beside its tool
+calls** — the saga posts it before the tools run.
+
 ### What the narrator is allowed to have seen
 
 `MessageVisibility.IsVisibleToNarration` (`Data/MessageVisibility.cs`) is the **only** definition
@@ -408,7 +418,42 @@ routing — that would hide it from the narrator too.
 
 `GameHub` is a partial class split across ~19 files (combat, dice, spells, inventory, whispers, character creation, etc.). JWT is extracted from the WebSocket query string (`?access_token=…`). Online players tracked in a static `ConcurrentDictionary<string, string>` (connectionId → userId).
 
-**Every hub method that takes a `gameId` must start with `RequireMemberAsync(gameId)`** (on `GameHub.cs`). `Clients.Group(...)` does *not* require the caller to be in the group, so an unchecked method lets any authenticated user act in any game. The hub is deliberately small — chatting, whispering, asking the GM — because nothing a human does changes game state directly. Prefer `Clients.User(userId)` over scanning `_playerConnections`.
+**Every hub method that takes a `gameId` must start with `RequireMemberAsync(gameId)`** (on `GameHub.cs`). `Clients.Group(...)` does *not* require the caller to be in the group, so an unchecked method lets any authenticated user act in any game. The hub is deliberately small — chatting, whispering, asking the GM — because nothing a human does changes game state directly.
+
+**The hub is a thin client of `ITableChatService`** (say, whisper, narrate, ask the GM), and
+`GMToolController` of `IRollAnswerService` (roll, decline, reroll): the Telegram bot uses the
+same services, so the rules are written once. Put new player actions there, not in the hub.
+
+**Send game events through `IGameNotifier`, never `IHubContext<GameHub>`.** `ToGameAsync` /
+`ToUserAsync(gameId, userId, …)` push over SignalR and hand a copy to the Telegram bot; a push
+that skips it never reaches Telegram. Use `MessageRemovedDto` / `GMErrorDto` for those payloads
+— the notifier recognises events by method name and payload type.
+
+### Telegram bot
+
+`Telegram/` — off unless `TELEGRAM_BOT_TOKEN` is set (`ADND_HOSTNAME` = webhook at
+`/api/telegram/webhook`, else long polling). Ported from abook and reshaped for a table:
+**players act only through a linked account** (`User.TelegramUserId`, from a one-time code made in
+User Settings → `t.me/<bot>?start=acc_CODE`), never as "whoever is in the chat".
+
+- **A group or forum topic plays one game** (`TelegramBinding`, from a creator's one-time code in
+  Game Settings: `?startgroup=CODE` or `/bind CODE`). It sees what the whole table sees — no
+  whispers, no secret rolls — plus a pinned combat card and "typing…" while the GM works. A linked
+  member's plain message there is an in-character line (`SayAsync` + `NarrateAsync`, as the web
+  send does); `((…` or `/ooc` is table talk. The bot needs privacy mode off to read groups.
+- **A linked user's private chat** gets roll prompts (with Roll / Decline / reroll buttons) and
+  whispers from *every* game they play, headed with the game's name; with `/games` it can also
+  follow one game, then showing it as that user sees it on the web.
+- **One `ChatWorker` per chat** (`TelegramDispatcher`), paced per chat (≈1 s private, ≈3 s
+  groups). Events carry only ids: the worker reads the message back and applies
+  `TelegramFormat.Visible` — the same rule as `MessagesController` — so a prompt answered on the
+  web is redrawn (edited, buttons gone) and a withdrawn one deleted. `TelegramMessageLink` maps
+  game rows to Telegram messages; on bind, existing messages are recorded as sent so nothing is
+  replayed. A line typed in Telegram is linked to the player's own message (`ExpectOwnLine`), not
+  echoed back into that chat.
+- Button data: `r:{toolCallId}:c|d|k|o:{i}` (an option's index, not its id — callback data is 64
+  bytes) and `g:{gameId}`. Bindings end on `/unbind` (creator or chat admin), Game Settings →
+  Disconnect, the bot being removed or blocked, or Telegram refusing delivery for good.
 
 ### JSONB Storage
 

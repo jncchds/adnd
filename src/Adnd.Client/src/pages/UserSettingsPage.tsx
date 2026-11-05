@@ -4,6 +4,7 @@ import {
 } from '@mui/material'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api/client'
+import { TelegramAccountPanel } from '../components/TelegramPanels'
 
 export default function UserSettingsPage() {
   const { user, refresh } = useAuth()
@@ -66,6 +67,8 @@ export default function UserSettingsPage() {
           <Button variant="outlined" onClick={changePassword} disabled={saving}>Change Password</Button>
         </Box>
       </Paper>
+
+      <TelegramAccountPanel />
     </Box>
   )
 }

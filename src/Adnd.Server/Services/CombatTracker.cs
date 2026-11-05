@@ -84,7 +84,7 @@ public class CombatTracker(
     AppDbContext db,
     IDiceEngine dice,
     IEventBus eventBus,
-    IHubContext<GameHub> hub) : ICombatTracker
+    IGameNotifier notifier) : ICombatTracker
 {
     private const string DefaultZone = "Battlefield";
 
@@ -348,7 +348,7 @@ public class CombatTracker(
         if (deathLine is not null) await PostAsync(combat, deathLine, ct);
         await PushAsync(combat, ct);
         if (p.CharacterId is { } changed)
-            await hub.Clients.Group(combat.GameId.ToString()).SendAsync("CharacterUpdated", new { characterId = changed }, ct);
+            await notifier.ToGameAsync(combat.GameId, "CharacterUpdated", new { characterId = changed }, ct);
 
         if (amount < 0)
             await eventBus.PublishAsync(new CombatDamageDealt(combat.GameId, combat.Id, participantId, -amount, "Physical"), ct);
@@ -372,7 +372,7 @@ public class CombatTracker(
         await db.SaveChangesAsync(ct);
         await PushAsync(combat, ct);
         if (p.CharacterId is { } changed)
-            await hub.Clients.Group(combat.GameId.ToString()).SendAsync("CharacterUpdated", new { characterId = changed }, ct);
+            await notifier.ToGameAsync(combat.GameId, "CharacterUpdated", new { characterId = changed }, ct);
     }
 
     public async Task<string> RecordDeathSaveAsync(CombatEntity combat, Guid participantId, int roll, CancellationToken ct = default)
@@ -415,7 +415,7 @@ public class CombatTracker(
         await PostAsync(combat, line, ct);
         await PushAsync(combat, ct);
         if (dead && p.CharacterId is { } died)
-            await hub.Clients.Group(combat.GameId.ToString()).SendAsync("CharacterUpdated", new { characterId = died }, ct);
+            await notifier.ToGameAsync(combat.GameId, "CharacterUpdated", new { characterId = died }, ct);
         return line;
     }
 
@@ -427,7 +427,7 @@ public class CombatTracker(
 
         var text = string.IsNullOrWhiteSpace(outcome) ? $"Combat ends: {combat.Name}." : $"Combat ends: {outcome.Trim()}";
         await PostAsync(combat, text, ct);
-        await hub.Clients.Group(combat.GameId.ToString()).SendAsync("CombatEnded", new { combatId = combat.Id }, ct);
+        await notifier.ToGameAsync(combat.GameId, "CombatEnded", new { combatId = combat.Id }, ct);
 
         var defeated = combat.Participants
             .Where(p => p.NPCId != null && p.HP == 0)
@@ -579,7 +579,7 @@ public class CombatTracker(
     private static int DexModifier(JsonElement attributes) => ClassRules.Modifier(attributes, "DEX");
 
     private async Task PushAsync(CombatEntity combat, CancellationToken ct)
-        => await hub.Clients.Group(combat.GameId.ToString()).SendAsync("CombatUpdated", ToDto(combat), ct);
+        => await notifier.ToGameAsync(combat.GameId, "CombatUpdated", ToDto(combat), ct);
 
     /// <summary>Everything is a message: the fight's milestones go into the log where the table reads.</summary>
     private async Task PostAsync(CombatEntity combat, string content, CancellationToken ct)
@@ -593,7 +593,7 @@ public class CombatTracker(
         };
         db.Messages.Add(msg);
         await db.SaveChangesAsync(ct);
-        await hub.Clients.Group(combat.GameId.ToString()).SendAsync("NewMessage",
+        await notifier.ToGameAsync(combat.GameId, "NewMessage",
             new MessageDto(msg.Id, msg.SessionId, null, content, msg.Type, false, msg.CreatedAt, new { combatId = combat.Id }), ct);
     }
 

@@ -36,7 +36,7 @@ public interface IRollPromptService
 /// which also keeps it out of the narrator's context, since <c>MessageVisibility</c> excludes
 /// whispers. The GM asked the question; it does not need to be told it asked.
 /// </summary>
-public class RollPromptService(AppDbContext db, IHubContext<GameHub> hub) : IRollPromptService
+public class RollPromptService(AppDbContext db, IGameNotifier notifier) : IRollPromptService
 {
     public async Task<Guid> AskAsync(
         Guid gameId, Guid sessionId, Guid targetPlayerId, string type, string content, object metadata, CancellationToken ct = default)
@@ -46,7 +46,9 @@ public class RollPromptService(AppDbContext db, IHubContext<GameHub> hub) : IRol
             SessionId = sessionId,
             Content = content,
             Type = type,
-            Metadata = System.Text.Json.JsonSerializer.SerializeToElement(metadata),
+            // camelCase, as the live push sends it: reroll options are records, and stored
+            // PascalCase they lost their labels when the chat was reloaded.
+            Metadata = System.Text.Json.JsonSerializer.SerializeToElement(metadata, FeatureJson.Options),
             WhisperToId = targetPlayerId,
             CreatedAt = DateTimeOffset.UtcNow
         };
@@ -61,7 +63,7 @@ public class RollPromptService(AppDbContext db, IHubContext<GameHub> hub) : IRol
         if (userId is { } uid)
         {
             var dto = new MessageDto(msg.Id, sessionId, null, content, type, false, msg.CreatedAt, metadata);
-            await hub.Clients.User(uid.ToString()).SendAsync("NewMessage", dto, ct);
+            await notifier.ToUserAsync(gameId, uid, "NewMessage", dto, ct);
         }
 
         return msg.Id;
@@ -79,7 +81,7 @@ public class RollPromptService(AppDbContext db, IHubContext<GameHub> hub) : IRol
         msg.Type = type;
         msg.Metadata = metadata is null
             ? default
-            : System.Text.Json.JsonSerializer.SerializeToElement(metadata);
+            : System.Text.Json.JsonSerializer.SerializeToElement(metadata, FeatureJson.Options);
 
         if (makePublic)
         {
@@ -93,7 +95,7 @@ public class RollPromptService(AppDbContext db, IHubContext<GameHub> hub) : IRol
 
         if (makePublic)
         {
-            await hub.Clients.Group(gameId.ToString()).SendAsync("MessageUpdated", dto, ct);
+            await notifier.ToGameAsync(gameId, "MessageUpdated", dto, ct);
             return;
         }
 
@@ -107,7 +109,7 @@ public class RollPromptService(AppDbContext db, IHubContext<GameHub> hub) : IRol
                 .FirstOrDefaultAsync(ct);
 
             if (userId is { } uid)
-                await hub.Clients.User(uid.ToString()).SendAsync("MessageUpdated", dto, ct);
+                await notifier.ToUserAsync(gameId, uid, "MessageUpdated", dto, ct);
         }
     }
 
@@ -129,11 +131,11 @@ public class RollPromptService(AppDbContext db, IHubContext<GameHub> hub) : IRol
                 .FirstOrDefaultAsync(ct);
 
             if (userId is { } uid)
-                await hub.Clients.User(uid.ToString()).SendAsync("MessageRemoved", new { messageId }, ct);
+                await notifier.ToUserAsync(gameId, uid, "MessageRemoved", new MessageRemovedDto(messageId), ct);
         }
         else
         {
-            await hub.Clients.Group(gameId.ToString()).SendAsync("MessageRemoved", new { messageId }, ct);
+            await notifier.ToGameAsync(gameId, "MessageRemoved", new MessageRemovedDto(messageId), ct);
         }
     }
 }

@@ -125,7 +125,7 @@ public class AgentSaga : Wolverine.Saga
     // separate LLMResponseHandler class used to sit alongside it and was silently never
     // invoked, so the orchestration lives here.
     public async Task Handle(LLMResponseReceived msg, IMessageContext context, AppDbContext db, ISessionManagementService sessions,
-        IGmActivityBroadcaster activity, ICombatTracker combats, IHubContext<GameHub> hub, IGmTurnQueue turns)
+        IGmActivityBroadcaster activity, ICombatTracker combats, IGameNotifier notifier, IGmTurnQueue turns)
     {
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
         if (call == null) return;
@@ -170,7 +170,7 @@ public class AgentSaga : Wolverine.Saga
                 if (!waitOnly && TurnLog.Unsaid(soFar, text) is { Length: > 0 } unsaid)
                 {
                     var session = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
-                    await PostNarrationAsync(db, hub, session.Id, call, unsaid);
+                    await PostNarrationAsync(db, notifier, session.Id, call, unsaid);
                     soFar.Add(new TurnLogEntry(Round, TurnLog.Said, "", null, unsaid));
                 }
                 // Words alone are the usual way a turn stalls here: the model announces the
@@ -270,7 +270,7 @@ public class AgentSaga : Wolverine.Saga
         else if (TurnLog.Unsaid(log, text) is { Length: > 0 } fresh)
         {
             var session = await sessions.GetOrCreateCurrentSessionAsync(msg.GameId);
-            await PostNarrationAsync(db, hub, session.Id, call, fresh);
+            await PostNarrationAsync(db, notifier, session.Id, call, fresh);
             log.Add(new TurnLogEntry(Round, TurnLog.Said, "", null, fresh));
         }
 
@@ -367,7 +367,7 @@ public class AgentSaga : Wolverine.Saga
     // Narrative ready — save + broadcast the message and complete the saga. Saga-owned
     // message: the standalone NarrativeHandler class that used to do this was silently never
     // invoked, so every turn reached this point and vanished.
-    public async Task Handle(NarrativeReady msg, IMessageContext context, AppDbContext db, IHubContext<GameHub> hub, IGmActivityBroadcaster activity, IGmTurnQueue turns)
+    public async Task Handle(NarrativeReady msg, IMessageContext context, AppDbContext db, IGameNotifier notifier, IGmActivityBroadcaster activity, IGmTurnQueue turns)
     {
         var call = await db.AgentCalls.FindAsync(msg.AgentCallId);
         var blank = string.IsNullOrWhiteSpace(msg.NarrativeText);
@@ -404,7 +404,7 @@ public class AgentSaga : Wolverine.Saga
         await context.PublishAsync(new GameNarrationStarted(msg.GameId, msg.AgentCallId));
 
         if (!blank && msg.SessionId != Guid.Empty)
-            await PostNarrationAsync(db, hub, msg.SessionId, call, msg.NarrativeText.Trim());
+            await PostNarrationAsync(db, notifier, msg.SessionId, call, msg.NarrativeText.Trim());
 
         await ReleaseNextAsync(context, turns);
         MarkCompleted();
@@ -412,7 +412,7 @@ public class AgentSaga : Wolverine.Saga
 
     // Retries exhausted — terminal. AgentCallFailed is deliberately NOT handled here;
     // AgentCallFailedHandler owns the retry decision and publishes this when it gives up.
-    public async Task Handle(AgentCallAbandoned msg, IMessageContext context, AppDbContext db, IGmActivityBroadcaster activity, IHubContext<GameHub> hub, IGmTurnQueue turns)
+    public async Task Handle(AgentCallAbandoned msg, IMessageContext context, AppDbContext db, IGmActivityBroadcaster activity, IGameNotifier notifier, IGmTurnQueue turns)
     {
         CurrentState = "Failed";
 
@@ -432,7 +432,7 @@ public class AgentSaga : Wolverine.Saga
         // The client clears its activity chip on step "Failed" but never surfaces msg.Error
         // from that event, so without this a GM turn that exhausts its retries fails
         // completely silently.
-        await hub.Clients.Group(msg.GameId.ToString()).SendAsync("GMError", new { message = msg.Error });
+        await notifier.ToGameAsync(msg.GameId, "GMError", new GMErrorDto(msg.Error));
 
         await ReleaseNextAsync(context, turns);
         MarkCompleted();
@@ -510,7 +510,7 @@ public class AgentSaga : Wolverine.Saga
 
     /// <summary>Saves a line of GM narration and pushes it — to the table, or to the one
     /// player who asked privately (TriggerSuggest), whose reply nobody else may see.</summary>
-    private async Task PostNarrationAsync(AppDbContext db, IHubContext<GameHub> hub, Guid sessionId, AgentCall? call, string text)
+    private async Task PostNarrationAsync(AppDbContext db, IGameNotifier notifier, Guid sessionId, AgentCall? call, string text)
     {
         // A private answer isn't part of the shared story, so it shouldn't overwrite the
         // "last GM action" on the admin overview.
@@ -537,11 +537,11 @@ public class AgentSaga : Wolverine.Saga
         {
             var requester = await db.Players.FindAsync(requesterId);
             if (requester != null)
-                await hub.Clients.User(requester.UserId.ToString()).SendAsync("NewMessage", dto);
+                await notifier.ToUserAsync(GameId, requester.UserId, "NewMessage", dto);
         }
         else
         {
-            await hub.Clients.Group(GameId.ToString()).SendAsync("NewMessage", dto);
+            await notifier.ToGameAsync(GameId, "NewMessage", dto);
         }
     }
 

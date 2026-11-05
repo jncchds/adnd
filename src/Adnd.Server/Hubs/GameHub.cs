@@ -15,8 +15,7 @@ public partial class GameHub(
     AppDbContext db,
     IEventBus eventBus,
     ISessionManagementService sessionService,
-    IAgentBus agentBus,
-    IRAGService rag,
+    ITableChatService chat,
     IGmActivityBroadcaster gmActivity,
     ICombatTracker combats) : Hub
 {
@@ -49,9 +48,8 @@ public partial class GameHub(
     /// </summary>
     protected async Task<Player> RequireMemberAsync(Guid gameId)
     {
-        var userId = CurrentUserId;
-        var player = await db.Players.FirstOrDefaultAsync(p => p.GameId == gameId && p.UserId == userId);
-        return player ?? throw new HubForbiddenException("You are not a member of this game.");
+        try { return await chat.RequireMemberAsync(gameId, CurrentUserId); }
+        catch (TableChatException ex) { throw new HubForbiddenException(ex.Message); }
     }
 
     public override async Task OnConnectedAsync()

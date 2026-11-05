@@ -33,10 +33,41 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
     public DbSet<GameTemplate> GameTemplates => Set<GameTemplate>();
     public DbSet<EventRecord> EventRecords => Set<EventRecord>();
+    public DbSet<TelegramBinding> TelegramBindings => Set<TelegramBinding>();
+    public DbSet<TelegramCode> TelegramCodes => Set<TelegramCode>();
+    public DbSet<TelegramMessageLink> TelegramMessageLinks => Set<TelegramMessageLink>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // ── Telegram ──
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.TelegramUserId).IsUnique().HasFilter("\"TelegramUserId\" IS NOT NULL");
+        modelBuilder.Entity<TelegramBinding>(e =>
+        {
+            e.Property(b => b.ChatType).HasMaxLength(20);
+            e.Property(b => b.ChatTitle).HasMaxLength(300);
+            e.Property(b => b.RevokedReason).HasMaxLength(300);
+            // One game per chat or topic at a time; a game can have many.
+            e.HasIndex(b => new { b.ChatId, b.ThreadId }).IsUnique().AreNullsDistinct(false)
+                .HasFilter("\"RevokedAt\" IS NULL");
+            e.HasIndex(b => b.GameId);
+            e.HasOne(b => b.Game).WithMany().HasForeignKey(b => b.GameId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<TelegramCode>(e =>
+        {
+            e.Property(c => c.CodeHash).HasMaxLength(64);
+            e.HasIndex(c => c.CodeHash).IsUnique();
+            e.Property(c => c.Kind).HasConversion<string>().HasMaxLength(20);
+        });
+        modelBuilder.Entity<TelegramMessageLink>(e =>
+        {
+            e.Property(l => l.Kind).HasConversion<string>().HasMaxLength(20);
+            e.Property(l => l.ContentHash).HasMaxLength(64);
+            e.HasIndex(l => new { l.ChatId, l.ThreadId, l.Kind, l.RefId }).IsUnique();
+            e.HasIndex(l => new { l.ChatId, l.TelegramMessageId });
+        });
 
         modelBuilder.Entity<StoryNudge>(e =>
         {

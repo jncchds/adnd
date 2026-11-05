@@ -142,6 +142,25 @@ builder.Services.AddScoped<IGameEngine, GameEngine>();
 builder.Services.AddScoped<IPlayerManagementService, PlayerManagementService>();
 builder.Services.AddScoped<IWhisperService, WhisperService>();
 builder.Services.AddSingleton<IGmActivityBroadcaster, GmActivityBroadcaster>();
+builder.Services.AddSingleton<IGameNotifier, GameNotifier>();
+builder.Services.AddScoped<ITableChatService, TableChatService>();
+builder.Services.AddScoped<IRollAnswerService, RollAnswerService>();
+
+// ── Telegram bot (one per deployment; off unless TELEGRAM_BOT_TOKEN is set) ───
+var telegramOptions = Adnd.Server.Telegram.TelegramOptions.FromConfiguration(builder.Configuration);
+builder.Services.AddSingleton(telegramOptions);
+// The token is part of every Bot API URL: this client must never log requests.
+builder.Services.AddHttpClient(Adnd.Server.Telegram.TelegramApi.HttpClientName, c => c.Timeout = Timeout.InfiniteTimeSpan)
+    .RemoveAllLoggers();
+builder.Services.AddSingleton<Adnd.Server.Telegram.TelegramApi>();
+builder.Services.AddSingleton<Adnd.Server.Telegram.TelegramBotState>();
+builder.Services.AddSingleton<Adnd.Server.Telegram.TelegramEventSink>();
+builder.Services.AddSingleton<Adnd.Server.Telegram.TelegramDispatcher>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Adnd.Server.Telegram.TelegramDispatcher>());
+builder.Services.AddSingleton<Adnd.Server.Telegram.TelegramUpdateHandler>();
+builder.Services.AddSingleton<Adnd.Server.Telegram.TelegramBotService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Adnd.Server.Telegram.TelegramBotService>());
+builder.Services.AddScoped<Adnd.Server.Telegram.TelegramLinkService>();
 
 // ── LLM Provider System ───────────────────────────────────────────────────────
 builder.Services.AddHttpClient("LLMProvider").ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(120));
